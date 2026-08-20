@@ -1,5 +1,8 @@
 import SwiftUI
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One exercise, mid-workout: what to lift, how far through you are, and how
 /// long until you go again.
@@ -18,6 +21,7 @@ struct SetView: View {
     @State private var reps: Int = 0
     @State private var editingWeight = false
     @State private var started = false
+    @State private var record: String?
 
     private var calendar: Calendar { .current }
 
@@ -40,6 +44,7 @@ struct SetView: View {
                 title
                 hero
                 statusLine
+                recordBanner
                 Divider().overlay(RFDesign.hairline)
                 stepper
                 if exercise.loadingKind.showsPlateMath {
@@ -99,6 +104,21 @@ struct SetView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder private var recordBanner: some View {
+        if let record {
+            HStack(spacing: 7) {
+                Image(systemName: "trophy.fill").font(.system(size: 12))
+                Text(record).font(RFDesign.ui(13, bold: true))
+            }
+            .foregroundStyle(RFDesign.ready)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(RFDesign.ready.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: RFDesign.radiusSmall))
+            .transition(.scale(scale: 0.94).combined(with: .opacity))
+        }
     }
 
     private var statusLine: some View {
@@ -273,6 +293,17 @@ struct SetView: View {
     }
 
     private func logSet() {
+        // Records are judged against history WITHOUT this set — including it
+        // would make every set a record for beating itself.
+        let history = mine.map { Progress.Set(weight: $0.weight, reps: $0.reps) }
+        let candidate = Progress.Set(weight: weight, reps: reps)
+        withAnimation(RFDesign.settle) {
+            record = Progress.headline(for: candidate, history: history)
+        }
+        #if canImport(UIKit)
+        if record != nil { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+        #endif
+
         let entry = SetEntry(exercise: exercise, weight: weight, reps: reps, setIndex: nextSet)
         context.insert(entry)
         try? context.save()
@@ -283,6 +314,7 @@ struct SetView: View {
     }
 
     private func undoLast() {
+        record = nil
         guard let last = todays.last else { return }
         context.delete(last)
         try? context.save()
