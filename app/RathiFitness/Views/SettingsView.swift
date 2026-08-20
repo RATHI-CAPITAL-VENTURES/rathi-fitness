@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var working = false
     @State private var confirmingWipe = false
     @State private var wipeResult: String?
+    @State private var exportFiles: [URL]?
 
     @Query private var allSets: [SetEntry]
     @Query private var allWeighIns: [WeighIn]
@@ -75,6 +76,27 @@ struct SettingsView: View {
                                 .foregroundStyle(RFDesign.ember)
                         }
                     }
+                }
+
+                Section {
+                    if let files = exportFiles {
+                        ShareLink(items: files) {
+                            Label("Share sets and body CSV", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    Button {
+                        exportFiles = try? Export.write(from: context)
+                    } label: {
+                        Label(exportFiles == nil ? "Export to CSV" : "Rebuild the export",
+                              systemImage: "tablecells")
+                    }
+                } header: {
+                    Text("Export")
+                } footer: {
+                    Text("Every set with its type, RPE and note, plus body weight and "
+                         + "measurements. The snapshot RIA reads is the machine-readable "
+                         + "one; this is the version a spreadsheet can open — and the "
+                         + "reason leaving is possible.")
                 }
 
                 Section {
