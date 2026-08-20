@@ -16,6 +16,13 @@ CLI can exist at all.
 
 ## Rules
 
+### Schema history
+
+| Version | Change |
+| --- | --- |
+| 1 | The original contract. |
+| 2 | Set kinds. `volume`, `top_weight` and `sets` mean **working** sets — warm-ups contribute to none of them and are counted separately as `warmup_sets`. Each performed set carries `kind`, `rpe` (nullable — not recorded is not "easy") and `note`. Each exercise carries `primary_muscle` and `secondary_muscles`. |
+
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
   know rather than misreading a field that changed meaning. Bump it whenever a
   field changes meaning; adding a field does not need a bump.

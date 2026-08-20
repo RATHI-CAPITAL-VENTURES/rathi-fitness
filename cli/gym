@@ -10,6 +10,7 @@ on macOS is an ordinary file that syncs itself. This reads that file.
     gym lifts          working weight per exercise, and the 30-day change
     gym exercise NAME  one lift's history
     gym sessions       recent workouts
+    gym muscles        working sets per muscle group over a window
     gym passes         stored gym passes (metadata only — never the codes)
     gym status         where the snapshot is and how stale
 
@@ -28,7 +29,9 @@ import os
 import sys
 from pathlib import Path
 
-SCHEMA_SUPPORTED = 1
+# 2 — set kinds. `volume`, `top_weight` and `sets` mean WORKING sets; warm-ups
+# are counted separately. See docs/SNAPSHOT.md.
+SCHEMA_SUPPORTED = 2
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -63,10 +66,18 @@ def load() -> dict:
     schema = data.get("schema")
     if schema != SCHEMA_SUPPORTED:
         # Refuse rather than misread: a field that changed meaning is worse than
-        # no answer, because the wrong answer looks like an answer.
+        # no answer, because the wrong answer looks like an answer. But say which
+        # side is behind — "update whichever is older" is a puzzle, not advice.
+        if isinstance(schema, int) and schema < SCHEMA_SUPPORTED:
+            raise NoSnapshot(
+                f"This snapshot is schema {schema}; gym reads {SCHEMA_SUPPORTED}.\n"
+                "  The phone hasn't written since the app was updated — open Rathi\n"
+                "  Fitness once and it rewrites on launch. Nothing is lost meanwhile."
+            )
         raise NoSnapshot(
-            f"Snapshot schema {schema}, but this gym understands {SCHEMA_SUPPORTED}. "
-            "Update whichever of the app or the CLI is older."
+            f"This snapshot is schema {schema}; gym only reads {SCHEMA_SUPPORTED}.\n"
+            "  The app on the phone is newer than this CLI — pull the latest\n"
+            "  rathi-fitness and try again."
         )
     return data
 
@@ -159,11 +170,17 @@ def cmd_today(args, data) -> None:
              f"{today['exercises_done']} of {today['exercises_planned']} done · "
              f"{today['sets_done']} of {today['sets_planned']} sets", ""]
     for item in today["items"]:
+        working = [p for p in item["performed"] if p.get("kind", "working") != "warmup"]
         if item["done"]:
             mark, tail = "✓", "all " + str(item["sets_done"]) + " hit"
-            reps = [p["reps"] for p in item["performed"]]
+            reps = [p["reps"] for p in working]
             if reps and any(r < item["target_reps"] for r in reps):
                 tail = "got " + ", ".join(str(r) for r in reps)
+            hard = [p["rpe"] for p in working if p.get("rpe")]
+            if hard:
+                tail += f" · RPE {max(hard):g}"
+            if item.get("warmup_sets"):
+                tail += f" · +{item['warmup_sets']} warm-up"
         elif item["sets_done"]:
             mark = "→"
             tail = f"set {item['sets_done']} of {item['target_sets']}"
@@ -194,6 +211,50 @@ def cmd_weight(args, data) -> None:
     emit(args, {"body_weight": body, "shown": history}, "\n".join(lines))
 
 
+def cmd_muscles(args, data) -> None:
+    """Working sets per muscle. Primary movers count 1, secondary 0.5 — the same
+    convention the app uses, so the two cannot disagree."""
+    # `--days 7` means today and the six before it, the way anyone reading
+    # "last 7 days" expects — not today minus seven, which is eight days.
+    cutoff = (dt.date.today() - dt.timedelta(days=max(0, args.days - 1))).isoformat()
+    by_muscle: dict[str, float] = {}
+    unmapped = 0
+    for ex in data.get("exercises", []):
+        sets = 0
+        for line in ex.get("recent", []):
+            if line["date"] >= cutoff:
+                sets += len(line.get("reps") or [])
+        if not sets:
+            continue
+        primary = ex.get("primary_muscle") or "other"
+        if primary == "other":
+            unmapped += sets
+            continue
+        by_muscle[primary] = by_muscle.get(primary, 0) + sets
+        for muscle in ex.get("secondary_muscles") or []:
+            # Half a set EACH, per set — not half a set per exercise, which is
+            # what this said first and which made a hard session of pressing
+            # look like half a set of triceps work.
+            by_muscle[muscle] = by_muscle.get(muscle, 0) + 0.5 * sets
+
+    if not by_muscle:
+        note = ("No exercise says what it works yet — set it in the app under "
+                "Edit the plan › an exercise › Muscles.") if unmapped else "Nothing logged."
+        emit(args, {}, note)
+        return
+
+    rows = sorted(by_muscle.items(), key=lambda kv: -kv[1])
+    peak = rows[0][1]
+    lines = []
+    for muscle, sets in rows:
+        bar = "█" * max(1, int(round(sets / peak * 24)))
+        lines.append(f"  {muscle:<12} {sets:>5g}  {bar}")
+    if unmapped:
+        lines.append(f"\n  {unmapped} sets from exercises with no muscle set.")
+    emit(args, dict(rows), f"Working sets per muscle · last {args.days} days\n"
+         + "\n".join(lines))
+
+
 def cmd_lifts(args, data) -> None:
     rows = [e for e in data.get("exercises", []) if e.get("working_weight") is not None]
     rows.sort(key=lambda e: -(e.get("working_weight") or 0))
@@ -213,7 +274,11 @@ def cmd_exercise(args, data) -> None:
         print(f"No exercise matching {args.name!r}.\nKnown: {known} …", file=sys.stderr)
         raise SystemExit(1)
     e = matches[0]
-    lines = [f"{e['name']}  ({e['loading']})",
+    muscles = e.get("primary_muscle") or "other"
+    if muscles != "other" and e.get("secondary_muscles"):
+        muscles += " + " + ", ".join(e["secondary_muscles"])
+    lines = [f"{e['name']}  ({e['loading']}"
+             + (f", {muscles}" if muscles != "other" else "") + ")",
              f"  working {num(e.get('working_weight'))} lb · "
              f"{signed(e.get('change_30d'))} in 30 days"]
     best = e.get("best")
@@ -222,7 +287,12 @@ def cmd_exercise(args, data) -> None:
     lines.append("")
     for s in e.get("recent", []):
         reps = ", ".join(str(r) for r in s["reps"])
-        lines.append(f"  {s['date']}   {num(s['top_weight']):>5} · {reps}")
+        extra = ""
+        if s.get("average_rpe"):
+            extra += f"  RPE {s['average_rpe']:g}"
+        if s.get("warmup_sets"):
+            extra += f"  (+{s['warmup_sets']} warm-up)"
+        lines.append(f"  {s['date']}   {num(s['top_weight']):>5} · {reps}{extra}")
     tops = [s["top_weight"] for s in reversed(e.get("recent", []))]
     if len(tops) > 1:
         lines += ["", f"  {sparkline(tops)}  oldest → newest"]
@@ -346,6 +416,10 @@ def build_parser() -> argparse.ArgumentParser:
     v = sub.add_parser("volume", help="how much you have moved, week by week")
     v.add_argument("--weeks", type=int, default=8)
     v.set_defaults(fn=cmd_volume)
+
+    m = sub.add_parser("muscles", help="working sets per muscle group")
+    m.add_argument("--days", type=int, default=7)
+    m.set_defaults(fn=cmd_muscles)
 
     sub.add_parser("passes", help="stored gym passes (never the codes)").set_defaults(fn=cmd_passes)
     sub.add_parser("status", help="where the snapshot is and how fresh").set_defaults(fn=cmd_status)
