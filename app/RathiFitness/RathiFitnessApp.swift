@@ -6,6 +6,7 @@ struct RathiFitnessApp: App {
     private let container = Store.makeContainer()
     @StateObject private var snapshots = SnapshotService()
     @StateObject private var rest = RestTimer()
+    @StateObject private var health = HealthBridge()
 
 
     var body: some Scene {
@@ -13,11 +14,19 @@ struct RathiFitnessApp: App {
             RootView()
                 .environmentObject(snapshots)
                 .environmentObject(rest)
+                .environmentObject(health)
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
                 .task {
                     let context = container.mainContext
                     try? Seed.runIfNeeded(context)
+                    // If Health is already connected, it is the source of truth
+                    // for body mass — pull before writing the snapshot so the
+                    // Mac sees this morning's weigh-in without anyone typing it.
+                    if health.status.isConnected {
+                        await health.importWeighIns(into: context)
+                        await health.exportWorkouts(from: context)
+                    }
                     // Write once at launch so the Mac is never more than a
                     // cold start behind, even on a day you log nothing.
                     await snapshots.writeNow(context)

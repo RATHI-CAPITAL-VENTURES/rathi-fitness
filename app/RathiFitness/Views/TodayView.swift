@@ -6,6 +6,7 @@ struct TodayView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var rest: RestTimer
+    @EnvironmentObject private var health: HealthBridge
 
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
@@ -13,6 +14,8 @@ struct TodayView: View {
 
     @State private var weighingIn = false
     @State private var overrideDay: PlannedDay?
+    @State private var showingSettings = false
+    @State private var showingPlan = false
 
     private var calendar: Calendar { .current }
     private var today: PlannedDay? {
@@ -57,14 +60,26 @@ struct TodayView: View {
             .background(RoomBackground(hue: roomHue, energy: roomEnergy))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(RFDesign.label)
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(days) { day in
                             Button(day.name) { overrideDay = day }
                         }
                         if overrideDay != nil {
-                            Divider()
                             Button("Back to today") { overrideDay = nil }
+                        }
+                        Divider()
+                        Button {
+                            showingPlan = true
+                        } label: {
+                            Label("Edit the plan", systemImage: "slider.horizontal.3")
                         }
                     } label: {
                         Image(systemName: "calendar")
@@ -72,11 +87,16 @@ struct TodayView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingSettings) { SettingsView() }
+            .sheet(isPresented: $showingPlan) { PlanView() }
             .sheet(isPresented: $weighingIn) {
                 WeighInSheet { pounds in
                     context.insert(WeighIn(pounds: pounds))
                     try? context.save()
                     snapshots.setNeedsWrite(context)
+                    // Back out to Health, so it does not disagree with us about
+                    // a number you typed here.
+                    Task { await health.write(weighIn: pounds) }
                 }
             }
         }
@@ -154,9 +174,17 @@ struct TodayView: View {
     }
 
     private var restDay: some View {
-        EmptyNote(title: "Nothing scheduled today.",
-                  message: "Pick a day from the calendar button if you want to do one anyway. "
-                         + "The plan is three days a week — Pull, Push, Legs.")
+        VStack(alignment: .leading, spacing: RFDesign.sm) {
+            EmptyNote(title: "Nothing scheduled today.",
+                      message: "Pick a day from the calendar button to do one anyway, "
+                             + "or change what happens on \(Fmt.weekdayDate(.now)).")
+            Button { showingPlan = true } label: {
+                Label("Edit the plan", systemImage: "slider.horizontal.3")
+                    .font(RFDesign.ui(14, bold: true))
+                    .foregroundStyle(RFDesign.ready)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var bodyWeight: some View {

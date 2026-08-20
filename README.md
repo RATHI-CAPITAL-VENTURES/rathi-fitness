@@ -10,9 +10,11 @@ written yet. See `design/ios-first-pass.html`.
 | Ask | Where it lives |
 | --- | --- |
 | Log an exercise + current body weight, see trends over time | Trends tab — body weight chart, working weight table |
-| Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes |
+| Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes. Scan with the camera **or pull the code out of a screenshot you already have**. QR, Code 128, PDF417 and Aztec. |
 | A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time |
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
+| Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
+| Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
 
 ## Shape
 
@@ -78,6 +80,30 @@ To upgrade a local-only install to the full one: sign into Xcode
 (Settings → Accounts → +, your Apple ID), then run the full build above. Xcode
 registers the App ID, creates the `iCloud.com.rathi.fitness` container and
 regenerates the profile. Nothing in the code changes.
+
+## Apple Health
+
+Body mass is read from Health once connected — the scale is the source of truth
+and typing a number here is the fallback. Weigh-ins entered in the app are
+written back, and finished sessions (whole past days only) go over as
+`HKWorkout`s so they land in Fitness and on the watch.
+
+Workouts carry a **duration and no calorie estimate**. A MET formula would let
+us write a burn, and it would be a guess landing in the same ring as the watch's
+measured numbers.
+
+Like CloudKit, HealthKit needs an entitlement a wildcard team profile cannot
+carry, so the local-only build reports Health as unavailable rather than failing
+at the permission sheet. One signed build turns on Health and sync together.
+
+## The app icon
+
+`python3 design/make_icon.py` renders it — the cooldown ring, ember to teal, on
+the RIAKit ground. The colours come from the same ramp the app draws with rather
+than from an eyedropper, so retuning the mechanic and re-running keeps the icon
+honest. It deliberately does *not* sample the full hue ramp: the app shows one
+value at a time, an icon shows all of them at once, and the yellow-green stretch
+between orange and teal would become a third colour the product does not have.
 
 ## Not decided yet
 

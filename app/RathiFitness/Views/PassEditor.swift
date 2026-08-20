@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import PhotosUI
 
 /// Add or change a stored pass. Every field a real card carries.
 struct PassEditor: View {
@@ -21,6 +22,9 @@ struct PassEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Draft
     @State private var scanning = false
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var reading = false
+    @State private var importError: String?
     private let onSave: (Draft) -> Void
     private let onDelete: (() -> Void)?
 
@@ -50,8 +54,8 @@ struct PassEditor: View {
                 }
 
                 Section {
-                    HStack {
-                        TextField("Scan or type the code", text: $draft.code)
+                    HStack(spacing: 14) {
+                        TextField("Scan, import or type the code", text: $draft.code)
                             .font(.system(.body, design: .monospaced))
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
@@ -60,6 +64,22 @@ struct PassEditor: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(RFDesign.ready)
+                        .accessibilityLabel("Scan the code with the camera")
+
+                        // The card is usually in a drawer at home; the code is
+                        // usually already a screenshot in the camera roll.
+                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                            Image(systemName: reading ? "hourglass" : "photo.on.rectangle")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(RFDesign.ready)
+                        .disabled(reading)
+                        .accessibilityLabel("Find the code in a picture")
+                    }
+                    if let importError {
+                        Text(importError)
+                            .font(RFDesign.ui(12.5))
+                            .foregroundStyle(RFDesign.ember)
                     }
                     Picker("Format", selection: $draft.symbology) {
                         ForEach(GymPass.Symbology.allCases) { s in
@@ -70,8 +90,10 @@ struct PassEditor: View {
                 } header: {
                     Text("The code")
                 } footer: {
-                    Text("Scanning fills the format in for you. The code stays on your devices — "
-                         + "it is never written to the snapshot RIA reads.")
+                    Text("Point the camera at the card, or pull the code out of a screenshot "
+                         + "you already have — either way the format fills itself in. "
+                         + "The code stays on your devices; it is never written to the "
+                         + "snapshot RIA reads.")
                 }
 
                 Section("What it's good for") {
@@ -108,6 +130,10 @@ struct PassEditor: View {
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item else { return }
+                Task { await readCode(from: item) }
+            }
             .sheet(isPresented: $scanning) {
                 CodeScanner { value, symbology in
                     draft.code = value
@@ -115,6 +141,24 @@ struct PassEditor: View {
                     scanning = false
                 }
             }
+        }
+    }
+
+    private func readCode(from item: PhotosPickerItem) async {
+        reading = true
+        importError = nil
+        defer { reading = false }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                throw CodeDetector.Failure.noImage
+            }
+            let found = try await CodeDetector.detect(in: image)
+            draft.code = found.value
+            draft.symbology = found.symbology
+        } catch {
+            importError = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
         }
     }
 }

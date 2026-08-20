@@ -38,6 +38,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>To read the weight your scale already wrote to Health, so you don't have to type it in twice.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>To save your workouts and weigh-ins to Health, so they show up in Fitness and on your watch.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>To scan the code off your gym membership card so you can leave the card at home.</string>
 	<key>UIAppFonts</key>
