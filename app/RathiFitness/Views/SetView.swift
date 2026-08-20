@@ -34,8 +34,12 @@ struct SetView: View {
         mine.filter { calendar.isDate($0.date, inSameDayAs: .now) }
             .sorted { $0.setIndex < $1.setIndex }
     }
+    /// Sequential, so a warm-up is set 1 and the numbering matches what you did.
     private var nextSet: Int { todays.count + 1 }
-    private var isFinished: Bool { todays.count >= item.targetSets }
+    /// Progress toward the target counts working sets only.
+    private var workingToday: [SetEntry] { todays.filter { $0.setKind.counts } }
+    private var nextWorkingSet: Int { workingToday.count + 1 }
+    private var isFinished: Bool { workingToday.count >= item.targetSets }
     private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }
 
     private var loadout: PlateMath.Loadout {
@@ -71,7 +75,7 @@ struct SetView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Text("Set \(min(nextSet, item.targetSets)) of \(item.targetSets)")
+                Text("Set \(min(nextWorkingSet, item.targetSets)) of \(item.targetSets)")
                     .rfEyebrow()
             }
         }
@@ -95,7 +99,7 @@ struct SetView: View {
             Text(exercise.name)
                 .font(RFDesign.title(29))
                 .foregroundStyle(RFDesign.speech)
-            SetPips(total: item.targetSets, done: todays.count)
+            SetPips(total: item.targetSets, done: workingToday.count)
         }
         .padding(.top, RFDesign.xs)
     }
@@ -293,7 +297,8 @@ struct SetView: View {
         HStack(spacing: 9) {
             if restingHere {
                 SecondaryButton(title: "+30s") { rest.extend(by: 30) }
-                PrimaryButton(title: isFinished ? "Done — back to today" : "Skip to set \(nextSet)",
+                PrimaryButton(title: isFinished ? "Done — back to today"
+                                                : "Skip to set \(nextWorkingSet)",
                               tint: RFDesign.coolColor(rest.progress()),
                               filled: false) {
                     rest.stop()
@@ -306,7 +311,8 @@ struct SetView: View {
                 if !todays.isEmpty {
                     SecondaryButton(title: "Undo") { undoLast() }
                 }
-                PrimaryButton(title: "Log set \(nextSet)",
+                PrimaryButton(title: kind == .warmup
+                                ? "Log warm-up" : "Log set \(nextWorkingSet)",
                               tint: RFDesign.ready, filled: true) { logSet() }
                     .accessibilityIdentifier("log-set")
             }

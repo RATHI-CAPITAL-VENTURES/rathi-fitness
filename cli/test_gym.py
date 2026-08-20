@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 1,
+    "schema": 2,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -38,15 +38,18 @@ FIXTURE = {
         "items": [
             {"slug": "bench-press", "name": "Bench Press", "target_sets": 4,
              "target_reps": 8, "target_weight": 185, "rest_seconds": 150,
-             "sets_done": 4, "done": True,
-             "performed": [{"weight": 185, "reps": r} for r in (8, 8, 7, 6)]},
+             "sets_done": 4, "warmup_sets": 1, "done": True, "volume": 5365,
+             "performed": [{"weight": 135, "reps": 10, "kind": "warmup"}]
+                          + [{"weight": 185, "reps": r, "kind": "working", "rpe": 8.5}
+                             for r in (8, 8, 7, 6)]},
             {"slug": "cable-fly", "name": "Cable Fly", "target_sets": 3,
              "target_reps": 12, "target_weight": 30, "rest_seconds": 60,
-             "sets_done": 3, "done": True,
-             "performed": [{"weight": 30, "reps": 12}] * 3},
+             "sets_done": 3, "warmup_sets": 0, "done": True, "volume": 1080,
+             "performed": [{"weight": 30, "reps": 12, "kind": "working"}] * 3},
             {"slug": "lateral-raise", "name": "Lateral Raise", "target_sets": 3,
              "target_reps": 15, "target_weight": 20, "rest_seconds": 60,
-             "sets_done": 0, "done": False, "performed": []},
+             "sets_done": 0, "warmup_sets": 0, "done": False, "volume": 0,
+             "performed": []},
         ],
     },
     "exercises": [
@@ -54,13 +57,15 @@ FIXTURE = {
          "working_weight": 185, "last_performed": "2026-08-19",
          "best": {"weight": 185, "reps": 8, "date": "2026-08-19"},
          "change_30d": 12.5,
+         "primary_muscle": "chest", "secondary_muscles": ["triceps", "shoulders"],
          "recent": [{"date": "2026-08-19", "top_weight": 185, "reps": [8, 8, 7, 6],
-                     "volume": 5365},
+                     "volume": 5365, "warmup_sets": 1, "average_rpe": 8.5},
                     {"date": "2026-08-12", "top_weight": 182.5, "reps": [8, 7, 7, 6],
-                     "volume": 5110}]},
+                     "volume": 5110, "warmup_sets": 0, "average_rpe": None}]},
         {"slug": "deadlift", "name": "Deadlift", "loading": "barbell",
          "working_weight": 315, "last_performed": "2026-08-17",
-         "change_30d": None, "recent": []},
+         "change_30d": None, "primary_muscle": "back",
+         "secondary_muscles": ["hamstrings"], "recent": []},
     ],
     "plan": [],
     "passes": [
@@ -70,11 +75,11 @@ FIXTURE = {
     ],
     "sessions": [
         {"date": "2026-08-19", "day": "Push A", "exercises": 6, "sets": 20,
-         "volume": 12830, "top_lifts": ["Bench Press 185"]},
+         "volume": 12830, "warmup_sets": 2, "top_lifts": ["Bench Press 185"]},
         {"date": "2026-08-17", "day": "Pull A", "exercises": 5, "sets": 16,
-         "volume": 15810, "top_lifts": ["Deadlift 315"]},
+         "volume": 15810, "warmup_sets": 0, "top_lifts": ["Deadlift 315"]},
         {"date": "2026-08-12", "day": "Legs", "exercises": 5, "sets": 17,
-         "volume": 34960, "top_lifts": ["Leg Press 360"]},
+         "volume": 34960, "warmup_sets": 0, "top_lifts": ["Leg Press 360"]},
     ],
 }
 
@@ -141,12 +146,25 @@ class Loading(unittest.TestCase):
         finally:
             os.environ.pop("GYM_SNAPSHOT", None)
 
+    def test_an_older_schema_is_refused_too(self):
+        # A v1 snapshot counted warm-ups in volume. Reading it as v2 would report
+        # a tonnage the phone never showed.
+        with fixture(dict(FIXTURE, schema=1)):
+            with self.assertRaises(gym.NoSnapshot) as ctx:
+                gym.load()
+            message = str(ctx.exception)
+            # Say which side is behind. "Update whichever is older" is a puzzle.
+            self.assertIn("open Rathi", message.replace("\n  ", " "))
+            self.assertIn("Nothing is lost", message)
+
     def test_future_schema_is_refused_not_guessed_at(self):
         data = dict(FIXTURE, schema=99)
         with fixture(data):
             with self.assertRaises(gym.NoSnapshot) as ctx:
                 gym.load()
-            self.assertIn("99", str(ctx.exception))
+            message = str(ctx.exception)
+            self.assertIn("99", message)
+            self.assertIn("newer than this CLI", message)
 
     def test_half_written_json_is_a_clear_error(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -301,6 +319,55 @@ class Volume(unittest.TestCase):
         with fixture():
             _, out = run("sessions")
         self.assertIn("17.5 tons moved", out)
+
+
+class SetKinds(unittest.TestCase):
+    """Schema 2: RIA can see how a set was done, not just that it was."""
+
+    def test_today_reports_rpe_and_warm_ups(self):
+        with fixture():
+            _, out = run("today")
+        self.assertIn("RPE 8.5", out)
+        self.assertIn("+1 warm-up", out)
+
+    def test_a_warm_up_is_not_counted_as_a_working_set(self):
+        with fixture():
+            _, out = run("today")
+        # Bench logged 5 sets, one a warm-up: four working reps are listed, and
+        # the warm-up is reported separately rather than as a fifth set.
+        self.assertIn("got 8, 8, 7, 6", out)
+        self.assertIn("+1 warm-up", out)
+        self.assertNotIn("8, 8, 7, 6, 10", out)
+
+    def test_exercise_shows_muscles_rpe_and_warm_ups(self):
+        with fixture():
+            _, out = run("exercise", "bench")
+        self.assertIn("chest", out)
+        self.assertIn("triceps", out)
+        self.assertIn("RPE 8.5", out)
+        self.assertIn("(+1 warm-up)", out)
+
+    def test_muscles_counts_primary_whole_and_secondary_half(self):
+        with fixture():
+            _, out = run("--json", "muscles", "--days", "3650")
+        by_muscle = json.loads(out)
+        # Bench: 8 working sets across two sessions in the window.
+        self.assertEqual(by_muscle["chest"], 8)
+        self.assertEqual(by_muscle["triceps"], 4)
+
+    def test_muscles_says_what_to_do_when_nothing_is_mapped(self):
+        data = json.loads(json.dumps(FIXTURE))
+        for ex in data["exercises"]:
+            ex["primary_muscle"] = "other"
+            ex["secondary_muscles"] = []
+        with fixture(data):
+            _, out = run("muscles", "--days", "3650")
+        self.assertIn("Edit the plan", out)
+
+    def test_muscles_window_excludes_older_sessions(self):
+        with fixture():
+            _, out = run("--json", "muscles", "--days", "1")
+        self.assertEqual(json.loads(out), {})
 
 
 class Secrets(unittest.TestCase):

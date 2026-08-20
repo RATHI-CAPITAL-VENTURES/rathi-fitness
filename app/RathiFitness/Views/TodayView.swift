@@ -235,7 +235,9 @@ struct TodayView: View {
     /// the only number that makes it countable. Shown only once there is
     /// something to show — a zero here would be a scoreboard telling you off.
     @ViewBuilder private func moved(for day: PlannedDay) -> some View {
-        let sets = todaysSets.map { Tally.Set(weight: $0.weight, reps: $0.reps) }
+        let sets = todaysSets.map {
+            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+        }
         if !sets.isEmpty {
             let comparison = Tally.SessionComparison(
                 volume: Tally.volume(sets),
@@ -270,7 +272,9 @@ struct TodayView: View {
         guard let mostRecent = byDay.keys.max(), let entries = byDay[mostRecent] else {
             return nil
         }
-        return Tally.volume(entries.map { Tally.Set(weight: $0.weight, reps: $0.reps) })
+        return Tally.volume(entries.map {
+            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+        })
     }
 
     /// What is next and when — a rest day is still a place you look to find out
@@ -334,8 +338,14 @@ struct TodayView: View {
         return todaysSets.filter { $0.exercise?.slug == slug }
     }
 
+    /// Sets that move you toward the target. Three warm-ups used to tick an
+    /// exercise off — the checklist lying about the one thing it is for.
+    private func working(_ item: PlanItem) -> [SetEntry] {
+        performed(item).filter { $0.setKind.counts }
+    }
+
     private func isDone(_ item: PlanItem) -> Bool {
-        performed(item).count >= item.targetSets
+        working(item).count >= item.targetSets
     }
 
     private func state(for item: PlanItem) -> ExerciseRow.State {
@@ -347,9 +357,12 @@ struct TodayView: View {
 
     /// The plan and the deviation in the same breath.
     private func meta(for item: PlanItem) -> String {
-        let done = performed(item)
+        let done = working(item)
+        let warmups = performed(item).count - done.count
         let plan = "\(item.targetSets) × \(item.targetReps) · \(Fmt.weight(item.targetWeight)) lb"
-        if done.isEmpty { return plan }
+        if done.isEmpty {
+            return warmups > 0 ? "\(plan) · \(warmups) warm-up done" : plan
+        }
         if done.count >= item.targetSets {
             let reps = done.sorted { $0.setIndex < $1.setIndex }.map { String($0.reps) }
             let hitAll = done.allSatisfy { $0.reps >= item.targetReps }
@@ -360,6 +373,7 @@ struct TodayView: View {
             return "set \(done.count) of \(item.targetSets) · resting \(Fmt.clock(rest.remaining()))"
         }
         return "set \(done.count) of \(item.targetSets) done"
+            + (warmups > 0 ? " · +\(warmups) warm-up" : "")
     }
 }
 

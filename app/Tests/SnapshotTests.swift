@@ -4,10 +4,10 @@ import SwiftData
 
 final class SnapshotTests: XCTestCase {
 
-    private func seededContext(now: Date = .now) throws -> ModelContext {
+    private func seededContext(now: Date = .now, history: Int = 6) throws -> ModelContext {
         let container = Store.makeContainer(inMemory: true)
         let context = ModelContext(container)
-        try Seed.run(context, now: now)
+        try Seed.run(context, now: now, weeksOfHistory: history)
         return context
     }
 
@@ -43,6 +43,71 @@ final class SnapshotTests: XCTestCase {
 
     // MARK: the shape the CLI relies on
 
+    func testSetKindsAndRpeReachTheSnapshot() throws {
+        let context = try seededContext()
+        let bench = try XCTUnwrap(
+            context.fetch(FetchDescriptor<Exercise>()).first { $0.slug == "bench-press" })
+        context.insert(SetEntry(exercise: bench, weight: 135, reps: 10, setIndex: 1,
+                                kind: .warmup))
+        context.insert(SetEntry(exercise: bench, weight: 185, reps: 8, setIndex: 2,
+                                kind: .working, rpe: 8.5, note: "felt good"))
+        try context.save()
+
+        let data = try SnapshotWriter.encoder().encode(try SnapshotBuilder.build(from: context))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["schema"] as? Int, 2)
+
+        let exercise = try XCTUnwrap((object["exercises"] as? [[String: Any]])?
+            .first { ($0["slug"] as? String) == "bench-press" })
+        XCTAssertEqual(exercise["primary_muscle"] as? String, "chest")
+        XCTAssertNotNil(exercise["secondary_muscles"])
+
+        let line = try XCTUnwrap((exercise["recent"] as? [[String: Any]])?.first)
+        // The warm-up is counted, not silently folded into the working sets.
+        XCTAssertEqual(line["warmup_sets"] as? Int, 1)
+        XCTAssertEqual((line["reps"] as? [Int])?.count, 1, "only the working set's reps")
+        XCTAssertEqual(line["top_weight"] as? Double, 185)
+        XCTAssertEqual(line["volume"] as? Double, 185 * 8, "the warm-up adds no volume")
+        XCTAssertEqual(line["average_rpe"] as? Double, 8.5)
+    }
+
+    func testAWarmUpDoesNotTickAnExerciseOff() throws {
+        // Three warm-ups used to mark an exercise done — the checklist lying
+        // about the one thing it is for.
+        let cal = Calendar.current
+        let wednesday = try XCTUnwrap(
+            cal.date(from: DateComponents(year: 2026, month: 8, day: 19, hour: 18)))
+        // No seeded history: this test is about what four warm-ups alone do.
+        let context = try seededContext(now: wednesday, history: 0)
+        let bench = try XCTUnwrap(
+            context.fetch(FetchDescriptor<Exercise>()).first { $0.slug == "bench-press" })
+        for i in 1...4 {
+            context.insert(SetEntry(exercise: bench, weight: 135, reps: 10, setIndex: i,
+                                    date: wednesday, kind: .warmup))
+        }
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: wednesday)
+        let item = try XCTUnwrap(snapshot.today?.items.first { $0.slug == "bench-press" })
+        XCTAssertFalse(item.done, "four warm-ups is not a finished exercise")
+        XCTAssertEqual(item.setsDone, 0)
+        XCTAssertEqual(item.warmupSets, 4)
+        XCTAssertEqual(item.volume, 0)
+        XCTAssertEqual(snapshot.today?.volume, 0, "warm-ups move no load")
+    }
+
+    func testRpeIsAbsentRatherThanZeroWhenNotRecorded() throws {
+        let context = try seededContext()
+        let bench = try XCTUnwrap(
+            context.fetch(FetchDescriptor<Exercise>()).first { $0.slug == "bench-press" })
+        context.insert(SetEntry(exercise: bench, weight: 185, reps: 8, setIndex: 1))
+        try context.save()
+        let json = String(data: try SnapshotWriter.encoder()
+            .encode(try SnapshotBuilder.build(from: context)), encoding: .utf8)!
+        // Not recorded is not the same as easy, so it must not arrive as 0.
+        XCTAssertFalse(json.contains("\"rpe\" : 0"))
+    }
+
     func testSnakeCaseKeysAndSchemaVersion() throws {
         let context = try seededContext()
         let data = try SnapshotWriter.encoder().encode(try SnapshotBuilder.build(from: context))
@@ -50,6 +115,7 @@ final class SnapshotTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(object["schema"] as? Int, Snapshot.currentSchema)
+        XCTAssertEqual(Snapshot.currentSchema, 2)
         // The CLI reads these exact keys. Renaming one is a schema bump.
         for key in ["generated_at", "body_weight", "exercises", "plan", "passes", "sessions"] {
             XCTAssertNotNil(object[key], "missing top-level key \(key)")

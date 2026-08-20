@@ -20,7 +20,12 @@ import SwiftData
 struct Snapshot: Codable {
     /// Bump when a field changes meaning. The CLI refuses versions it does not
     /// know rather than silently misreading them.
-    static let currentSchema = 1
+    /// **2** — set kinds arrived. `volume`, `top_weight` and `sets_done` now
+    /// mean *working* sets: a warm-up contributes to none of them. The numbers
+    /// are unchanged for logs recorded before set kinds existed (everything was
+    /// a working set then), but the definition changed, and the rule in
+    /// docs/SNAPSHOT.md is that a changed meaning bumps this.
+    static let currentSchema = 2
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -71,17 +76,34 @@ struct Snapshot: Codable {
             var targetReps: Int
             var targetWeight: Double
             var restSeconds: Int
+            /// Working sets done. Warm-ups are counted separately and do not
+            /// move you toward the target.
             var setsDone: Int
+            var warmupSets: Int
             var done: Bool
+            var volume: Double
             var performed: [Performed]
         }
-        struct Performed: Codable { var weight: Double; var reps: Int }
+        struct Performed: Codable {
+            var weight: Double
+            var reps: Int
+            /// `warmup` | `working` | `drop` | `failure`.
+            var kind: String
+            /// RPE 6–10, or absent when it was not recorded — which is not the
+            /// same as easy, and is why this is nullable rather than 0.
+            var rpe: Double?
+            var note: String?
+        }
     }
 
     struct ExerciseSummary: Codable {
         var slug: String
         var name: String
         var loading: String
+        /// What it mainly works, for sets-per-muscle questions. `other` means
+        /// nobody has said yet — treat it as unknown, not as a muscle.
+        var primaryMuscle: String
+        var secondaryMuscles: [String]
         var workingWeight: Double?
         var lastPerformed: String?
         var best: Best?
@@ -90,6 +112,8 @@ struct Snapshot: Codable {
 
         enum CodingKeys: String, CodingKey {
             case slug, name, loading, best, recent
+            case primaryMuscle = "primary_muscle"
+            case secondaryMuscles = "secondary_muscles"
             case workingWeight = "working_weight"
             case lastPerformed = "last_performed"
             case change30d = "change_30d"
@@ -98,9 +122,14 @@ struct Snapshot: Codable {
         struct Best: Codable { var weight: Double; var reps: Int; var date: String }
         struct SessionLine: Codable {
             var date: String
+            /// Heaviest WORKING set.
             var topWeight: Double
+            /// Reps of the working sets, in order.
             var reps: [Int]
             var volume: Double
+            var warmupSets: Int
+            /// Mean RPE of the working sets that recorded one.
+            var averageRpe: Double?
         }
     }
 
@@ -132,7 +161,9 @@ struct Snapshot: Codable {
         var date: String
         var day: String?
         var exercises: Int
+        /// Working sets. Warm-ups are counted separately.
         var sets: Int
+        var warmupSets: Int
         var volume: Double
         var topLifts: [String]
     }
@@ -211,17 +242,30 @@ enum SnapshotBuilder {
             let performed = todaysSets
                 .filter { $0.exercise?.slug == ex.slug }
                 .sorted { $0.setIndex < $1.setIndex }
-            let isDone = performed.count >= item.targetSets
+            // Warm-ups do not move you toward the target. Three warm-ups used to
+            // mark an exercise done, which is the checklist lying to you.
+            let working = performed.filter { $0.setKind.counts }
+            let isDone = working.count >= item.targetSets
             if isDone { done += 1 }
             items.append(.init(
                 slug: ex.slug, name: ex.name,
                 targetSets: item.targetSets, targetReps: item.targetReps,
                 targetWeight: item.targetWeight, restSeconds: item.restSeconds,
-                setsDone: performed.count, done: isDone,
-                performed: performed.map { .init(weight: $0.weight, reps: $0.reps) }))
+                setsDone: working.count,
+                warmupSets: performed.count - working.count,
+                done: isDone,
+                volume: Tally.volume(performed.map {
+                    Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                }),
+                performed: performed.map {
+                    .init(weight: $0.weight, reps: $0.reps, kind: $0.kind,
+                          rpe: $0.rpe > 0 ? $0.rpe : nil,
+                          note: $0.note.isEmpty ? nil : $0.note)
+                }))
         }
+        // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
-            Tally.Set(weight: $0.weight, reps: $0.reps)
+            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
         })
         return .init(date: Fmt.day(now), day: day.name,
                      setsDone: items.reduce(0) { $0 + $1.setsDone },
@@ -235,16 +279,25 @@ enum SnapshotBuilder {
         let mine = sets.filter { $0.exercise?.slug == ex.slug }
         let byDay = Dictionary(grouping: mine) { Fmt.day($0.date) }
         let lines = byDay.map { (date, entries) -> Snapshot.ExerciseSummary.SessionLine in
-            .init(date: date,
-                  topWeight: entries.map(\.weight).max() ?? 0,
-                  reps: entries.sorted { $0.setIndex < $1.setIndex }.map(\.reps),
-                  volume: entries.reduce(0) { $0 + $1.weight * Double($1.reps) })
+            let working = entries.filter { $0.setKind.counts }
+            let rpes = working.map(\.rpe).filter { $0 > 0 }
+            return .init(
+                date: date,
+                topWeight: working.map(\.weight).max() ?? 0,
+                reps: working.sorted { $0.setIndex < $1.setIndex }.map(\.reps),
+                volume: Tally.volume(entries.map {
+                    Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                }),
+                warmupSets: entries.count - working.count,
+                averageRpe: rpes.isEmpty ? nil
+                    : (rpes.reduce(0, +) / Double(rpes.count) * 10).rounded() / 10)
         }.sorted { $0.date > $1.date }
 
         // "Best" is the heaviest set, ties broken by reps — a heavier single
         // beats a lighter set of eight for this purpose, which is what a
         // working-weight number is for.
-        let best = mine.max { a, b in
+        // A warm-up is not a personal best, here as on the phone.
+        let best = mine.filter { $0.setKind.counts }.max { a, b in
             a.weight == b.weight ? a.reps < b.reps : a.weight < b.weight
         }
         let cutoff = cal.date(byAdding: .day, value: -30, to: now) ?? now
@@ -255,6 +308,8 @@ enum SnapshotBuilder {
 
         return .init(
             slug: ex.slug, name: ex.name, loading: ex.loading,
+            primaryMuscle: ex.primaryMuscle,
+            secondaryMuscles: ex.secondary.map(\.rawValue),
             workingWeight: lines.first?.topWeight,
             lastPerformed: lines.first?.date,
             best: best.map { .init(weight: $0.weight, reps: $0.reps, date: Fmt.day($0.date)) },
@@ -296,7 +351,8 @@ enum SnapshotBuilder {
                 let top = byExercise
                     .compactMap { _, e -> (String, Double)? in
                         guard let name = e.first?.exercise?.name,
-                              let w = e.map(\.weight).max() else { return nil }
+                              let w = e.filter({ $0.setKind.counts })
+                                  .map(\.weight).max() else { return nil }
                         return (name, w)
                     }
                     // Ties broken by name. Without it, two lifts at the same
@@ -306,11 +362,16 @@ enum SnapshotBuilder {
                     .sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }
                     .prefix(3)
                     .map { "\($0.0) \(Fmt.weight($0.1))" }
+                let working = entries.filter { $0.setKind.counts }
                 return .init(
                     date: date,
                     day: days.first { $0.weekday == weekday }?.name,
-                    exercises: byExercise.count, sets: entries.count,
-                    volume: entries.reduce(0) { $0 + $1.weight * Double($1.reps) },
+                    exercises: byExercise.count,
+                    sets: working.count,
+                    warmupSets: entries.count - working.count,
+                    volume: Tally.volume(entries.map {
+                        Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                    }),
                     topLifts: Array(top))
             }
             .sorted { $0.date > $1.date }
