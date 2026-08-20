@@ -17,6 +17,14 @@ final class Exercise {
     /// Drives plate math. A cable stack or a dumbbell has no plates to compute.
     var loading: String = Loading.barbell.rawValue
     var barWeight: Double = 45
+    /// Primary mover, as a `MuscleGroup` raw value. Drives sets-per-muscle-per
+    /// week, which is the standard hypertrophy question and the one thing our
+    /// Trends screen could not answer.
+    var primaryMuscle: String = MuscleGroup.other.rawValue
+    /// Comma-separated `MuscleGroup` raw values. Counted at half a set each,
+    /// which is the usual convention and stated here so nobody has to guess
+    /// why the numbers are fractional.
+    var secondaryMuscles: String = ""
     var createdAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade, inverse: \SetEntry.exercise)
@@ -26,12 +34,20 @@ final class Exercise {
     var planItems: [PlanItem]? = []
 
     init(name: String, slug: String? = nil,
-         loading: Loading = .barbell, barWeight: Double = 45) {
+         loading: Loading = .barbell, barWeight: Double = 45,
+         primary: MuscleGroup = .other, secondary: [MuscleGroup] = []) {
         self.name = name
         self.slug = slug ?? Exercise.slugify(name)
         self.loading = loading.rawValue
         self.barWeight = barWeight
+        self.primaryMuscle = primary.rawValue
+        self.secondaryMuscles = secondary.map(\.rawValue).joined(separator: ",")
         self.createdAt = .now
+    }
+
+    var primary: MuscleGroup { MuscleGroup(rawValue: primaryMuscle) ?? .other }
+    var secondary: [MuscleGroup] {
+        secondaryMuscles.split(separator: ",").compactMap { MuscleGroup(rawValue: String($0)) }
     }
 
     enum Loading: String, CaseIterable {
@@ -59,11 +75,18 @@ final class PlanItem {
     var targetReps: Int = 10
     var targetWeight: Double = 0
     var restSeconds: Int = 90
+    /// Items sharing a non-zero group are a superset: you alternate between
+    /// them and rest once at the end of the round, not after each exercise.
+    /// `0` means "on its own". Without this the cooldown ring is not merely
+    /// missing for supersets, it is wrong — it would start after the first
+    /// exercise of a pair you are meant to go straight through.
+    var supersetGroup: Int = 0
     var exercise: Exercise?
     var day: PlannedDay?
 
     init(order: Int, exercise: Exercise, targetSets: Int, targetReps: Int,
-         targetWeight: Double, restSeconds: Int = 90) {
+         targetWeight: Double, restSeconds: Int = 90, supersetGroup: Int = 0) {
+        self.supersetGroup = supersetGroup
         self.order = order
         self.exercise = exercise
         self.targetSets = targetSets
@@ -100,6 +123,16 @@ final class SetEntry {
     var weight: Double = 0
     var reps: Int = 0
     var setIndex: Int = 1
+    /// What kind of set this was. A warm-up is not a working set and must not
+    /// count toward volume or records — this was the single biggest correctness
+    /// gap against Hevy and Strong, because a 135 warm-up on bench day was
+    /// silently inflating both.
+    var kind: String = SetKind.working.rawValue
+    /// Reps in reserve, expressed as RPE 6–10. `0` means not recorded, which is
+    /// different from "easy" and is why this is not an enum with a default case.
+    var rpe: Double = 0
+    /// Anything you want to remember about it. "Left shoulder clicked."
+    var note: String = ""
     /// `user` or `demo`. Demo rows are sample data and can be removed wholesale;
     /// see `Seed`. Without this there is no way to tell an invented set from one
     /// you actually did, and an app that cannot tell should not be drawing
@@ -108,19 +141,132 @@ final class SetEntry {
     var exercise: Exercise?
 
     init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int,
-         date: Date = .now, source: Source = .user) {
+         date: Date = .now, kind: SetKind = .working, rpe: Double = 0,
+         note: String = "", source: Source = .user) {
         self.exercise = exercise
         self.weight = weight
         self.reps = reps
         self.setIndex = setIndex
         self.date = date
+        self.kind = kind.rawValue
+        self.rpe = rpe
+        self.note = note
         self.source = source.rawValue
     }
 
     var isDemo: Bool { source == Source.demo.rawValue }
+    var setKind: SetKind { SetKind(rawValue: kind) ?? .working }
 }
 
 enum Source: String { case user, demo }
+
+/// The set types every serious logger has and we did not.
+enum SetKind: String, CaseIterable, Identifiable {
+    case warmup, working, drop, failure
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .warmup: return "Warm-up"
+        case .working: return "Working"
+        case .drop: return "Drop set"
+        case .failure: return "To failure"
+        }
+    }
+
+    /// One character for the set screen, where space is the scarce resource.
+    var badge: String {
+        switch self {
+        case .warmup: return "W"
+        case .working: return "•"
+        case .drop: return "D"
+        case .failure: return "F"
+        }
+    }
+
+    /// Whether it counts toward tonnage and records.
+    ///
+    /// A warm-up does not. A drop set does — you moved the weight, and it is
+    /// part of the working effort. A set to failure obviously does.
+    var counts: Bool { self != .warmup }
+
+    /// Warm-ups sit apart so the working sets read as a block.
+    var isPreparation: Bool { self == .warmup }
+}
+
+/// Everything about the body that isn't a lift.
+///
+/// Body weight has its own model because it is the one measured daily and
+/// charted everywhere. These are the others — waist and arms being the two
+/// people actually keep — and they share one table because the list is
+/// open-ended and a column per tape measure is how you end up migrating.
+@Model
+final class BodyMetric {
+    var date: Date = Date.now
+    var kind: String = MetricKind.waist.rawValue
+    var inches: Double = 0
+    var note: String = ""
+
+    init(kind: MetricKind, inches: Double, date: Date = .now, note: String = "") {
+        self.kind = kind.rawValue
+        self.inches = inches
+        self.date = date
+        self.note = note
+    }
+
+    var metric: MetricKind { MetricKind(rawValue: kind) ?? .waist }
+}
+
+enum MetricKind: String, CaseIterable, Identifiable {
+    case waist, chest, hips, thighLeft, thighRight, armLeft, armRight, calf, neck, shoulders
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .waist: return "Waist"
+        case .chest: return "Chest"
+        case .hips: return "Hips"
+        case .thighLeft: return "Thigh (L)"
+        case .thighRight: return "Thigh (R)"
+        case .armLeft: return "Arm (L)"
+        case .armRight: return "Arm (R)"
+        case .calf: return "Calf"
+        case .neck: return "Neck"
+        case .shoulders: return "Shoulders"
+        }
+    }
+}
+
+/// What a lift actually works. One list, so an exercise and a weekly total
+/// cannot disagree about what "back" means.
+enum MuscleGroup: String, CaseIterable, Identifiable {
+    case chest, back, lats, traps, shoulders, biceps, triceps, forearms
+    case quads, hamstrings, glutes, calves, core, other
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .lats: return "Lats"
+        case .other: return "Other"
+        default: return rawValue.capitalized
+        }
+    }
+
+    /// Grouped for the weekly chart, where twelve bars is a wall and six is a
+    /// readable answer to "am I doing enough pulling".
+    var region: String {
+        switch self {
+        case .chest, .shoulders, .triceps: return "Push"
+        case .back, .lats, .traps, .biceps, .forearms: return "Pull"
+        case .quads, .hamstrings, .glutes, .calves: return "Legs"
+        case .core: return "Core"
+        case .other: return "Other"
+        }
+    }
+}
 
 @Model
 final class WeighIn {

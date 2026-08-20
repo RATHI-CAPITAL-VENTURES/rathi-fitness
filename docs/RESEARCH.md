@@ -44,9 +44,26 @@ Ranked by how often they'd bite in a real session.
 
 | Was missing | Now |
 | --- | --- |
-| Total volume / tonnage per session | On Today, with a comparison to the last time you did that same day |
+| Total volume / tonnage per session | On Today, compared to the last time you did that same day; `gym volume` for weekly totals |
 | PR detection | The set screen announces the one record a set beat — heaviest, best e1RM, or most reps at that weight |
 | Estimated 1RM | Epley, capped at 12 reps, used for the e1RM record |
+| **Set types** | Warm-up / working / drop / to-failure. Warm-ups are excluded from tonnage, records, muscle counts, the next-target suggestion and the CSV's volume column — this was the correctness gap, not a nicety |
+| **RPE per set** | 6–10 in half steps, labelled by reps in reserve. `0` means not recorded, which is deliberately different from "easy" |
+| **Per-set notes** | Kept with the set, exported in the CSV |
+| **Supersets** | Link an exercise to the next; between them the timer gives 20s to walk over and says "Move", and the real cooldown waits for the end of the round. The pairing had to exist in the model because otherwise the ring is not missing, it is *wrong* |
+| **Sets per muscle per week** | On Trends. Primary movers count 1, secondary 0.5 — the usual convention, stated in the code so nobody has to guess why totals are fractional |
+| **Exercise library** | 80-entry catalogue with loading and muscles, searchable by name or muscle. Picking a lift now means picking one, not describing one |
+| **Progressive overload prompt** | One sentence on the set screen from the last session: hit every rep → the weight goes up; stalled → hold it; just short → one more rep and it goes up |
+| **CSV export** | Sets (with type, RPE, note) and body data, shareable from Settings. The reason leaving is possible |
+| **Body measurements** | Waist, chest, hips, thighs, arms, calf, neck, shoulders — on Trends, with the change since the previous reading |
+
+## Still missing, deliberately deferred
+
+| Gap | Why not yet |
+| --- | --- |
+| **Rest timer as a Live Activity / Dynamic Island** | Needs a widget extension target and an app group. Worth doing — the cooldown *colour* is designed to be caught peripherally and currently cannot be seen from the lock screen at all — but it is a new build target rather than a change to this one |
+| **Apple Watch app** | A second target and a second UI. The set screen is the obvious candidate and the colour-coded cooldown is deliberately designed to survive the shrink; nothing about the model is in the way |
+| **Progress photos** | Storage, privacy and a picker. Measurements landed; photos are a different shape of problem, and the snapshot-goes-to-iCloud-Drive rule would need thinking about first |
 
 ## Things everyone has that we should not build
 

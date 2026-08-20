@@ -20,6 +20,12 @@ struct RathiFitnessApp: App {
                 .task {
                     let context = container.mainContext
                     try? Seed.runIfNeeded(context)
+                    // A fresh install has nothing to warn about, so the legacy
+                    // banner is answered before it can ever be shown.
+                    if (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0,
+                       (try? context.fetchCount(FetchDescriptor<WeighIn>())) == 0 {
+                        UserDefaults.standard.set(true, forKey: "history.legacyAcknowledged")
+                    }
                     // `-RFDemoHistory` loads the tagged sample sessions. Used by
                     // the UI tests and for looking at a populated screen — a real
                     // first launch has no history, on purpose.

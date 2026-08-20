@@ -220,8 +220,8 @@ enum SnapshotBuilder {
                 setsDone: performed.count, done: isDone,
                 performed: performed.map { .init(weight: $0.weight, reps: $0.reps) }))
         }
-        let moved = Progress.volume(todaysSets.map {
-            Progress.Set(weight: $0.weight, reps: $0.reps)
+        let moved = Tally.volume(todaysSets.map {
+            Tally.Set(weight: $0.weight, reps: $0.reps)
         })
         return .init(date: Fmt.day(now), day: day.name,
                      setsDone: items.reduce(0) { $0 + $1.setsDone },

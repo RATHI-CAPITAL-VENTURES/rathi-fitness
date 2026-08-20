@@ -2,28 +2,43 @@ import Foundation
 
 /// How much you moved, and whether it was the most you ever have.
 ///
+/// Named `Tally` rather than `Progress` because Foundation already has a
+/// `Progress` class, and the shadow made the name ambiguous in every file that
+/// imports Foundation — which is all of them.
+///
 /// Pure functions over sets, so every claim the app makes about progress is
 /// testable without a database. The reinforcement is the point: a session is
 /// four exercises and a lot of standing around, and "you moved 12,830 lb" is
 /// the only number that makes the whole hour add up to something.
-enum Progress {
+enum Tally {
 
     // MARK: - Volume
 
     struct Set: Equatable {
         let weight: Double
         let reps: Int
-        var volume: Double { weight * Double(reps) }
+        /// Warm-ups are excluded from everything below. Left as a property on
+        /// the value rather than filtered by the caller so there is exactly one
+        /// place that decides what counts, and callers cannot forget.
+        var kind: SetKind = .working
+
+        var volume: Double { kind.counts ? weight * Double(reps) : 0 }
+        var counts: Bool { kind.counts }
     }
 
-    /// Total load moved: every set's weight × reps.
+    /// Total load moved: every working set's weight × reps.
     ///
-    /// Bodyweight movements contribute nothing, which is honest rather than
-    /// clever — guessing what fraction of you a push-up lifts would put an
-    /// invented number into the one figure that is supposed to be countable.
+    /// Warm-ups do not count. Neither do bodyweight movements, which is honest
+    /// rather than clever — guessing what fraction of you a push-up lifts would
+    /// put an invented number into the one figure that is supposed to be
+    /// countable.
     static func volume(_ sets: [Set]) -> Double {
         sets.reduce(0) { $0 + $1.volume }
     }
+
+    /// Working sets only. What "3 × 8" means, and what a muscle-group count is
+    /// counting.
+    static func workingSets(_ sets: [Set]) -> [Set] { sets.filter(\.counts) }
 
     /// Tonnage reads better than a six-digit number of pounds.
     /// `12830` → `12,830 lb`; `41200` → `20.6 tons`.
@@ -96,8 +111,12 @@ enum Progress {
     /// `history` must NOT include the new set. Ties do not count: matching your
     /// best is not a record, and an app that says it is teaches you to
     /// disbelieve it.
-    static func records(for candidate: Set, history: [Set]) -> [Record] {
-        guard candidate.weight > 0, candidate.reps > 0 else { return [] }
+    static func records(for candidate: Set, history rawHistory: [Set]) -> [Record] {
+        // A warm-up cannot set a record, and warm-ups in the history cannot
+        // stop one: a heavy single last week should not be beaten by the fact
+        // you once warmed up heavier than you are lifting today.
+        guard candidate.counts, candidate.weight > 0, candidate.reps > 0 else { return [] }
+        let history = workingSets(rawHistory)
         var found: [Record] = []
 
         let heaviest = history.map(\.weight).max() ?? 0
@@ -121,6 +140,76 @@ enum Progress {
     /// The one thing to say about a set, or nothing.
     static func headline(for candidate: Set, history: [Set]) -> String? {
         records(for: candidate, history: history).first?.headline
+    }
+
+    // MARK: - Sets per muscle group per week
+    //
+    // The standard hypertrophy question, and the one Trends could not answer.
+    // Secondary movers count as half a set — the usual convention, written down
+    // here so nobody has to wonder why the numbers are fractional.
+
+    static let secondaryWeight = 0.5
+
+    struct MuscleWork: Identifiable, Equatable {
+        let muscle: MuscleGroup
+        var sets: Double
+        var id: String { muscle.rawValue }
+    }
+
+    struct LoggedSet {
+        let date: Date
+        let kind: SetKind
+        let primary: MuscleGroup
+        let secondary: [MuscleGroup]
+    }
+
+    /// Working sets per muscle over a window, heaviest first.
+    static func muscleWork(_ sets: [LoggedSet], since: Date) -> [MuscleWork] {
+        var totals: [MuscleGroup: Double] = [:]
+        for set in sets where set.kind.counts && set.date >= since {
+            totals[set.primary, default: 0] += 1
+            for muscle in set.secondary { totals[muscle, default: 0] += secondaryWeight }
+        }
+        return totals
+            .filter { $0.key != .other && $0.value > 0 }
+            .map { MuscleWork(muscle: $0.key, sets: $0.value) }
+            .sorted { $0.sets == $1.sets ? $0.muscle.label < $1.muscle.label : $0.sets > $1.sets }
+    }
+
+    // MARK: - What to do next
+    //
+    // Not a programme. One sentence, from the last two times you did this lift,
+    // and only when the answer is obvious enough to be worth saying.
+
+    struct Suggestion: Equatable {
+        let weight: Double
+        let reps: Int
+        let because: String
+    }
+
+    /// - Parameters:
+    ///   - lastSession: working sets from the most recent day this lift was done.
+    ///   - target: the plan's rep target.
+    static func nextTarget(lastSession: [Set], target: Int,
+                           step: Double = 5) -> Suggestion? {
+        let working = workingSets(lastSession)
+        guard let heaviest = working.map(\.weight).max(), heaviest > 0 else { return nil }
+        let atWeight = working.filter { $0.weight == heaviest }
+        guard !atWeight.isEmpty else { return nil }
+
+        // Every set hit the target: the weight goes up.
+        if atWeight.allSatisfy({ $0.reps >= target }) {
+            return Suggestion(weight: heaviest + step, reps: target,
+                              because: "you hit every rep last time")
+        }
+        // Missed badly enough that more weight would be optimism.
+        let best = atWeight.map(\.reps).max() ?? 0
+        if best < target - 2 {
+            return Suggestion(weight: heaviest, reps: target,
+                              because: "last time stalled at \(best) — same weight again")
+        }
+        return Suggestion(weight: heaviest, reps: target,
+                          because: "one more rep than last time and it goes up")
     }
 
     // MARK: - Comparing a session to the last one like it

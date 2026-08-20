@@ -158,7 +158,9 @@ struct DayEditorView: View {
                 Text("Exercises")
             } footer: {
                 Text("The order here is the order you do them in. Swipe to remove, "
-                     + "drag to reorder.")
+                     + "drag to reorder. Link two in a row into a superset and you "
+                     + "go straight from one to the other — the cooldown waits "
+                     + "until the end of the round.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -181,14 +183,20 @@ struct DayEditorView: View {
     }
 
     private func itemRow(_ item: PlanItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(item.exercise?.name ?? "—")
-                .font(RFDesign.uiMedium(15.5))
-                .foregroundStyle(RFDesign.speech)
-            Text("\(item.targetSets) × \(item.targetReps) · "
-                 + "\(Fmt.weight(item.targetWeight)) lb · \(item.restSeconds)s rest")
-                .font(RFDesign.ui(12.5))
-                .foregroundStyle(RFDesign.labelDim)
+        HStack(spacing: 10) {
+            if item.supersetGroup > 0 {
+                Capsule().fill(RFDesign.ready).frame(width: 3)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.exercise?.name ?? "—")
+                    .font(RFDesign.uiMedium(15.5))
+                    .foregroundStyle(RFDesign.speech)
+                Text("\(item.targetSets) × \(item.targetReps) · "
+                     + "\(Fmt.weight(item.targetWeight)) lb · \(item.restSeconds)s rest"
+                     + (item.supersetGroup > 0 ? " · superset" : ""))
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.labelDim)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -251,6 +259,16 @@ struct PlanItemEditorView: View {
             }
 
             Section {
+                Toggle("Superset with the next exercise", isOn: supersetBinding)
+            } header: {
+                Text("Pairing")
+            } footer: {
+                Text("You alternate between the linked exercises and rest once at the "
+                     + "end of the round. Between them the timer gives you twenty "
+                     + "seconds to walk over, not the full cooldown.")
+            }
+
+            Section {
                 Picker("Rest", selection: $item.restSeconds) {
                     ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
                         Text(Fmt.clock(s)).tag(s)
@@ -282,6 +300,36 @@ struct PlanItemEditorView: View {
         }
     }
 
+    /// Linking to the next exercise puts both in one group. Groups are numbered
+    /// by the first item's order, so the number is stable when the day is
+    /// reordered around them.
+    private var supersetBinding: Binding<Bool> {
+        Binding(
+            get: { item.supersetGroup > 0 },
+            set: { linked in
+                guard let day = item.day else { return }
+                let items = day.orderedItems
+                guard let index = items.firstIndex(where: {
+                    $0.persistentModelID == item.persistentModelID
+                }), index + 1 < items.count else { return }
+                let next = items[index + 1]
+                if linked {
+                    let group = item.supersetGroup > 0 ? item.supersetGroup : item.order + 1
+                    item.supersetGroup = group
+                    next.supersetGroup = group
+                } else {
+                    let group = item.supersetGroup
+                    item.supersetGroup = 0
+                    // Only unlink the partner if nothing else shares the group.
+                    if items.filter({ $0.supersetGroup == group }).count <= 1 {
+                        next.supersetGroup = 0
+                    }
+                }
+                try? context.save()
+                snapshots.setNeedsWrite(context)
+            })
+    }
+
     /// Barbell weights step to something the rack can actually make.
     private func adjust(_ delta: Double) {
         guard let exercise = item.exercise else { return }
@@ -300,14 +348,35 @@ struct ExercisePickerView: View {
     @State private var search = ""
     var onPick: (Exercise) -> Void
 
+    private func row(_ name: String, _ loading: String, _ muscle: MuscleGroup) -> some View {
+        HStack {
+            Text(name).foregroundStyle(RFDesign.speech)
+            Spacer()
+            Text(muscle == .other ? loading : "\(muscle.label) · \(loading)")
+                .font(RFDesign.ui(12.5))
+                .foregroundStyle(RFDesign.labelDim)
+        }
+    }
+
     private var matches: [Exercise] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         return q.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(q) }
     }
 
+    /// Catalogue movements not already in your library. This is the exercise
+    /// library gap: adding a lift should be picking one, not describing one —
+    /// and a lift picked here arrives knowing what it works and what bar it uses.
+    private var catalogueMatches: [Catalogue.Entry] {
+        let have = Set(exercises.map(\.slug))
+        return Catalogue.search(search).filter { !have.contains(Exercise.slugify($0.name)) }
+    }
+
     private var canCreate: Bool {
         let q = search.trimmingCharacters(in: .whitespaces)
-        return !q.isEmpty && !exercises.contains { $0.name.lowercased() == q.lowercased() }
+        guard !q.isEmpty else { return false }
+        let slug = Exercise.slugify(q)
+        return !exercises.contains { $0.slug == slug }
+            && !catalogueMatches.contains { Exercise.slugify($0.name) == slug }
     }
 
     var body: some View {
@@ -318,6 +387,7 @@ struct ExercisePickerView: View {
                         Button {
                             let name = search.trimmingCharacters(in: .whitespaces)
                             let exercise = Exercise(name: name)
+                            Catalogue.enrich(exercise)   // in case it matches after all
                             context.insert(exercise)
                             try? context.save()
                             onPick(exercise)
@@ -327,23 +397,35 @@ struct ExercisePickerView: View {
                                   systemImage: "plus.circle.fill")
                         }
                     } footer: {
-                        Text("New exercises start as a barbell lift with a 45 lb bar. "
-                             + "Change that on the next screen if it isn't.")
+                        Text("Anything already in the catalogue arrives knowing what it "
+                             + "works and what bar it uses. Something invented here starts "
+                             + "as a barbell lift — change it on the next screen.")
                     }
                 }
-                Section {
-                    ForEach(matches) { exercise in
-                        Button {
-                            onPick(exercise)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Text(exercise.name)
-                                    .foregroundStyle(RFDesign.speech)
-                                Spacer()
-                                Text(exercise.loadingKind.rawValue)
-                                    .font(RFDesign.ui(12.5))
-                                    .foregroundStyle(RFDesign.labelDim)
+                if !matches.isEmpty {
+                    Section("In your log") {
+                        ForEach(matches) { exercise in
+                            Button {
+                                onPick(exercise)
+                                dismiss()
+                            } label: {
+                                row(exercise.name, exercise.loadingKind.rawValue,
+                                    exercise.primary)
+                            }
+                        }
+                    }
+                }
+                if !catalogueMatches.isEmpty {
+                    Section("Catalogue") {
+                        ForEach(catalogueMatches, id: \.name) { entry in
+                            Button {
+                                let exercise = Catalogue.exercise(from: entry)
+                                context.insert(exercise)
+                                try? context.save()
+                                onPick(exercise)
+                                dismiss()
+                            } label: {
+                                row(entry.name, entry.loading.rawValue, entry.primary)
                             }
                         }
                     }

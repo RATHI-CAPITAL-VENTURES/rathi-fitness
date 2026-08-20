@@ -114,8 +114,11 @@ enum Seed {
                 let ex: Exercise
                 if let found = byName[spec.name] { ex = found }
                 else {
-                    ex = Exercise(name: spec.name, loading: spec.loading,
-                                  barWeight: spec.loading == .barbell ? 45 : 0)
+                    // Straight from the catalogue, so seeded lifts arrive with
+                    // their muscles rather than being the only ones without.
+                    ex = Catalogue.entry(named: spec.name).map(Catalogue.exercise(from:))
+                        ?? Exercise(name: spec.name, loading: spec.loading,
+                                    barWeight: spec.loading == .barbell ? 45 : 0)
                     context.insert(ex)
                     byName[spec.name] = ex
                 }

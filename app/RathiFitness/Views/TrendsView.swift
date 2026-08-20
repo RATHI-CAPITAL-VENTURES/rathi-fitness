@@ -9,6 +9,9 @@ struct TrendsView: View {
     @Query(sort: \WeighIn.date) private var weighIns: [WeighIn]
     @Query(sort: \SetEntry.date) private var allSets: [SetEntry]
     @Query private var exercises: [Exercise]
+    @Query(sort: \BodyMetric.date, order: .reverse) private var metrics: [BodyMetric]
+
+    @State private var measuring = false
 
     @State private var selection: Selection = .body
     @State private var range: Range = .month
@@ -47,6 +50,7 @@ struct TrendsView: View {
                         .foregroundStyle(RFDesign.speech)
                         .padding(.top, RFDesign.sm)
 
+                    LegacyDataBanner()
                     picker
                     if allSets.contains(where: \.isDemo)
                         || weighIns.contains(where: \.isDemo) {
@@ -60,6 +64,8 @@ struct TrendsView: View {
                     chart
                     rangePicker
 
+                    muscleWork
+
                     VStack(alignment: .leading, spacing: RFDesign.sm) {
                         HStack {
                             Text("Working weight").rfEyebrow()
@@ -69,12 +75,19 @@ struct TrendsView: View {
                         strengthTable
                     }
                     .padding(.top, RFDesign.md)
+                    measurements
                 }
                 .padding(.horizontal, 22)
                 .padding(.bottom, RFDesign.xl)
             }
             .scrollIndicators(.hidden)
             .background(RoomBackground())
+            .sheet(isPresented: $measuring) {
+                MeasureSheet { kind, inches in
+                    context.insert(BodyMetric(kind: kind, inches: inches))
+                    try? context.save()
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -264,6 +277,107 @@ struct TrendsView: View {
         }
     }
 
+    // MARK: sets per muscle
+
+    /// The standard hypertrophy question — am I doing enough pulling — which
+    /// this screen could not answer before. Secondary movers count half.
+    @ViewBuilder private var muscleWork: some View {
+        let since = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
+        let work = Tally.muscleWork(allSets.map {
+            Tally.LoggedSet(date: $0.date, kind: $0.setKind,
+                               primary: $0.exercise?.primary ?? .other,
+                               secondary: $0.exercise?.secondary ?? [])
+        }, since: since)
+
+        if !work.isEmpty {
+            let peak = work.first?.sets ?? 1
+            VStack(alignment: .leading, spacing: RFDesign.sm) {
+                HStack {
+                    Text("Sets per muscle").rfEyebrow()
+                    Spacer()
+                    Text("last 7 days").rfEyebrow()
+                }
+                VStack(spacing: 7) {
+                    ForEach(work) { row in
+                        HStack(spacing: 10) {
+                            Text(row.muscle.label)
+                                .font(RFDesign.ui(13))
+                                .foregroundStyle(RFDesign.speech)
+                                .frame(width: 78, alignment: .leading)
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.white.opacity(0.06))
+                                    Capsule().fill(RFDesign.ready.opacity(0.65))
+                                        .frame(width: max(3, geo.size.width * row.sets / peak))
+                                }
+                            }
+                            .frame(height: 8)
+                            Text(Fmt.weight(row.sets))
+                                .font(RFDesign.ui(12))
+                                .monospacedDigit()
+                                .foregroundStyle(RFDesign.labelDim)
+                                .frame(width: 30, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+            .padding(.top, RFDesign.md)
+        }
+    }
+
+    // MARK: measurements
+
+    private var measurements: some View {
+        VStack(alignment: .leading, spacing: RFDesign.sm) {
+            HStack {
+                Text("Measurements").rfEyebrow()
+                Spacer()
+                Button { measuring = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(RFDesign.ready)
+                }
+                .accessibilityLabel("Add a measurement")
+            }
+            if latestMetrics.isEmpty {
+                Text("Waist and arms are the two people actually keep.")
+                    .font(RFDesign.ui(13))
+                    .foregroundStyle(RFDesign.labelDim)
+            }
+            ForEach(latestMetrics, id: \.0) { kind, latest, change in
+                HStack {
+                    Text(kind.label)
+                        .font(RFDesign.uiMedium(14.5))
+                        .foregroundStyle(RFDesign.speech)
+                    Spacer()
+                    Text(String(format: "%.2f in", latest))
+                        .font(RFDesign.figure(16, relativeTo: .body))
+                        .monospacedDigit()
+                        .foregroundStyle(RFDesign.speech)
+                    Text(change.map { Fmt.signed($0) } ?? "—")
+                        .font(RFDesign.ui(11.5, bold: true))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                        .foregroundStyle(RFDesign.labelDim)
+                }
+                .padding(.vertical, 8)
+                Divider().overlay(RFDesign.hairline)
+            }
+        }
+        .padding(.top, RFDesign.lg)
+    }
+
+    /// Newest reading per measurement, with the change since the one before it.
+    private var latestMetrics: [(MetricKind, Double, Double?)] {
+        let grouped = Dictionary(grouping: metrics) { $0.metric }
+        return MetricKind.allCases.compactMap { kind in
+            guard let rows = grouped[kind]?.sorted(by: { $0.date > $1.date }),
+                  let latest = rows.first else { return nil }
+            let previous = rows.dropFirst().first
+            return (kind, latest.inches, previous.map { latest.inches - $0.inches })
+        }
+    }
+
     // MARK: table
 
     private var strengthTable: some View {
@@ -360,5 +474,48 @@ struct Sparkline: View {
                     style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
         }
         .accessibilityHidden(true)
+    }
+}
+
+
+/// One tape-measure reading.
+struct MeasureSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var kind: MetricKind = .waist
+    @State private var text = ""
+    var onSave: (MetricKind, Double) -> Void
+
+    private var value: Double? { Double(text.trimmingCharacters(in: .whitespaces)) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("Where", selection: $kind) {
+                    ForEach(MetricKind.allCases) { Text($0.label).tag($0) }
+                }
+                HStack {
+                    TextField("32.5", text: $text)
+                        .keyboardType(.decimalPad)
+                        .font(RFDesign.figure(30, relativeTo: .title))
+                        .monospacedDigit()
+                    Text("inches").rfEyebrow(RFDesign.labelDim, size: 12)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(RFDesign.ground.ignoresSafeArea())
+            .navigationTitle("Measurement")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if let value, value > 0 { onSave(kind, value) }
+                        dismiss()
+                    }
+                    .disabled(value == nil)
+                }
+            }
+        }
+        .presentationDetents([.height(300)])
     }
 }

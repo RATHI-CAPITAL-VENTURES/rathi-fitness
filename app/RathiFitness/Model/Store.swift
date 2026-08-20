@@ -7,7 +7,7 @@ enum Store {
 
     static let schema = Schema([
         Exercise.self, PlanItem.self, PlannedDay.self,
-        SetEntry.self, WeighIn.self, GymPass.self,
+        SetEntry.self, WeighIn.self, GymPass.self, BodyMetric.self,
     ])
 
     /// CloudKit if we can have it, local if we cannot.
