@@ -48,9 +48,39 @@ enum CodeDetector {
         return try await detect(in: cgImage, orientation: image.imageOrientation)
     }
 
+    /// Guards a continuation against being resumed twice.
+    ///
+    /// Vision can report a failure through the request's completion handler AND
+    /// have `perform(_:)` throw for the same failure. Resuming twice is not an
+    /// error you get to handle — it is `SWIFT TASK CONTINUATION MISUSE` and an
+    /// immediate crash. Found by a simulator where Vision could not create an
+    /// inference context, but nothing about it was specific to that: any Vision
+    /// error at all would have taken the app down.
+    private final class Once {
+        private var done = false
+        private let continuation: CheckedContinuation<Found, Error>
+
+        init(_ continuation: CheckedContinuation<Found, Error>) {
+            self.continuation = continuation
+        }
+
+        func resume(returning value: Found) {
+            guard !done else { return }
+            done = true
+            continuation.resume(returning: value)
+        }
+
+        func resume(throwing error: Error) {
+            guard !done else { return }
+            done = true
+            continuation.resume(throwing: error)
+        }
+    }
+
     static func detect(in cgImage: CGImage,
                        orientation: UIImage.Orientation = .up) async throws -> Found {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { rawContinuation in
+            let continuation = Once(rawContinuation)
             let request = VNDetectBarcodesRequest { request, error in
                 if let error { return continuation.resume(throwing: error) }
                 let results = (request.results as? [VNBarcodeObservation]) ?? []

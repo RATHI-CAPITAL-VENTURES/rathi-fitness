@@ -12,6 +12,10 @@ final class WorkoutFlowUITests: XCTestCase {
         app = XCUIApplication()
         // A training day whatever day the test runs on, and never CloudKit.
         app.launchArguments += ["-RFDay", "Push A"]
+        // A fresh install has NO history — that is the point of the fix that
+        // stopped the app inventing six weeks of it. Trends therefore needs the
+        // sample data asked for explicitly.
+        app.launchArguments += ["-RFDemoHistory"]
         app.launchEnvironment["RF_NO_CLOUDKIT"] = "1"
         // A fresh in-memory store per launch. Otherwise run five accumulates
         // run four's sets and the assertions drift out from under the test.
@@ -65,6 +69,28 @@ final class WorkoutFlowUITests: XCTestCase {
         shoot("04-today-after-a-set")
     }
 
+    /// A real first launch: a plan, and no claims about your past.
+    func testAFreshInstallHasNoInventedHistory() throws {
+        let clean = XCUIApplication()
+        clean.launchArguments += ["-RFDay", "Push A"]
+        clean.launchEnvironment["RF_NO_CLOUDKIT"] = "1"
+        clean.launchEnvironment["RF_UITEST"] = "1"   // no -RFDemoHistory
+        clean.launch()
+
+        XCTAssertTrue(clean.staticTexts["Push A"].waitForExistence(timeout: 20),
+                      "the plan is a template and should still be there")
+        clean.tabBars.buttons["Trends"].tap()
+        XCTAssertTrue(clean.staticTexts["Nothing to plot yet."].waitForExistence(timeout: 10),
+                      "a fresh install must not show lifts that never happened")
+        XCTAssertFalse(clean.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "sample data")).firstMatch.exists,
+            "nothing to label when nothing was invented")
+        let shot = XCTAttachment(screenshot: clean.screenshot())
+        shot.name = "09-fresh-install-trends"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     func testTrendsAndPass() throws {
         app.tabBars.buttons["Trends"].tap()
         // Assert on something the tab bar does not also say — "Trends" is both
@@ -76,6 +102,11 @@ final class WorkoutFlowUITests: XCTestCase {
         XCTAssertTrue(strengthHeader.waitForExistence(timeout: 10),
                       "the strength table should be on the trends screen")
         XCTAssertTrue(app.staticTexts["Bench Press"].exists)
+        // Sample data must announce itself wherever it is drawn, or it is just
+        // invented numbers on a chart with your name on it.
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "sample data")).firstMatch.exists,
+            "demo data should be labelled on Trends")
         shoot("05-trends")
 
         app.tabBars.buttons["Pass"].tap()

@@ -20,6 +20,13 @@ struct RathiFitnessApp: App {
                 .task {
                     let context = container.mainContext
                     try? Seed.runIfNeeded(context)
+                    // `-RFDemoHistory` loads the tagged sample sessions. Used by
+                    // the UI tests and for looking at a populated screen — a real
+                    // first launch has no history, on purpose.
+                    if ProcessInfo.processInfo.arguments.contains("-RFDemoHistory"),
+                       (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0 {
+                        try? Seed.loadDemoHistory(context)
+                    }
                     // If Health is already connected, it is the source of truth
                     // for body mass — pull before writing the snapshot so the
                     // Mac sees this morning's weigh-in without anyone typing it.
