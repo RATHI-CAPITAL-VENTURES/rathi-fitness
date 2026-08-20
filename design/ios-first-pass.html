@@ -774,6 +774,27 @@ button.chip:focus-visible{outline:2px solid var(--s-accent); outline-offset:3px}
   </div>
 </section>
 
+<!-- ============ WHAT CHANGED WHEN IT GOT BUILT ============ -->
+<section class="path">
+  <p class="eyebrow">Reconciled against the shipped app · 20 Aug 2026</p>
+  <h2 style="font-family:var(--serif);font-weight:600;font-size:30px;letter-spacing:-.015em;margin-top:10px">Where the drawing and the app disagree.</h2>
+  <p style="font-size:14.5px;color:var(--ink-soft);max-width:44em;margin-top:12px;line-height:1.6">
+    These screens were drawn before a line of Swift existed, and the app is now built, tested and
+    running on the phone. Rather than quietly redraw them, here is every place the real thing
+    differs — a mockup that silently stops matching is worse than one that says where it drifted.
+  </p>
+  <div class="path-flow">
+    <div class="hop"><span class="kind">Numbers</span><b>20 sets, ~44 min</b><span>Today's subtitle is computed from the actual plan, not hand-written. The drawing says 22 and 48; the app is right.</span></div>
+    <div class="hop"><span class="kind">Chrome</span><b>The set screen keeps its tab bar</b><span>It is pushed inside a tab view, so iOS keeps the bar. The drawing removed it. The app's behaviour is the conventional one.</span></div>
+    <div class="hop"><span class="kind">Added</span><b>The plan is editable</b><span>Not drawn at all. It shipped seeded and read-only, which made the app a log of someone else's programme.</span></div>
+    <div class="hop"><span class="kind">Added</span><b>Apple Health, and codes from photos</b><span>Weigh-ins come from the scale via Health. A pass can be pulled out of a screenshot — the card is usually in a drawer.</span></div>
+  </div>
+  <p style="font-size:14px;color:var(--ink-dim);max-width:44em;margin-top:14px;line-height:1.6">
+    Everything else — the cooldown ramp, the plate-math row, the checklist's single live row, the
+    full-brightness pass card — is on the phone as drawn.
+  </p>
+</section>
+
 <!-- ============ DATA PATH ============ -->
 <section class="path">
   <p class="eyebrow">How RIA sees any of this</p>
