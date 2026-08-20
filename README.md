@@ -105,6 +105,18 @@ honest. It deliberately does *not* sample the full hue ramp: the app shows one
 value at a time, an icon shows all of them at once, and the yellow-green stretch
 between orange and teal would become a third colour the product does not have.
 
+## A note on the toolchain
+
+Xcode reinstalled itself as **`Xcode-beta.app`** (27.0), not `Xcode.app`, and
+left `xcode-select` pointing at CommandLineTools. Builds therefore need:
+
+    export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+
+or `sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer` once.
+
+Two tests skip on that runtime: Vision cannot create an inference context in
+this simulator, so the code round-trip cannot run there. It works on the device.
+
 ## Not decided yet
 
 - Whether the Blink check-in code is static (storable) or rotating (not).

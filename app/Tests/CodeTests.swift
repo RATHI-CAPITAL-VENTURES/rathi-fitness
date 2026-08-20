@@ -7,6 +7,17 @@ import UIKit
 /// we display must be readable by something that isn't us.
 final class CodeRoundTripTests: XCTestCase {
 
+    /// Vision needs an inference context, and some simulator runtimes cannot
+    /// make one. That is the host's problem, not the code's — skip rather than
+    /// report a red suite for it.
+    private func skipIfVisionUnavailable(_ error: Error) throws -> Never {
+        let text = (error as NSError).localizedDescription
+        if text.contains("inference context") {
+            throw XCTSkip("Vision has no inference context on this runtime")
+        }
+        throw error
+    }
+
     func testEveryFormatWeOfferSurvivesRenderAndDetect() async throws {
         // Aztec and PDF417 payloads are checked with realistic content: a
         // membership number, not "hello".
@@ -14,7 +25,9 @@ final class CodeRoundTripTests: XCTestCase {
         for symbology in GymPass.Symbology.allCases {
             let image = try XCTUnwrap(CodeImage.generate(payload, as: symbology),
                                       "\(symbology.label) did not render")
-            let found = try await CodeDetector.detect(in: image)
+            let found: CodeDetector.Found
+            do { found = try await CodeDetector.detect(in: image) }
+            catch { try skipIfVisionUnavailable(error) }
             XCTAssertEqual(found.value, payload, "\(symbology.label) round-tripped wrong")
             XCTAssertEqual(found.symbology, symbology,
                            "\(symbology.label) was detected as \(found.symbology.label)")
@@ -31,7 +44,7 @@ final class CodeRoundTripTests: XCTestCase {
         XCTAssertEqual(importable, renderable)
     }
 
-    func testAPictureWithNoCodeSaysWhatToDoAboutIt() async {
+    func testAPictureWithNoCodeSaysWhatToDoAboutIt() async throws {
         let blank = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 300)).image { ctx in
             UIColor.white.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 300))
@@ -39,6 +52,9 @@ final class CodeRoundTripTests: XCTestCase {
         do {
             _ = try await CodeDetector.detect(in: blank)
             XCTFail("a blank image reported a code")
+        } catch let error as NSError
+                    where error.localizedDescription.contains("inference context") {
+            throw XCTSkip("Vision has no inference context on this runtime")
         } catch let failure as CodeDetector.Failure {
             let message = failure.errorDescription ?? ""
             XCTAssertTrue(message.contains("screenshot"),

@@ -42,7 +42,11 @@ final class HealthBridge: ObservableObject {
     @AppStorage("health.exportedDays") private var exportedDaysRaw: String = ""
 
     #if canImport(HealthKit)
-    private let store = HKHealthStore()
+    /// Lazy: constructing `HKHealthStore` opens an XPC connection, and on a
+    /// build with no entitlement that logs "Missing com.apple.developer.healthkit
+    /// entitlement" on every launch. Nothing breaks, but a console full of
+    /// errors trains you to ignore the console.
+    private lazy var store = HKHealthStore()
     private var bodyMass: HKQuantityType { HKQuantityType(.bodyMass) }
     #endif
 
