@@ -25,6 +25,7 @@ struct PlanList: View {
     @EnvironmentObject private var snapshots: SnapshotService
 
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
+    @Query private var schedules: [Schedule]
     @State private var editing: PlannedDay?
 
     var body: some View {
@@ -94,7 +95,9 @@ struct PlanList: View {
     private func subtitle(_ day: PlannedDay) -> String {
         let items = day.orderedItems
         let sets = items.reduce(0) { $0 + $1.targetSets }
-        let when = Weekdays.name(day.weekday) ?? "unscheduled"
+        let rotating = (schedules.first?.config.mode ?? .weekday) != .weekday
+        let when = rotating ? "#\(day.order + 1) in the rotation"
+                            : (Weekdays.name(day.weekday) ?? "unscheduled")
         if items.isEmpty { return "\(when) · nothing in it yet" }
         return "\(when) · \(items.count) exercises · \(sets) sets"
     }
@@ -123,18 +126,35 @@ struct DayEditorView: View {
 
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
+    @Query private var schedules: [Schedule]
+    @Query private var allDays: [PlannedDay]
     @State private var addingExercise = false
+
+    private var rotating: Bool { (schedules.first?.config.mode ?? .weekday) != .weekday }
+    private var dayCount: Int { max(allDays.count, 1) }
 
     var body: some View {
         Form {
-            Section("Name and day") {
+            Section {
                 TextField("Push A", text: $day.name)
                     .font(RFDesign.uiMedium(16))
-                Picker("Weekday", selection: $day.weekday) {
-                    Text("Unscheduled").tag(0)
-                    ForEach(Weekdays.all, id: \.number) { d in
-                        Text(d.name).tag(d.number)
+                if rotating {
+                    LabeledContent("Position", value: "\(day.order + 1) of \(dayCount)")
+                } else {
+                    Picker("Weekday", selection: $day.weekday) {
+                        Text("Unscheduled").tag(0)
+                        ForEach(Weekdays.all, id: \.number) { d in
+                            Text(d.name).tag(d.number)
+                        }
                     }
+                }
+            } header: {
+                Text(rotating ? "Name and place in the rotation" : "Name and day")
+            } footer: {
+                if rotating {
+                    Text("You are on a rotation, so this workout is not pinned to a "
+                         + "weekday — it comes up when the cycle reaches it. Drag the "
+                         + "days on the previous screen to change the order.")
                 }
             }
 

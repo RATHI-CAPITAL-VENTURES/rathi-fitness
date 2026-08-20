@@ -15,6 +15,8 @@ struct SettingsView: View {
 
     @Query private var allSets: [SetEntry]
     @Query private var allWeighIns: [WeighIn]
+    @Query private var schedules: [Schedule]
+    @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
 
     private var demoCount: Int {
         allSets.filter(\.isDemo).count + allWeighIns.filter(\.isDemo).count
@@ -77,6 +79,8 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                scheduleSection
 
                 Section {
                     if let files = exportFiles {
@@ -172,6 +176,91 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+
+    /// When you train, and whether the workouts follow the weekday or rotate.
+    @ViewBuilder private var scheduleSection: some View {
+        let schedule = schedules.first
+        Section {
+            Picker("Schedule", selection: modeBinding) {
+                ForEach(Rotation.Mode.allCases) { Text($0.label).tag($0) }
+            }
+
+            if schedule?.config.mode != .weekday {
+                if schedule?.config.mode == .everyNDays {
+                    Stepper("Every \(schedule?.everyNDays ?? 2) days",
+                            value: everyNBinding, in: 1...14)
+                } else {
+                    ForEach(Weekdays.all, id: \.number) { day in
+                        Toggle(day.name, isOn: weekdayBinding(day.number))
+                            .font(RFDesign.ui(14))
+                    }
+                }
+            }
+        } header: {
+            Text("When you train")
+        } footer: {
+            Text(footerText)
+        }
+    }
+
+    private var footerText: String {
+        guard let config = schedules.first?.config else { return "" }
+        switch config.mode {
+        case .weekday:
+            return "Each workout belongs to a weekday, and that is the one you get. "
+                 + "Right for a fixed weekly split."
+        case .rotation, .everyNDays:
+            let next = Rotation.index(on: .now,
+                                      sessionDates: [], dayCount: max(days.count, 1))
+            _ = next
+            return "You train \(Rotation.describe(config)), and your "
+                 + "\(days.count) workouts cycle in the order they appear in the plan. "
+                 + "Three sessions a week through four workouts means the pairing drifts "
+                 + "— which is the point, and why nothing here is pinned to a weekday.\n\n"
+                 + "Where you are in the cycle is counted from the sessions you have "
+                 + "actually logged, so skipping one picks up where you left off rather "
+                 + "than losing your place."
+        }
+    }
+
+    private var modeBinding: Binding<Rotation.Mode> {
+        Binding(
+            get: { schedules.first?.config.mode ?? .weekday },
+            set: { mode in
+                let schedule = schedules.first ?? {
+                    let new = Schedule(); context.insert(new); return new
+                }()
+                var config = schedule.config
+                config.mode = mode
+                schedule.config = config
+                try? context.save()
+                snapshots.setNeedsWrite(context)
+            })
+    }
+
+    private var everyNBinding: Binding<Int> {
+        Binding(
+            get: { schedules.first?.everyNDays ?? 2 },
+            set: { value in
+                schedules.first?.everyNDays = value
+                try? context.save()
+                snapshots.setNeedsWrite(context)
+            })
+    }
+
+    private func weekdayBinding(_ number: Int) -> Binding<Bool> {
+        Binding(
+            get: { schedules.first?.config.trainingWeekdays.contains(number) ?? false },
+            set: { on in
+                guard let schedule = schedules.first else { return }
+                var config = schedule.config
+                if on { config.trainingWeekdays.insert(number) }
+                else { config.trainingWeekdays.remove(number) }
+                schedule.config = config
+                try? context.save()
+                snapshots.setNeedsWrite(context)
+            })
     }
 
     private func connect() async {

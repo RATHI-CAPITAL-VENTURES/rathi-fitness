@@ -13,6 +13,7 @@ written yet. See `design/ios-first-pass.html`.
 | Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes. Scan with the camera **or pull the code out of a screenshot you already have**. QR, Code 128, PDF417 and Aztec. |
 | A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time |
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
+| Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
 
@@ -85,6 +86,32 @@ To upgrade a local-only install to the full one: sign into Xcode
 (Settings → Accounts → +, your Apple ID), then run the full build above. Xcode
 registers the App ID, creates the `iCloud.com.rathi.fitness` container and
 regenerates the profile. Nothing in the code changes.
+
+## Scheduling: fixed days, rotating content
+
+The first model bound a workout to a weekday — `Push A = Wednesday`. That cannot
+express the common case, which is Ishan's: **you train on fixed days and the
+content rotates.** Three sessions a week (Tue/Thu/Sat) through a four-workout
+rotation means the pairing drifts every week:
+
+    Tue  Thu  Sat  │ Tue  Thu  Sat  │ Tue
+     1    2    3   │  4    1    2   │  3
+
+No day-to-weekday mapping is right for more than seven days. So there are three
+modes (Settings → When you train):
+
+- **Same workout each weekday** — the original, right for a fixed weekly split.
+- **Rotating, on chosen days** — pick the weekdays; the workouts cycle in plan
+  order.
+- **Rotating, every N days** — counted from the last session you actually did,
+  not from the calendar.
+
+**Position in the rotation is derived, never stored.** A cursor incremented on
+completion goes wrong the first time you log a session late, delete one, or
+train twice in a day — and nothing tells you it has. Counting the sessions you
+have actually logged is self-correcting: skip a week and you pick up exactly
+where you left off, which is what a rotation is for. `RotationTests` walks three
+real weeks and asserts the drift.
 
 ## Apple Health
 

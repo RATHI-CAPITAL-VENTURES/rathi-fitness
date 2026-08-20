@@ -105,6 +105,9 @@ enum Seed {
 
     static func run(_ context: ModelContext, now: Date = .now, weeksOfHistory: Int = 6) throws {
         let cal = Calendar.current
+        if try context.fetchCount(FetchDescriptor<Schedule>()) == 0 {
+            context.insert(Schedule())
+        }
         var byName: [String: Exercise] = [:]
 
         for (order, day) in days.enumerated() {
