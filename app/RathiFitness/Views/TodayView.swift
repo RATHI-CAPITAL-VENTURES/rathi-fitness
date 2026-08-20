@@ -11,6 +11,7 @@ struct TodayView: View {
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
     @Query(sort: \WeighIn.date, order: .reverse) private var weighIns: [WeighIn]
+    @Query private var schedules: [Schedule]
 
     @State private var weighingIn = false
     @State private var overrideDay: PlannedDay?
@@ -18,12 +19,44 @@ struct TodayView: View {
     @State private var showingPlan = false
 
     private var calendar: Calendar { .current }
+    private var config: Rotation.Config { schedules.first?.config ?? Rotation.Config() }
+
+    /// Every date a set was logged on — the input the rotation counts.
+    private var sessionDates: [Date] { allSets.map(\.date) }
+
+    private var lastSession: Date? {
+        allSets.filter { !calendar.isDate($0.date, inSameDayAs: .now) }
+            .map(\.date).max()
+    }
+
+    private var isTrainingDay: Bool {
+        Rotation.isTrainingDay(.now, config: config, lastSession: lastSession,
+                               calendar: calendar)
+    }
+
+    /// What is up today.
+    ///
+    /// Resolved on every read rather than assigned once at appear: the store may
+    /// still be seeding when this view first draws, and a one-shot assignment
+    /// then latches nil forever.
     private var today: PlannedDay? {
-        // Resolved on every read rather than assigned once at appear: the store
-        // may still be seeding when this view first draws, and a one-shot
-        // assignment then latches nil forever.
-        overrideDay ?? launchArgumentDay
-            ?? days.first { $0.weekday == calendar.component(.weekday, from: .now) }
+        if let chosen = overrideDay ?? launchArgumentDay { return chosen }
+        switch config.mode {
+        case .weekday:
+            return days.first { $0.weekday == calendar.component(.weekday, from: .now) }
+        case .rotation, .everyNDays:
+            guard isTrainingDay else { return nil }
+            return rotationDay
+        }
+    }
+
+    /// The workout the rotation has reached, training day or not — so a rest day
+    /// can still say what is coming.
+    private var rotationDay: PlannedDay? {
+        guard let index = Rotation.index(on: .now, sessionDates: sessionDates,
+                                         dayCount: days.count, calendar: calendar)
+        else { return nil }
+        return days.indices.contains(index) ? days[index] : days.first
     }
 
     /// `-RFDay "Push A"` opens that day whatever the calendar says.
@@ -115,9 +148,7 @@ struct TodayView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(overrideDay == nil && launchArgumentDay == nil
-                     ? Fmt.weekdayDate(.now) : "Doing out of order")
-                .rfEyebrow()
+            Text(headerEyebrow).rfEyebrow()
             Text(today?.name ?? "Rest day")
                 .font(RFDesign.title(34))
                 .foregroundStyle(RFDesign.speech)
@@ -128,6 +159,17 @@ struct TodayView: View {
             }
         }
         .padding(.top, RFDesign.sm)
+    }
+
+    private var headerEyebrow: String {
+        if overrideDay != nil || launchArgumentDay != nil { return "Doing out of order" }
+        guard config.mode != .weekday, days.count > 1,
+              let index = Rotation.index(on: .now, sessionDates: sessionDates,
+                                         dayCount: days.count, calendar: calendar)
+        else { return Fmt.weekdayDate(.now) }
+        // "Thu 21 Aug · 3 of 4" — where you are in the cycle, which is the thing
+        // a rotation makes hard to hold in your head.
+        return "\(Fmt.weekdayDate(.now)) · \(index + 1) of \(days.count)"
     }
 
     private func subtitle(for day: PlannedDay) -> String {
@@ -177,9 +219,7 @@ struct TodayView: View {
 
     private var restDay: some View {
         VStack(alignment: .leading, spacing: RFDesign.sm) {
-            EmptyNote(title: "Nothing scheduled today.",
-                      message: "Pick a day from the calendar button to do one anyway, "
-                             + "or change what happens on \(Fmt.weekdayDate(.now)).")
+            EmptyNote(title: "Rest day.", message: restMessage)
             Button { showingPlan = true } label: {
                 Label("Edit the plan", systemImage: "slider.horizontal.3")
                     .font(RFDesign.ui(14, bold: true))
@@ -231,6 +271,28 @@ struct TodayView: View {
             return nil
         }
         return Tally.volume(entries.map { Tally.Set(weight: $0.weight, reps: $0.reps) })
+    }
+
+    /// What is next and when — a rest day is still a place you look to find out
+    /// what is coming, and "nothing scheduled" answers neither question.
+    private var restMessage: String {
+        guard config.mode != .weekday else {
+            return "Pick a day from the calendar button to do one anyway, or change "
+                 + "what happens on \(Fmt.weekdayDate(.now))."
+        }
+        var parts: [String] = []
+        if let next = rotationDay { parts.append("Next up is \(next.name)") }
+        if let when = Rotation.nextTrainingDay(
+            from: calendar.date(byAdding: .day, value: 1, to: .now) ?? .now,
+            config: config, lastSession: lastSession, calendar: calendar) {
+            let weekday = DateFormatter()
+            weekday.dateFormat = "EEEE"
+            parts.append(calendar.isDateInTomorrow(when)
+                         ? "tomorrow" : "on \(weekday.string(from: when))")
+        }
+        let line = parts.isEmpty ? "Nothing scheduled." : parts.joined(separator: ", ") + "."
+        return line + " You train \(Rotation.describe(config)) — "
+             + "the calendar button starts one early."
     }
 
     private var bodyWeight: some View {

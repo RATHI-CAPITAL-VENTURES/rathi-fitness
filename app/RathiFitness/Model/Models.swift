@@ -195,6 +195,37 @@ enum SetKind: String, CaseIterable, Identifiable {
     var isPreparation: Bool { self == .warmup }
 }
 
+/// How the programme is scheduled. One row, ever.
+///
+/// A model rather than `@AppStorage` because it belongs to the training plan and
+/// should follow it between devices, not sit in the defaults of whichever phone
+/// happened to set it.
+@Model
+final class Schedule {
+    var mode: String = Rotation.Mode.weekday.rawValue
+    /// Comma-separated `Calendar` weekday numbers, 1 = Sunday.
+    var trainingWeekdays: String = "3,5,7"
+    var everyNDays: Int = 2
+
+    init() {}
+
+    var config: Rotation.Config {
+        get {
+            Rotation.Config(
+                mode: Rotation.Mode(rawValue: mode) ?? .weekday,
+                trainingWeekdays: Set(trainingWeekdays.split(separator: ",")
+                    .compactMap { Int($0) }),
+                everyNDays: everyNDays)
+        }
+        set {
+            mode = newValue.mode.rawValue
+            trainingWeekdays = newValue.trainingWeekdays.sorted()
+                .map(String.init).joined(separator: ",")
+            everyNDays = newValue.everyNDays
+        }
+    }
+}
+
 /// Everything about the body that isn't a lift.
 ///
 /// Body weight has its own model because it is the one measured daily and

@@ -55,6 +55,7 @@ Ranked by how often they'd bite in a real session.
 | **Exercise library** | 80-entry catalogue with loading and muscles, searchable by name or muscle. Picking a lift now means picking one, not describing one |
 | **Progressive overload prompt** | One sentence on the set screen from the last session: hit every rep → the weight goes up; stalled → hold it; just short → one more rep and it goes up |
 | **CSV export** | Sets (with type, RPE, note) and body data, shareable from Settings. The reason leaving is possible |
+| **Rotating programmes** | Boostcamp and Jefit both assume a programme is a cycle rather than a week; we assumed a weekday. Fixed days with rotating content is now a first-class mode — see the README |
 | **Body measurements** | Waist, chest, hips, thighs, arms, calf, neck, shoulders — on Trends, with the change since the previous reading |
 
 ## Still missing, deliberately deferred
