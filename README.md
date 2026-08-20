@@ -61,6 +61,11 @@ xcrun devicectl device install app --device <coredevice-uuid> \
 "Unable to find a device matching the provided destination specifier", which
 reads like the phone is unplugged.
 
+The full build is the one installed as of 2026-08-20, and it works: the
+entitlements are in the binary, the container exists, and `gym today` on the Mac
+reads the phone's real sessions out of
+`~/Library/Mobile Documents/iCloud~com~rathi~fitness/Documents/snapshot.json`.
+
 **Local-only build — works with no developer account.** Signs against the
 wildcard team profile by claiming no capabilities:
 
@@ -94,7 +99,11 @@ measured numbers.
 
 Like CloudKit, HealthKit needs an entitlement a wildcard team profile cannot
 carry, so the local-only build reports Health as unavailable rather than failing
-at the permission sheet. One signed build turns on Health and sync together.
+at the permission sheet — that is the "no Health entitlement" message, and it
+means you are running that build, not that something is broken.
+
+The signed build carries `com.apple.developer.healthkit` and turns Health and
+iCloud sync on together. Connect it in Settings → Apple Health.
 
 ## The app icon
 
