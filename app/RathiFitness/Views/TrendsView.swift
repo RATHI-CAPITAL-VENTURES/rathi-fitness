@@ -289,7 +289,19 @@ struct TrendsView: View {
                                secondary: $0.exercise?.secondary ?? [])
         }, since: since)
 
-        if !work.isEmpty {
+        if work.isEmpty && !allSets.isEmpty {
+            // Silence here reads as "you did no work". The truth is that the
+            // lifts have no muscles set, and that is fixable in two taps.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sets per muscle").rfEyebrow()
+                Text("None of your exercises say what they work yet. "
+                     + "Settings › Edit the plan › an exercise › Muscles.")
+                    .font(RFDesign.ui(13))
+                    .foregroundStyle(RFDesign.labelDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, RFDesign.md)
+        } else if !work.isEmpty {
             let peak = work.first?.sets ?? 1
             VStack(alignment: .leading, spacing: RFDesign.sm) {
                 HStack {

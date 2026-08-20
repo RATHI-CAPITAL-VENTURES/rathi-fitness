@@ -450,6 +450,16 @@ struct ExerciseEditorView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
 
+    private func secondaryBinding(_ muscle: MuscleGroup) -> Binding<Bool> {
+        Binding(
+            get: { exercise.secondary.contains(muscle) },
+            set: { on in
+                var all = Set(exercise.secondary)
+                if on { all.insert(muscle) } else { all.remove(muscle) }
+                exercise.secondaryMuscles = all.map(\.rawValue).sorted().joined(separator: ",")
+            })
+    }
+
     var body: some View {
         Form {
             Section("Name") {
@@ -475,11 +485,37 @@ struct ExerciseEditorView: View {
                 Text("Only barbell lifts get plate math. A cable stack has no plates to "
                      + "work out, and showing some would be a guess.")
             }
+
+            Section {
+                Picker("Mainly works", selection: $exercise.primaryMuscle) {
+                    ForEach(MuscleGroup.allCases) { muscle in
+                        Text(muscle == .other ? "Not set" : muscle.label).tag(muscle.rawValue)
+                    }
+                }
+                ForEach(MuscleGroup.allCases.filter { $0 != .other }) { muscle in
+                    if muscle != exercise.primary {
+                        Toggle(muscle.label, isOn: secondaryBinding(muscle))
+                            .font(RFDesign.ui(14))
+                    }
+                }
+            } header: {
+                Text("Muscles")
+            } footer: {
+                Text("Drives sets-per-muscle-per-week on Trends. The main mover counts as "
+                     + "a whole set and each of the others as half. An exercise with none "
+                     + "set is left out of that chart entirely rather than guessed at — "
+                     + "which is why a lift you typed in yourself starts here.")
+            }
         }
         .scrollContentBackground(.hidden)
         .background(RFDesign.ground.ignoresSafeArea())
         .navigationTitle("Exercise")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            // A lift typed in before the catalogue existed can still be matched
+            // to it — better than making him pick muscles the app already knows.
+            if exercise.primary == .other { Catalogue.enrich(exercise) }
+        }
         .onDisappear {
             // The slug is what the CLI and RIA refer to, so it follows the name.
             exercise.slug = Exercise.slugify(exercise.name)
