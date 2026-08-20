@@ -40,6 +40,18 @@ struct Snapshot: Codable {
         var trendPerWeek: Double?
         var history: [Point]
         struct Point: Codable { var date: String; var lb: Double }
+
+        /// Spelled out because `convertToSnakeCase` breaks on capitals, not on
+        /// digits: `change30d` would otherwise ship as `change30d` sitting next
+        /// to `trend_per_week`, and a contract that is inconsistent in one field
+        /// is a contract every reader has to check twice.
+        enum CodingKeys: String, CodingKey {
+            case unit, current
+            case currentDate = "current_date"
+            case change30d = "change_30d"
+            case trendPerWeek = "trend_per_week"
+            case history
+        }
     }
 
     struct Today: Codable {
@@ -73,6 +85,14 @@ struct Snapshot: Codable {
         var best: Best?
         var change30d: Double?
         var recent: [SessionLine]
+
+        enum CodingKeys: String, CodingKey {
+            case slug, name, loading, best, recent
+            case workingWeight = "working_weight"
+            case lastPerformed = "last_performed"
+            case change30d = "change_30d"
+        }
+
         struct Best: Codable { var weight: Double; var reps: Int; var date: String }
         struct SessionLine: Codable {
             var date: String
@@ -119,6 +139,10 @@ struct Snapshot: Codable {
 // MARK: - Building it
 
 enum SnapshotBuilder {
+
+    /// Binary floating point makes 176.4 - 178.2 into -1.799999999999983. Nobody
+    /// weighed that, and it reaches RIA as a number she might read aloud.
+    static func round1(_ v: Double) -> Double { (v * 10).rounded() / 10 }
 
     static func build(from context: ModelContext,
                       now: Date = .now,
@@ -168,7 +192,8 @@ enum SnapshotBuilder {
             if span >= 1 { perWeek = change / span * 7 }
         }
         return .init(current: latest.pounds, currentDate: Fmt.day(latest.date),
-                     change30d: change, trendPerWeek: perWeek, history: history)
+                     change30d: change.map(round1), trendPerWeek: perWeek.map(round1),
+                     history: history)
     }
 
     private static func today(days: [PlannedDay], sets: [SetEntry],
@@ -228,7 +253,7 @@ enum SnapshotBuilder {
             workingWeight: lines.first?.topWeight,
             lastPerformed: lines.first?.date,
             best: best.map { .init(weight: $0.weight, reps: $0.reps, date: Fmt.day($0.date)) },
-            change30d: change,
+            change30d: change.map(round1),
             recent: Array(lines.prefix(12)))
     }
 

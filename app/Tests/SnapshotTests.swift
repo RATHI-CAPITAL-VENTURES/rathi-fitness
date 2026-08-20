@@ -55,8 +55,32 @@ final class SnapshotTests: XCTestCase {
             XCTAssertNotNil(object[key], "missing top-level key \(key)")
         }
         let body = try XCTUnwrap(object["body_weight"] as? [String: Any])
-        XCTAssertNotNil(body["current"])
-        XCTAssertNotNil(body["history"])
+        for key in ["current", "current_date", "change_30d", "trend_per_week", "history", "unit"] {
+            XCTAssertNotNil(body[key], "missing body_weight key \(key)")
+        }
+        // The trap this pins down: `convertToSnakeCase` splits on capitals and
+        // NOT on digits, so `change30d` silently ships as "change30d" next to
+        // "trend_per_week" and the CLI reads nil forever without erroring.
+        XCTAssertNil(body["change30d"], "the un-snaked key must not come back")
+
+        let exercise = try XCTUnwrap((object["exercises"] as? [[String: Any]])?.first)
+        for key in ["slug", "name", "loading", "working_weight", "last_performed", "change_30d"] {
+            XCTAssertNotNil(exercise[key], "missing exercise key \(key)")
+        }
+        XCTAssertNil(exercise["change30d"])
+    }
+
+    func testNumbersAreRoundedBeforeTheyLeaveTheApp() throws {
+        let context = try seededContext()
+        let snapshot = try SnapshotBuilder.build(from: context)
+        // 176.4 - 178.2 is -1.799999999999983 in binary floating point. RIA may
+        // read this number out loud.
+        if let change = snapshot.bodyWeight.change30d {
+            XCTAssertEqual(change, (change * 10).rounded() / 10, accuracy: 1e-9)
+        }
+        if let trend = snapshot.bodyWeight.trendPerWeek {
+            XCTAssertEqual(trend, (trend * 10).rounded() / 10, accuracy: 1e-9)
+        }
     }
 
     func testTodayIsPresentOnATrainingDayAndAbsentOnARestDay() throws {

@@ -1,0 +1,280 @@
+"""Tests for the gym CLI.
+
+Runs against a fixture snapshot rather than the real one, so the suite works on
+a machine that has never seen the phone.
+
+    python3 -m unittest discover cli
+"""
+import contextlib
+import io
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))
+gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
+
+FIXTURE = {
+    "schema": 1,
+    "generated_at": "2026-08-20T13:12:47Z",
+    "app_version": "0.1.0",
+    "body_weight": {
+        "unit": "lb", "current": 176.4, "current_date": "2026-08-20",
+        "change_30d": -1.8, "trend_per_week": -0.4,
+        "history": [{"date": "2026-07-21", "lb": 179.6},
+                    {"date": "2026-08-10", "lb": 177.9},
+                    {"date": "2026-08-20", "lb": 176.4}],
+    },
+    "today": {
+        "date": "2026-08-20", "day": "Push A",
+        "sets_done": 7, "sets_planned": 20,
+        "exercises_done": 2, "exercises_planned": 3,
+        "items": [
+            {"slug": "bench-press", "name": "Bench Press", "target_sets": 4,
+             "target_reps": 8, "target_weight": 185, "rest_seconds": 150,
+             "sets_done": 4, "done": True,
+             "performed": [{"weight": 185, "reps": r} for r in (8, 8, 7, 6)]},
+            {"slug": "cable-fly", "name": "Cable Fly", "target_sets": 3,
+             "target_reps": 12, "target_weight": 30, "rest_seconds": 60,
+             "sets_done": 3, "done": True,
+             "performed": [{"weight": 30, "reps": 12}] * 3},
+            {"slug": "lateral-raise", "name": "Lateral Raise", "target_sets": 3,
+             "target_reps": 15, "target_weight": 20, "rest_seconds": 60,
+             "sets_done": 0, "done": False, "performed": []},
+        ],
+    },
+    "exercises": [
+        {"slug": "bench-press", "name": "Bench Press", "loading": "barbell",
+         "working_weight": 185, "last_performed": "2026-08-19",
+         "best": {"weight": 185, "reps": 8, "date": "2026-08-19"},
+         "change_30d": 12.5,
+         "recent": [{"date": "2026-08-19", "top_weight": 185, "reps": [8, 8, 7, 6],
+                     "volume": 5365},
+                    {"date": "2026-08-12", "top_weight": 182.5, "reps": [8, 7, 7, 6],
+                     "volume": 5110}]},
+        {"slug": "deadlift", "name": "Deadlift", "loading": "barbell",
+         "working_weight": 315, "last_performed": "2026-08-17",
+         "change_30d": None, "recent": []},
+    ],
+    "plan": [],
+    "passes": [
+        {"name": "Blink Fitness", "location": "Union Square", "symbology": "code128",
+         "member_id_masked": "•••• 4917", "state": "2 uses left",
+         "expires": "2026-09-04", "expired": False, "primary": True, "has_code": True},
+    ],
+    "sessions": [
+        {"date": "2026-08-19", "day": "Push A", "exercises": 6, "sets": 20,
+         "volume": 12830, "top_lifts": ["Bench Press 185"]},
+    ],
+}
+
+
+@contextlib.contextmanager
+def fixture(data=None):
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(FIXTURE if data is None else data, f)
+        path = f.name
+    old = os.environ.get("GYM_SNAPSHOT")
+    os.environ["GYM_SNAPSHOT"] = path
+    try:
+        yield path
+    finally:
+        os.environ.pop("GYM_SNAPSHOT", None)
+        if old is not None:
+            os.environ["GYM_SNAPSHOT"] = old
+        os.unlink(path)
+
+
+def run(*argv):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = gym.main(list(argv))
+    return code, out.getvalue()
+
+
+class Formatting(unittest.TestCase):
+    def test_weights_drop_pointless_decimals(self):
+        self.assertEqual(gym.num(185.0), "185")
+        self.assertEqual(gym.num(2.5), "2.5")
+        self.assertEqual(gym.num(None), "—")
+
+    def test_float_noise_is_rounded_away(self):
+        # The value CoreData/JSON hands over for 176.4 - 178.2.
+        self.assertEqual(gym.num(-1.799999999999983), "-1.8")
+        self.assertEqual(gym.signed(-1.799999999999983), "−1.8")
+
+    def test_no_change_is_a_dash(self):
+        self.assertEqual(gym.signed(0), "—")
+        self.assertEqual(gym.signed(None), "—")
+        self.assertEqual(gym.signed(10), "+10")
+
+    def test_sparkline_spans_the_block_range(self):
+        line = gym.sparkline([1, 2, 3, 4, 5, 6, 7, 8])
+        self.assertEqual(len(line), 8)
+        self.assertEqual(line[0], "▁")
+        self.assertEqual(line[-1], "█")
+
+    def test_flat_series_does_not_divide_by_zero(self):
+        self.assertEqual(gym.sparkline([5, 5, 5]), "▄▄▄")
+        self.assertEqual(gym.sparkline([]), "")
+
+
+class Loading(unittest.TestCase):
+    def test_missing_snapshot_explains_how_to_fix_it(self):
+        os.environ["GYM_SNAPSHOT"] = "/nonexistent/snapshot.json"
+        try:
+            with self.assertRaises(gym.NoSnapshot) as ctx:
+                gym.load()
+            message = str(ctx.exception)
+            self.assertIn("Open Rathi Fitness on the phone", message)
+            self.assertIn("iCloud Drive", message)
+        finally:
+            os.environ.pop("GYM_SNAPSHOT", None)
+
+    def test_future_schema_is_refused_not_guessed_at(self):
+        data = dict(FIXTURE, schema=99)
+        with fixture(data):
+            with self.assertRaises(gym.NoSnapshot) as ctx:
+                gym.load()
+            self.assertIn("99", str(ctx.exception))
+
+    def test_half_written_json_is_a_clear_error(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"schema": 1, "body_wei')
+            path = f.name
+        os.environ["GYM_SNAPSHOT"] = path
+        try:
+            with self.assertRaises(gym.NoSnapshot) as ctx:
+                gym.load()
+            self.assertIn("try again", str(ctx.exception))
+        finally:
+            os.environ.pop("GYM_SNAPSHOT", None)
+            os.unlink(path)
+
+    def test_exit_code_two_when_there_is_no_snapshot(self):
+        os.environ["GYM_SNAPSHOT"] = "/nonexistent/snapshot.json"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(gym.main(["today"]), 2)
+            self.assertIn("No snapshot", err.getvalue())
+        finally:
+            os.environ.pop("GYM_SNAPSHOT", None)
+
+
+class Commands(unittest.TestCase):
+    def test_today_shows_plan_and_deviation(self):
+        with fixture():
+            code, out = run("today")
+        self.assertEqual(code, 0)
+        self.assertIn("Push A", out)
+        self.assertIn("2 of 3 done", out)
+        # Bench was 8,8,7,6 against a target of 8 — that is not "all four hit".
+        self.assertIn("got 8, 8, 7, 6", out)
+        # Cable Fly hit every rep.
+        self.assertIn("all 3 hit", out)
+        self.assertIn("176.4", out)
+
+    def test_today_on_a_rest_day(self):
+        data = dict(FIXTURE); data.pop("today")
+        with fixture(data):
+            code, out = run("today")
+        self.assertEqual(code, 0)
+        self.assertIn("Rest day", out)
+
+    def test_weight_reports_trend_and_a_sparkline(self):
+        with fixture():
+            _, out = run("weight")
+        self.assertIn("176.4", out)
+        self.assertIn("−1.8", out)
+        self.assertIn("−0.4/wk", out)
+        self.assertTrue(any(c in out for c in gym.SPARK))
+
+    def test_lifts_sorted_heaviest_first(self):
+        with fixture():
+            _, out = run("lifts")
+        self.assertLess(out.index("Deadlift"), out.index("Bench Press"))
+        # A lift with no 30-day comparison prints a dash, never +0.
+        self.assertIn("—", out)
+
+    def test_exercise_matches_loosely(self):
+        with fixture():
+            _, out = run("exercise", "bench")
+        self.assertIn("Bench Press", out)
+        self.assertIn("2026-08-19", out)
+        self.assertIn("8, 8, 7, 6", out)
+
+    def test_unknown_exercise_lists_what_it_knows(self):
+        with fixture():
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                with self.assertRaises(SystemExit):
+                    gym.main(["exercise", "bicep-curl-machine"])
+            self.assertIn("Known:", err.getvalue())
+
+    def test_sessions(self):
+        with fixture():
+            _, out = run("sessions")
+        self.assertIn("Push A", out)
+        self.assertIn("Bench Press 185", out)
+
+    def test_json_flag_is_machine_readable(self):
+        with fixture():
+            _, out = run("--json", "lifts")
+        parsed = json.loads(out)
+        self.assertEqual(parsed[0]["name"], "Deadlift")
+
+    def test_status_flags_a_stale_snapshot(self):
+        old = dict(FIXTURE, generated_at="2020-01-01T00:00:00Z")
+        with fixture(old):
+            _, out = run("status")
+        self.assertIn("Stale", out)
+
+    def test_status_is_quiet_when_fresh(self):
+        import datetime as dt
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with fixture(dict(FIXTURE, generated_at=now)):
+            _, out = run("status")
+        self.assertNotIn("Stale", out)
+        self.assertIn("just now", out)
+
+
+class Secrets(unittest.TestCase):
+    """The snapshot has no codes in it; the CLI must not invent a way to want one."""
+
+    def test_passes_shows_state_but_never_a_code(self):
+        with fixture():
+            _, out = run("passes")
+        self.assertIn("Blink Fitness", out)
+        self.assertIn("2 uses left", out)
+        self.assertIn("•••• 4917", out)
+        self.assertIn("Codes are never exported", out)
+
+    def test_no_command_can_print_a_code_even_if_one_leaked_in(self):
+        # Belt and braces: if a future app version ever wrote a code into the
+        # snapshot, `gym` should still not be the thing that prints it.
+        leaked = json.loads(json.dumps(FIXTURE))
+        leaked["passes"][0]["code"] = "SECRET-CODE-1234"
+        with fixture(leaked):
+            for command in (["passes"], ["today"], ["lifts"], ["status"]):
+                _, out = run(*command)
+                self.assertNotIn("SECRET-CODE-1234", out,
+                                 f"{command} printed a pass code")
+
+    def test_raw_is_the_documented_exception(self):
+        # `gym raw` is explicitly "give me the file", so it does dump whatever is
+        # in it. That is why the app is the thing that must never write a code.
+        leaked = json.loads(json.dumps(FIXTURE))
+        leaked["passes"][0]["code"] = "SECRET-CODE-1234"
+        with fixture(leaked):
+            _, out = run("raw")
+        self.assertIn("SECRET-CODE-1234", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
