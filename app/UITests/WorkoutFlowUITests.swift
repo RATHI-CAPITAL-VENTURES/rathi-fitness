@@ -95,7 +95,7 @@ final class WorkoutFlowUITests: XCTestCase {
         gym.tap(); gym.typeText("Blink Fitness")
         let where_ = app.textFields["Union Square"]
         where_.tap(); where_.typeText("Union Square")
-        let code = app.textFields["Scan or type the code"]
+        let code = app.textFields["Scan, import or type the code"]
         code.tap(); code.typeText("RF-DEMO-CODE-0001")
         shoot("07-pass-editor")
         app.navigationBars["Add a pass"].buttons["Save"].tap()

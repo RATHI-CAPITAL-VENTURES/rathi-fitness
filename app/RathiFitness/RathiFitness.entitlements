@@ -15,6 +15,10 @@
 	<array>
 		<string>iCloud.com.rathi.fitness</string>
 	</array>
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array/>
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>
