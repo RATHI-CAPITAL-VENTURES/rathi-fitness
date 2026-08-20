@@ -46,6 +46,15 @@ enum Store {
     /// useless anyway. `RF_NO_CLOUDKIT=1` forces it off for a signed-in
     /// simulator, where the entitlement is still absent.
     static var cloudKitIsUsable: Bool {
+        #if RF_LOCAL_ONLY
+        // Built without the iCloud entitlement on purpose (see the README's
+        // "installing without a developer account" note). This is NOT the same
+        // as the env-var switch below: on a real device the user IS signed into
+        // iCloud, so `ubiquityIdentityToken` is non-nil and the check further
+        // down would say yes — straight into the trap this whole property
+        // exists to avoid.
+        return false
+        #else
         if ProcessInfo.processInfo.environment["RF_NO_CLOUDKIT"] == "1" { return false }
         #if targetEnvironment(simulator)
         // A simulator build is never signed with the container entitlement, so
@@ -53,6 +62,7 @@ enum Store {
         return false
         #else
         return FileManager.default.ubiquityIdentityToken != nil
+        #endif
         #endif
     }
 
