@@ -48,6 +48,14 @@ struct TrendsView: View {
                         .padding(.top, RFDesign.sm)
 
                     picker
+                    if allSets.contains(where: \.isDemo)
+                        || weighIns.contains(where: \.isDemo) {
+                        // Never let invented numbers pass as his without saying so.
+                        Label("Some of this is sample data — Settings › Your data to remove it.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(RFDesign.ui(12))
+                            .foregroundStyle(RFDesign.ember)
+                    }
                     headline
                     chart
                     rangePicker

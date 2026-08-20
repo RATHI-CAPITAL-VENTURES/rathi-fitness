@@ -34,6 +34,7 @@ FIXTURE = {
         "date": "2026-08-20", "day": "Push A",
         "sets_done": 7, "sets_planned": 20,
         "exercises_done": 2, "exercises_planned": 3,
+        "volume": 9420,
         "items": [
             {"slug": "bench-press", "name": "Bench Press", "target_sets": 4,
              "target_reps": 8, "target_weight": 185, "rest_seconds": 150,
@@ -70,6 +71,10 @@ FIXTURE = {
     "sessions": [
         {"date": "2026-08-19", "day": "Push A", "exercises": 6, "sets": 20,
          "volume": 12830, "top_lifts": ["Bench Press 185"]},
+        {"date": "2026-08-17", "day": "Pull A", "exercises": 5, "sets": 16,
+         "volume": 15810, "top_lifts": ["Deadlift 315"]},
+        {"date": "2026-08-12", "day": "Legs", "exercises": 5, "sets": 17,
+         "volume": 34960, "top_lifts": ["Leg Press 360"]},
     ],
 }
 
@@ -242,6 +247,60 @@ class Commands(unittest.TestCase):
             _, out = run("status")
         self.assertNotIn("Stale", out)
         self.assertIn("just now", out)
+
+
+class Volume(unittest.TestCase):
+    """How much you moved — the number that makes an hour of standing around
+    add up to something."""
+
+    def test_tonnage_switches_units_where_pounds_stop_being_picturable(self):
+        self.assertEqual(gym.tonnage(12830), "12,830 lb")
+        self.assertEqual(gym.tonnage(41200), "20.6 tons")
+        self.assertEqual(gym.tonnage(0), "nothing yet")
+
+    def test_today_reports_what_has_been_moved(self):
+        with fixture():
+            _, out = run("today")
+        self.assertIn("Moved today: 9,420 lb", out)
+
+    def test_today_says_nothing_about_volume_before_you_lift_anything(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data["today"]["volume"] = 0
+        with fixture(data):
+            _, out = run("today")
+        # A zero scoreboard is a scoreboard telling you off.
+        self.assertNotIn("Moved today", out)
+
+    def test_volume_groups_sessions_into_weeks(self):
+        with fixture():
+            _, out = run("volume")
+        # 19 and 17 Aug are the same week (Mon 17th); the 12th is the week before.
+        self.assertIn("week of 2026-08-17", out)
+        self.assertIn("week of 2026-08-10", out)
+        self.assertIn("2 sessions", out)
+
+    def test_volume_totals_the_window(self):
+        with fixture():
+            _, out = run("volume")
+        self.assertIn(gym.tonnage(12830 + 15810 + 34960), out)
+
+    def test_volume_json_is_machine_readable(self):
+        with fixture():
+            _, out = run("--json", "volume")
+        weeks = json.loads(out)
+        self.assertEqual(weeks[-1]["volume"], 12830 + 15810)
+
+    def test_volume_with_nothing_logged(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data["sessions"] = []
+        with fixture(data):
+            _, out = run("volume")
+        self.assertIn("Nothing logged yet", out)
+
+    def test_sessions_uses_the_same_tonnage_wording(self):
+        with fixture():
+            _, out = run("sessions")
+        self.assertIn("17.5 tons moved", out)
 
 
 class Secrets(unittest.TestCase):

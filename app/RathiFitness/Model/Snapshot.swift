@@ -61,6 +61,8 @@ struct Snapshot: Codable {
         var setsPlanned: Int
         var exercisesDone: Int
         var exercisesPlanned: Int
+        /// Total load moved today: every set's weight × reps.
+        var volume: Double
         var items: [Item]
         struct Item: Codable {
             var slug: String
@@ -218,11 +220,14 @@ enum SnapshotBuilder {
                 setsDone: performed.count, done: isDone,
                 performed: performed.map { .init(weight: $0.weight, reps: $0.reps) }))
         }
+        let moved = Progress.volume(todaysSets.map {
+            Progress.Set(weight: $0.weight, reps: $0.reps)
+        })
         return .init(date: Fmt.day(now), day: day.name,
                      setsDone: items.reduce(0) { $0 + $1.setsDone },
                      setsPlanned: items.reduce(0) { $0 + $1.targetSets },
                      exercisesDone: done, exercisesPlanned: items.count,
-                     items: items)
+                     volume: moved, items: items)
     }
 
     private static func summary(_ ex: Exercise, sets: [SetEntry],

@@ -3,12 +3,19 @@ import SwiftData
 
 /// First-launch content.
 ///
-/// An empty gym app is a form, not a product — you cannot tell whether Trends
-/// works until something is in it. So a real three-day rotation and six weeks of
-/// plausible history go in on first launch, and every bit of it is editable.
+/// **A plan, and no history.** The first version of this seeded six weeks of
+/// plausible sessions so Trends would have a shape on day one, and that was
+/// wrong: within an hour the app was showing lifts that never happened, on a
+/// chart labelled with his name. A demo that cannot be told apart from your
+/// data is not a demo, it is a lie with a graph.
 ///
-/// Passes are deliberately NOT seeded. A membership code is personal and cannot
-/// be invented; the Pass tab ships with an empty state and a scanner instead.
+/// So `runIfNeeded` installs the **rotation only** — a template you are meant to
+/// edit, not a claim about your past. `loadDemoHistory` still exists for tests
+/// and screenshots, and everything it writes is tagged `source: .demo` so it can
+/// be removed wholesale and labelled wherever it is drawn.
+///
+/// Passes are deliberately NOT seeded either. A membership code is personal and
+/// cannot be invented; the Pass tab ships with an empty state and a scanner.
 enum Seed {
 
     struct Spec {
@@ -46,10 +53,54 @@ enum Seed {
         ]),
     ]
 
+    /// The plan only. Nothing here claims you have ever trained.
     static func runIfNeeded(_ context: ModelContext, now: Date = .now) throws {
         let existing = try context.fetchCount(FetchDescriptor<PlannedDay>())
         guard existing == 0 else { return }
-        try run(context, now: now)
+        try run(context, now: now, weeksOfHistory: 0)
+    }
+
+    /// Sample data, for tests and for looking at a screen that has something in
+    /// it. Everything written with `weeksOfHistory > 0` is tagged `.demo`.
+    static func loadDemoHistory(_ context: ModelContext, now: Date = .now,
+                                weeks: Int = 6) throws {
+        let exercises = try context.fetch(FetchDescriptor<Exercise>())
+        let byName = Dictionary(exercises.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        try seedHistory(context, byName: byName, now: now, weeks: weeks,
+                        cal: Calendar.current)
+        try seedWeighIns(context, now: now, days: 42, cal: Calendar.current)
+        try context.save()
+    }
+
+    /// Remove every row this file invented, and nothing else.
+    @discardableResult
+    static func removeDemoData(_ context: ModelContext) throws -> Int {
+        var removed = 0
+        for set in try context.fetch(FetchDescriptor<SetEntry>()) where set.isDemo {
+            context.delete(set); removed += 1
+        }
+        for weighIn in try context.fetch(FetchDescriptor<WeighIn>()) where weighIn.isDemo {
+            context.delete(weighIn); removed += 1
+        }
+        if removed > 0 { try context.save() }
+        return removed
+    }
+
+    /// Everything logged, demo or not. The plan and the passes survive.
+    ///
+    /// Exists because the build already on the phone wrote demo rows before they
+    /// were tagged, so there is no way to single them out on that install.
+    @discardableResult
+    static func deleteAllHistory(_ context: ModelContext) throws -> Int {
+        var removed = 0
+        for set in try context.fetch(FetchDescriptor<SetEntry>()) {
+            context.delete(set); removed += 1
+        }
+        for weighIn in try context.fetch(FetchDescriptor<WeighIn>()) {
+            context.delete(weighIn); removed += 1
+        }
+        if removed > 0 { try context.save() }
+        return removed
     }
 
     static func run(_ context: ModelContext, now: Date = .now, weeksOfHistory: Int = 6) throws {
@@ -76,8 +127,10 @@ enum Seed {
             }
         }
 
-        try seedHistory(context, byName: byName, now: now, weeks: weeksOfHistory, cal: cal)
-        try seedWeighIns(context, now: now, days: 42, cal: cal)
+        if weeksOfHistory > 0 {
+            try seedHistory(context, byName: byName, now: now, weeks: weeksOfHistory, cal: cal)
+            try seedWeighIns(context, now: now, days: 42, cal: cal)
+        }
         try context.save()
     }
 
@@ -101,8 +154,8 @@ enum Seed {
                         let reps = max(1, spec.reps - fade)
                         let at = cal.date(byAdding: .minute,
                                           value: setIndex * 3, to: date) ?? date
-                        context.insert(SetEntry(exercise: ex, weight: weight,
-                                                reps: reps, setIndex: setIndex, date: at))
+                        context.insert(SetEntry(exercise: ex, weight: weight, reps: reps,
+                                                setIndex: setIndex, date: at, source: .demo))
                     }
                 }
             }
@@ -120,7 +173,8 @@ enum Seed {
             let t = Double(count - 1 - i) / Double(count - 1)
             let value = i == 0 ? end : start + (end - start) * t + (rand.next() - 0.5) * 0.9
             let at = cal.date(bySettingHour: 7, minute: 10, second: 0, of: date) ?? date
-            context.insert(WeighIn(pounds: (value * 10).rounded() / 10, date: at))
+            context.insert(WeighIn(pounds: (value * 10).rounded() / 10, date: at,
+                                   source: .demo))
         }
     }
 

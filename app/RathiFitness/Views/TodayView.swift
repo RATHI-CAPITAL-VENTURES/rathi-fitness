@@ -48,6 +48,7 @@ struct TodayView: View {
                     if let day = today {
                         progress(for: day)
                         rows(for: day)
+                        moved(for: day)
                     } else {
                         restDay
                     }
@@ -185,6 +186,50 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// What the hour added up to.
+    ///
+    /// A session is four exercises and a lot of standing around; the tonnage is
+    /// the only number that makes it countable. Shown only once there is
+    /// something to show — a zero here would be a scoreboard telling you off.
+    @ViewBuilder private func moved(for day: PlannedDay) -> some View {
+        let sets = todaysSets.map { Progress.Set(weight: $0.weight, reps: $0.reps) }
+        if !sets.isEmpty {
+            let comparison = Progress.SessionComparison(
+                volume: Progress.volume(sets),
+                previousVolume: previousVolume(for: day))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Moved today").rfEyebrow()
+                HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    Text(Progress.volumeText(comparison.volume))
+                        .font(RFDesign.figure(34, relativeTo: .title))
+                        .foregroundStyle(RFDesign.ready)
+                    if let line = comparison.line {
+                        Text(line)
+                            .font(RFDesign.ui(12.5))
+                            .foregroundStyle(RFDesign.labelDim)
+                    }
+                }
+            }
+            .padding(.top, RFDesign.xs)
+        }
+    }
+
+    /// The last time this same day was done — comparing Push A to Legs would be
+    /// a number that moves for no reason.
+    private func previousVolume(for day: PlannedDay) -> Double? {
+        let slugs = Set(day.orderedItems.compactMap { $0.exercise?.slug })
+        guard !slugs.isEmpty else { return nil }
+        let past = allSets.filter {
+            !calendar.isDate($0.date, inSameDayAs: .now)
+            && slugs.contains($0.exercise?.slug ?? "")
+        }
+        let byDay = Dictionary(grouping: past) { calendar.startOfDay(for: $0.date) }
+        guard let mostRecent = byDay.keys.max(), let entries = byDay[mostRecent] else {
+            return nil
+        }
+        return Progress.volume(entries.map { Progress.Set(weight: $0.weight, reps: $0.reps) })
     }
 
     private var bodyWeight: some View {

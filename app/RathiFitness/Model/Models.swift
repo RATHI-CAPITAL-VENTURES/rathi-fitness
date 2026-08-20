@@ -100,26 +100,41 @@ final class SetEntry {
     var weight: Double = 0
     var reps: Int = 0
     var setIndex: Int = 1
+    /// `user` or `demo`. Demo rows are sample data and can be removed wholesale;
+    /// see `Seed`. Without this there is no way to tell an invented set from one
+    /// you actually did, and an app that cannot tell should not be drawing
+    /// either of them on a chart labelled with your name.
+    var source: String = Source.user.rawValue
     var exercise: Exercise?
 
-    init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int, date: Date = .now) {
+    init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int,
+         date: Date = .now, source: Source = .user) {
         self.exercise = exercise
         self.weight = weight
         self.reps = reps
         self.setIndex = setIndex
         self.date = date
+        self.source = source.rawValue
     }
+
+    var isDemo: Bool { source == Source.demo.rawValue }
 }
+
+enum Source: String { case user, demo }
 
 @Model
 final class WeighIn {
     var date: Date = Date.now
     var pounds: Double = 0
+    var source: String = Source.user.rawValue
 
-    init(pounds: Double, date: Date = .now) {
+    init(pounds: Double, date: Date = .now, source: Source = .user) {
         self.pounds = pounds
         self.date = date
+        self.source = source.rawValue
     }
+
+    var isDemo: Bool { source == Source.demo.rawValue }
 }
 
 /// A stored gym pass. Every field a real card carries, because the alternative

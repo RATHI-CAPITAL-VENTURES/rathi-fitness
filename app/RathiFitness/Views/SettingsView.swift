@@ -9,6 +9,16 @@ struct SettingsView: View {
     @EnvironmentObject private var snapshots: SnapshotService
 
     @State private var working = false
+    @State private var confirmingWipe = false
+    @State private var wipeResult: String?
+
+    @Query private var allSets: [SetEntry]
+    @Query private var allWeighIns: [WeighIn]
+
+    private var demoCount: Int {
+        allSets.filter(\.isDemo).count + allWeighIns.filter(\.isDemo).count
+    }
+    private var historyCount: Int { allSets.count + allWeighIns.count }
 
     var body: some View {
         NavigationStack {
@@ -68,6 +78,33 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if demoCount > 0 {
+                        Button("Remove \(demoCount) sample entries") {
+                            wipeResult = (try? Seed.removeDemoData(context))
+                                .map { "Removed \($0) sample entries." }
+                            snapshots.setNeedsWrite(context)
+                        }
+                    }
+                    Button("Delete all history", role: .destructive) {
+                        confirmingWipe = true
+                    }
+                    .disabled(historyCount == 0)
+                    if let wipeResult {
+                        Text(wipeResult)
+                            .font(RFDesign.ui(12.5))
+                            .foregroundStyle(RFDesign.labelDim)
+                    }
+                } header: {
+                    Text("Your data")
+                } footer: {
+                    Text("\(historyCount) logged entries. The first version of this app "
+                         + "seeded six weeks of sample sessions so the charts had a shape, "
+                         + "and those aren't yours — if this install predates the fix they "
+                         + "aren't tagged, so \"delete all history\" is the clean way out. "
+                         + "Your plan and passes are kept either way.")
+                }
+
+                Section {
                     NavigationLink {
                         PlanList()
                     } label: {
@@ -96,6 +133,17 @@ struct SettingsView: View {
             }
             .scrollContentBackground(.hidden)
             .background(RFDesign.ground.ignoresSafeArea())
+            .confirmationDialog("Delete every logged set and weigh-in?",
+                                isPresented: $confirmingWipe, titleVisibility: .visible) {
+                Button("Delete \(historyCount) entries", role: .destructive) {
+                    wipeResult = (try? Seed.deleteAllHistory(context))
+                        .map { "Deleted \($0) entries. Starting clean." }
+                    snapshots.setNeedsWrite(context)
+                }
+                Button("Keep them", role: .cancel) {}
+            } message: {
+                Text("Your plan, exercises and passes are kept. This cannot be undone.")
+            }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
