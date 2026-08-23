@@ -2,8 +2,12 @@
 
 A personal gym app. iPhone-first, RIAKit's design language, readable by RIA.
 
-Status: **design only.** Four screens exist as a mockup; no Swift has been
-written yet. See `design/ios-first-pass.html`.
+Status: **shipped and installed.** The signed build has been on the phone since
+2026-08-20, with iCloud sync and Health on. `design/ios-first-pass.html` is the
+original mockup and is now a historical record, not a spec — the app has moved
+past it. (This line said "design only, no Swift written yet" for two months
+after the app shipped, which is exactly the kind of stale note that makes a
+reader distrust the rest of the file.)
 
 ## What it does
 
@@ -15,6 +19,8 @@ written yet. See `design/ios-first-pass.html`.
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
+| Music | Today and the set screen — a three-button bar. Your **Apple Music library playlists**, played by this app. |
+| Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
 
 ## Shape
@@ -112,6 +118,73 @@ train twice in a day — and nothing tells you it has. Counting the sessions you
 have actually logged is self-correcting: skip a week and you pick up exactly
 where you left off, which is what a rotation is for. `RotationTests` walks three
 real weeks and asserts the drift.
+
+## The cooldown ping, and why the app plays your music
+
+Two of these features are the same feature wearing different hats, and the
+reason is worth stating once.
+
+**The ping.** The last three seconds of a rest tick — a light haptic and a soft
+blip each — and then the handover is a rising two-note chime plus a haptic
+swell. Both channels fire every time, because the phone is in a pocket and the
+AirPods might be out; either one alone is a cue you can miss, which is the
+whole reason people stand there staring at the screen while they rest. The
+patterns are authored in `Haptics.swift` and the tones are *synthesised* in
+`AudioHub.swift` rather than shipped as audio files, so retuning a chime is
+changing two numbers rather than opening an editor.
+
+The old behaviour — one `UINotificationFeedbackGenerator` success buzz — was
+indistinguishable from a text message arriving.
+
+**Why the app plays the music.** iOS delivers an AirPods squeeze to whichever
+app is *currently now-playing*, and to nobody else. There is no public API for
+"control whatever is playing", and there is no way to receive a gesture while
+the Music app or Spotify holds that role. So:
+
+- remote-controlling the Music app (`MPMusicPlayerController.systemMusicPlayer`)
+  is three lines and permanently deaf to the AirPods, and
+- playing the music ourselves (`ApplicationMusicPlayer`, MusicKit) makes this
+  app the now-playing app, which is the only way a triple-press ever arrives.
+
+The second was chosen because hands-free logging is the point. The cost is
+real: the queue lives in this app rather than in Music, and the App ID needs
+the MusicKit service. Without it — and on the local-only build — the music bar
+reports itself unavailable rather than failing at a button, the same shape as
+the Health message.
+
+When hands-free is armed and no music is playing, the app loops a buffer of
+**silence** to keep the now-playing role. That is a trick and it is written
+down as one in `AudioHub.holdRemoteControl`: it is the documented cost of
+hearing a squeeze, it puts the workout on the Lock Screen so the role is not
+invisible, and it stops the moment you leave the set screen.
+
+## AirPods: three gestures, one of them yours
+
+iOS gives an app a press, a double press and a triple press — that is the whole
+vocabulary, and press-and-hold is noise control which never reaches an app.
+The default mapping keeps the two everybody already knows:
+
+    press   → play / pause
+    double  → next track
+    triple  → log the set, and start the cooldown
+
+Triple gets the workout because it is the gesture nobody performs by accident.
+While the cooldown is *already* running there is no set to log, so the same
+squeeze skips the rest instead — the two things the screen offers at those two
+moments. Every mapping is editable in Settings → AirPods, because whether a
+triple-press is comfortable through a hoodie depends on the hoodie.
+
+**Gestures only do workout things on a set screen.** `RemoteControls.Handlers`
+is filled in by `SetView` when it appears and cleared when it leaves, so a
+squeeze from the Trends tab controls music and nothing else. A phantom set
+logged from a screen that does not know which exercise you are on would be
+worse than having no gestures at all, and `HandsFreeTests` asserts it cannot
+happen.
+
+If hands-free is on, the app also says what it did — "set three, one eighty
+five for eight, resting ninety seconds" — because a tone tells you *something*
+happened and only a sentence tells you *what*. Turn it off in Settings → the
+cooldown ping.
 
 ## Apple Health
 

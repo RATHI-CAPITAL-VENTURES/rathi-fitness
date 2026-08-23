@@ -7,6 +7,9 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var health: HealthBridge
     @EnvironmentObject private var snapshots: SnapshotService
+    @EnvironmentObject private var music: MusicController
+    @EnvironmentObject private var remote: RemoteControls
+    @EnvironmentObject private var audio: AudioHub
 
     @State private var working = false
     @State private var confirmingWipe = false
@@ -81,6 +84,9 @@ struct SettingsView: View {
                 }
 
                 scheduleSection
+                soundSection
+                handsFreeSection
+                musicSection
 
                 Section {
                     if let files = exportFiles {
@@ -176,6 +182,116 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+
+    /// The cooldown's two channels. Both are on by default and either can be
+    /// turned off — a chime in a quiet gym and a buzz in a pocket are different
+    /// kinds of rude, and which one bothers you is not something an app can guess.
+    @ViewBuilder private var soundSection: some View {
+        Section {
+            HStack {
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(RFDesign.labelDim)
+                Slider(value: $audio.volume, in: 0...1)
+                    .tint(RFDesign.ready)
+                Button {
+                    audio.play(.restOver)
+                    Haptics.shared.play(.restOver)
+                } label: {
+                    Text("Test").font(RFDesign.ui(13, bold: true))
+                        .foregroundStyle(RFDesign.ready)
+                }
+                .buttonStyle(.plain)
+            }
+            Toggle(isOn: $audio.speaks) {
+                Text("Say it out loud").font(RFDesign.ui(15))
+            }
+            .tint(RFDesign.ready)
+        } header: {
+            Text("The cooldown ping")
+        } footer: {
+            Text("Three ticks in the last three seconds, then a rising two-note chime and "
+                 + "a haptic you can feel through a jacket. Both fire every time, because "
+                 + "the phone is in a pocket and the AirPods might be out — either one "
+                 + "alone is a cue you can miss.\n\n"
+                 + "Spoken confirmations name the set that was logged and the lift you are "
+                 + "walking back to, which only matters when you never looked at the screen.")
+        }
+    }
+
+    /// The three AirPods gestures and what each one does.
+    @ViewBuilder private var handsFreeSection: some View {
+        Section {
+            Toggle(isOn: $remote.enabled) {
+                Text("Hands-free").font(RFDesign.ui(15))
+            }
+            .tint(RFDesign.ready)
+            if remote.enabled {
+                ForEach(RemoteControls.Gesture.allCases) { gesture in
+                    Picker(gesture.label, selection: gestureBinding(gesture)) {
+                        ForEach(RemoteControls.Action.allCases) { action in
+                            Text(action.label).tag(action)
+                        }
+                    }
+                    .font(RFDesign.ui(14))
+                }
+            }
+        } header: {
+            Text("AirPods")
+        } footer: {
+            Text("iOS gives an app three gestures — press, double, triple — and only to "
+                 + "whichever app is currently playing audio. That is why this app plays "
+                 + "your music itself rather than remote-controlling the Music app: it is "
+                 + "the only way a squeeze reaches here at all.\n\n"
+                 + "Triple-press logs the set by default because it is the one nobody does "
+                 + "by accident. While the cooldown is already running there is no set to "
+                 + "log, so the same squeeze skips the rest instead. Gestures only do "
+                 + "workout things on a set screen; anywhere else they are music.")
+        }
+    }
+
+    /// Music, and the one playlist a workout starts with.
+    @ViewBuilder private var musicSection: some View {
+        Section {
+            switch music.status {
+            case .ready:
+                Label("Connected", systemImage: "music.note")
+                    .foregroundStyle(RFDesign.ready)
+                Toggle(isOn: $music.shuffle) {
+                    Text("Shuffle").font(RFDesign.ui(15))
+                }
+                .tint(RFDesign.ready)
+                Picker("Starts with", selection: favouriteBinding) {
+                    Text("Newest playlist").tag("")
+                    ForEach(music.playlistNames, id: \.self) { Text($0).tag($0) }
+                }
+            case .unknown:
+                Button {
+                    Task { await music.connect() }
+                } label: {
+                    Label("Connect Apple Music", systemImage: "music.note")
+                }
+            case .denied, .unavailable:
+                Label(music.status.message, systemImage: "music.note.slash")
+                    .font(RFDesign.ui(13))
+                    .foregroundStyle(RFDesign.labelDim)
+            }
+        } header: {
+            Text("Music")
+        } footer: {
+            Text("Your library's playlists, played by this app. The Apple Music catalogue "
+                 + "isn't searchable here on purpose — a gym app plays the list you already "
+                 + "made, and browsing is what the phone you left in the locker is for.")
+        }
+    }
+
+    private func gestureBinding(_ gesture: RemoteControls.Gesture) -> Binding<RemoteControls.Action> {
+        Binding(get: { gesture.action }, set: { gesture.action = $0 })
+    }
+
+    private var favouriteBinding: Binding<String> {
+        Binding(get: { music.favouritePlaylist ?? "" },
+                set: { music.favouritePlaylist = $0.isEmpty ? nil : $0 })
     }
 
     /// When you train, and whether the workouts follow the weekday or rotate.

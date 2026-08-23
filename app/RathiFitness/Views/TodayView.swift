@@ -86,6 +86,7 @@ struct TodayView: View {
                     } else {
                         restDay
                     }
+                    MusicBar()
                     bodyWeight
                 }
                 .padding(.horizontal, 22)

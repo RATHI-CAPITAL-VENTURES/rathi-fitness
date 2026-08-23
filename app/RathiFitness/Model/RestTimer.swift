@@ -20,6 +20,11 @@ final class RestTimer: ObservableObject {
     private var completion: Task<Void, Never>?
     private static let notificationID = "rest-over"
 
+    /// Said out loud when the rest ends, if hands-free speech is on. Set by the
+    /// set screen so the sentence can name the weight you are about to lift
+    /// rather than just the exercise.
+    var spokenHandover: (() -> String)?
+
     var isResting: Bool { endsAt != nil }
 
     /// 0 = just racked the bar, 1 = recovered. The input to the whole colour idea.
@@ -64,23 +69,54 @@ final class RestTimer: ObservableObject {
             .removePendingNotificationRequests(withIdentifiers: [Self.notificationID])
     }
 
+    /// The last three seconds get a tick each, so the handover is something you
+    /// arrive at rather than something that happens to you. This is why the
+    /// timer owns a task instead of only a notification: a notification can say
+    /// "now", it cannot count you in.
+    private static let countIn = 3
+
     private func armCompletion() {
         completion?.cancel()
         guard let endsAt else { return }
         let delay = endsAt.timeIntervalSinceNow
         completion = Task { [weak self] in
-            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            let lead = TimeInterval(Self.countIn)
+            if delay > lead {
+                try? await Task.sleep(for: .seconds(delay - lead))
+            }
+            guard !Task.isCancelled else { return }
+            // Tick down whatever whole seconds are actually left — extending the
+            // rest, or coming back from the background mid-count, must not
+            // produce a burst of catch-up ticks.
+            var remaining = min(Self.countIn, self?.remaining() ?? 0)
+            while remaining > 0 {
+                guard !Task.isCancelled else { return }
+                await MainActor.run { self?.tick() }
+                try? await Task.sleep(for: .seconds(1))
+                remaining -= 1
+            }
+            guard !Task.isCancelled else { return }
+            let left = self?.endsAt?.timeIntervalSinceNow ?? 0
+            if left > 0 { try? await Task.sleep(for: .seconds(left)) }
             guard !Task.isCancelled else { return }
             await MainActor.run { self?.finish() }
         }
     }
 
+    private func tick() {
+        Haptics.shared.play(.tick)
+        AudioHub.shared.play(.tick)
+    }
+
     private func finish() {
-        #if canImport(UIKit)
-        // A distinct pattern, because this fires while the phone is in a pocket
-        // and it has to be tellable from a text message.
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        #endif
+        // Both channels, always. The phone is in a pocket and the AirPods may be
+        // out — either one alone is a cue you can miss, and a missed handover is
+        // the whole reason people stare at the screen while they rest.
+        Haptics.shared.play(.restOver)
+        AudioHub.shared.play(.restOver)
+        if let sentence = spokenHandover?() {
+            AudioHub.shared.say(sentence)
+        }
         endsAt = nil
         exerciseName = nil
     }
@@ -103,7 +139,10 @@ final class RestTimer: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = exercise.map { "\($0) — you're up" } ?? "You're up"
         content.body = "Rest is done."
-        content.sound = .default
+        // Silent when the app is holding the audio session: it is alive in the
+        // background and about to play the real chime, and two alerts a second
+        // apart reads as a bug rather than as emphasis.
+        content.sound = AudioHub.shared.isHoldingRemoteControl ? nil : .default
         content.interruptionLevel = .timeSensitive
         center.add(UNNotificationRequest(
             identifier: Self.notificationID, content: content,

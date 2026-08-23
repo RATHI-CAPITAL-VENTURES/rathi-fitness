@@ -14,6 +14,7 @@ struct SetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var rest: RestTimer
+    @EnvironmentObject private var remote: RemoteControls
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
 
@@ -63,6 +64,7 @@ struct SetView: View {
                     }
                 }
                 actions
+                MusicBar()
                 Divider().overlay(RFDesign.hairline)
                 history
             }
@@ -86,6 +88,52 @@ struct SetView: View {
             WeightSheet(weight: weight, unitLabel: "lb") { weight = $0 }
         }
         .onAppear(perform: prime)
+        .onAppear(perform: armHandsFree)
+        .onDisappear(perform: disarmHandsFree)
+    }
+
+    // MARK: hands-free
+    //
+    // This screen is the only place a squeeze can mean "log the set", because it
+    // is the only place that knows which set. `RemoteControls` holds the wiring
+    // and nothing else; the moment you navigate away the handlers go with you
+    // and a squeeze is music again — an app that logs a phantom set from the
+    // Trends tab would be worse than one with no gestures at all.
+
+    private func armHandsFree() {
+        remote.handlers = RemoteControls.Handlers(
+            logSet: { logSet(announcing: true) },
+            skipRest: { rest.stop() },
+            extendRest: { rest.extend(by: 30) },
+            describe: { announcement },
+            isResting: { restingHere })
+        remote.arm()
+        remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
+        rest.spokenHandover = { handover }
+    }
+
+    private func disarmHandsFree() {
+        remote.handlers = RemoteControls.Handlers()
+        rest.spokenHandover = nil
+        remote.disarm()
+    }
+
+    /// What gets said when the cooldown ends. Names the lift and the number you
+    /// are walking back to, because "rest is over" is the one thing you already
+    /// knew.
+    private var handover: String {
+        let next = min(nextWorkingSet, item.targetSets)
+        return "\(exercise.name). Set \(next), \(Fmt.spoken(weight)) for \(item.targetReps)."
+    }
+
+    /// The answer to "where am I", for the announce gesture.
+    private var announcement: String {
+        if restingHere {
+            return "\(rest.remaining()) seconds left on \(exercise.name)."
+        }
+        if isFinished { return "\(exercise.name) is done. \(workingToday.count) sets." }
+        return "\(exercise.name). Set \(nextWorkingSet) of \(item.targetSets), "
+             + "\(Fmt.spoken(weight)) for \(reps)."
     }
 
     // MARK: hero
@@ -403,7 +451,7 @@ struct SetView: View {
         return isLast ? (item.restSeconds, "Cooldown") : (20, "Move")
     }
 
-    private func logSet() {
+    private func logSet(announcing: Bool = false) {
         // Records are judged against history WITHOUT this set — including it
         // would make every set a record for beating itself.
         let history = mine.map {
@@ -413,9 +461,16 @@ struct SetView: View {
         withAnimation(RFDesign.settle) {
             record = Tally.headline(for: candidate, history: history)
         }
-        #if canImport(UIKit)
-        if record != nil { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-        #endif
+        // Two channels for every outcome: a record gets its own rising pattern
+        // and its own rising tone, an ordinary set gets the short one. This is
+        // the confirmation you get when the phone never left your pocket.
+        if record != nil {
+            Haptics.shared.play(.record)
+            AudioHub.shared.play(.record)
+        } else {
+            Haptics.shared.play(.logged)
+            AudioHub.shared.play(.logged)
+        }
 
         let entry = SetEntry(exercise: exercise, weight: weight, reps: reps,
                              setIndex: nextSet, kind: kind, rpe: rpe, note: note)
@@ -427,6 +482,15 @@ struct SetView: View {
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.
         rest.start(seconds: restForThisSet.seconds, exercise: exercise.name)
+        if announcing {
+            // Said only for a squeeze. On screen you can see all of this, and an
+            // app that reads its own UI aloud is an app you turn the sound off on.
+            let seconds = restForThisSet.seconds
+            AudioHub.shared.say(
+                (record.map { "\($0). " } ?? "")
+                + "Set \(entry.setIndex), \(Fmt.spoken(entry.weight)) for \(entry.reps). "
+                + "Resting \(Fmt.spoken(Double(seconds))) seconds.")
+        }
     }
 
     private func undoLast() {
