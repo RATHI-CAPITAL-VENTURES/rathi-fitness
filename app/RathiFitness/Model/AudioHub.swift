@@ -55,15 +55,8 @@ final class AudioHub: ObservableObject {
     /// an AirPods squeeze will reach us.
     @Published private(set) var isHoldingRemoteControl = false
 
-    /// Whether spoken confirmations are on. Off is a perfectly good workout;
-    /// on is the difference between "was that logged?" and knowing.
-    @Published var speaks: Bool {
-        didSet { UserDefaults.standard.set(speaks, forKey: Keys.speaks) }
-    }
-
     private enum Keys {
         static let volume = "cue.volume"
-        static let speaks = "cue.speaks"
     }
 
     private let engine = AVAudioEngine()
@@ -76,9 +69,7 @@ final class AudioHub: ObservableObject {
     private var sessionActive = false
 
     private init() {
-        let defaults = UserDefaults.standard
-        volume = defaults.object(forKey: Keys.volume) as? Double ?? 0.85
-        speaks = defaults.object(forKey: Keys.speaks) as? Bool ?? true
+        volume = UserDefaults.standard.object(forKey: Keys.volume) as? Double ?? 0.85
     }
 
     // MARK: - Session
@@ -241,11 +232,18 @@ final class AudioHub: ObservableObject {
 
     // MARK: - Speech
 
-    /// Say it out loud. Used for the hands-free confirmations, where the whole
-    /// point is that you never looked at the screen — a tone tells you something
-    /// happened, a sentence tells you *what*.
-    func say(_ sentence: String, force: Bool = false) {
-        guard speaks || force else { return }
+    /// Say it out loud — only ever for something you asked for.
+    ///
+    /// The first cut narrated: it read the set back to you when a squeeze logged
+    /// it, and named the lift when the cooldown ended. That was wrong, and the
+    /// reason is worth keeping. A rest ending is a *ping* — one bit of
+    /// information, arriving while you are catching your breath — and a sentence
+    /// is the app talking over the music to tell you something the tone already
+    /// said. Narration you did not ask for is noise with good intentions.
+    ///
+    /// So the only caller left is the `announce` gesture, which exists precisely
+    /// because you squeezed to ask where you are.
+    func say(_ sentence: String) {
         activate()
         let utterance = AVSpeechUtterance(string: sentence)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.06

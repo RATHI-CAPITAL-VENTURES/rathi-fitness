@@ -215,10 +215,9 @@ final class RemoteControls: ObservableObject {
             guard let extend = handlers.extendRest else { return refuse() }
             extend()
             Haptics.shared.play(.gesture)
-            audio.say("Thirty more seconds.")
         case .announce:
             guard let describe = handlers.describe else { return refuse() }
-            audio.say(describe(), force: true)
+            audio.say(describe())
         case .nothing:
             return
         }
