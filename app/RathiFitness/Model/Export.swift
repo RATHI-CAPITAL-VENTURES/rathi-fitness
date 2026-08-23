@@ -9,7 +9,13 @@ import SwiftData
 /// cannot leave is one you have to trust rather than one you choose.
 enum Export {
 
-    static let header = "date,exercise,slug,muscle,set,kind,weight_lb,reps,rpe,volume_lb,note,source"
+    /// One row shape for both kinds of thing, with the cardio columns simply
+    /// blank on a lift. Two files would have been tidier to write and worse to
+    /// use: "which CSV is my treadmill in" is a question a spreadsheet should
+    /// never make you ask, and a blank cell reads as "not applicable" to
+    /// everybody without being explained.
+    static let header = "date,exercise,slug,modality,muscle,set,kind,weight_lb,reps,rpe,"
+        + "volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source"
 
     static func csv(from context: ModelContext) throws -> String {
         let sets = try context.fetch(
@@ -25,6 +31,7 @@ enum Export {
                 stamp.string(from: entry.date),
                 escape(exercise?.name ?? ""),
                 exercise?.slug ?? "",
+                exercise?.modality ?? Exercise.Modality.strength.rawValue,
                 exercise?.primary.rawValue ?? "",
                 String(entry.setIndex),
                 entry.setKind.rawValue,
@@ -32,6 +39,15 @@ enum Export {
                 String(entry.reps),
                 entry.rpe > 0 ? String(format: "%.1f", entry.rpe) : "",
                 Fmt.weight(volume),
+                // Blank rather than 0: a lift did not do zero seconds, it did
+                // not do seconds. A spreadsheet averaging the column would
+                // otherwise be told every bench press was a nought-minute run.
+                entry.seconds > 0 ? String(entry.seconds) : "",
+                entry.distance > 0 ? Fmt.distance(entry.distance) : "",
+                entry.speed > 0 ? Fmt.rate(entry.speed) : "",
+                entry.incline > 0 ? Fmt.rate(entry.incline) : "",
+                entry.resistance > 0 ? Fmt.weight(entry.resistance) : "",
+                entry.averageHeartRate > 0 ? String(entry.averageHeartRate) : "",
                 escape(entry.note),
                 entry.source,
             ].joined(separator: ","))
@@ -57,6 +73,27 @@ enum Export {
         return lines.joined(separator: "\n")
     }
 
+    /// Where every machine is set. Its own file because it is a different shape
+    /// of fact — one row per dial per exercise, with no date on it. Folding it
+    /// into the set log would repeat "seat: 2" on all four thousand rows.
+    static func machinesCSV(from context: ModelContext) throws -> String {
+        let exercises = try context.fetch(FetchDescriptor<Exercise>())
+        var lines = ["exercise,slug,setting,value,updated"]
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime]
+        for exercise in exercises.sorted(by: { $0.name < $1.name }) {
+            for setting in exercise.settings
+            where !setting.value.trimmingCharacters(in: .whitespaces).isEmpty {
+                lines.append([
+                    escape(exercise.name), exercise.slug,
+                    setting.setting.rawValue, escape(setting.value),
+                    stamp.string(from: setting.updatedAt),
+                ].joined(separator: ","))
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// RFC 4180: quote anything containing a comma, quote or newline, and double
     /// any embedded quotes. A note saying `felt heavy, shoulder clicked` would
     /// otherwise silently become two columns.
@@ -74,8 +111,10 @@ enum Export {
         let day = Fmt.day(.now)
         let sets = dir.appendingPathComponent("sets-\(day).csv")
         let body = dir.appendingPathComponent("body-\(day).csv")
+        let machines = dir.appendingPathComponent("machines-\(day).csv")
         try csv(from: context).write(to: sets, atomically: true, encoding: .utf8)
         try weighInsCSV(from: context).write(to: body, atomically: true, encoding: .utf8)
-        return [sets, body]
+        try machinesCSV(from: context).write(to: machines, atomically: true, encoding: .utf8)
+        return [sets, body, machines]
     }
 }

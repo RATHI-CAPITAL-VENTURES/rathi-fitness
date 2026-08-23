@@ -32,6 +32,45 @@ enum Fmt {
         return "\(s / 60):" + String(format: "%02d", s % 60)
     }
 
+    /// A cardio duration the way a console shows it. `1320` → `22:00`.
+    static func duration(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        if s >= 3600 {
+            return "\(s / 3600):" + String(format: "%02d:%02d", (s % 3600) / 60, s % 60)
+        }
+        return "\(s / 60):" + String(format: "%02d", s % 60)
+    }
+
+    /// The same duration in words, for a summary line. `1320` → `22 min`.
+    static func minutes(_ seconds: Int) -> String {
+        let m = Int((Double(seconds) / 60).rounded())
+        if m >= 60 {
+            let h = m / 60
+            let rest = m % 60
+            return rest == 0 ? "\(h) h" : "\(h) h \(rest) min"
+        }
+        return "\(m) min"
+    }
+
+    /// Distances keep two decimals under ten miles and one above — 0.75 mi is a
+    /// real answer, 13.10 mi is a spurious one.
+    static func distance(_ miles: Double) -> String {
+        miles < 10 ? String(format: "%.2f", miles) : String(format: "%.1f", miles)
+    }
+
+    /// One decimal, for speeds and inclines. 6.5 mph, 3.0%.
+    static func rate(_ v: Double) -> String { String(format: "%.1f", v) }
+
+    /// A cardio metric formatted the way its own console would show it.
+    static func metric(_ value: Double, _ metric: CardioMetric) -> String {
+        switch metric {
+        case .duration: return duration(Int(value))
+        case .distance: return distance(value)
+        case .speed, .incline: return rate(value)
+        case .resistance, .heartRate: return String(Int(value.rounded()))
+        }
+    }
+
     static func signed(_ v: Double) -> String {
         if abs(v) < 0.05 { return "—" }
         return (v > 0 ? "+" : "−") + weight(abs(v))

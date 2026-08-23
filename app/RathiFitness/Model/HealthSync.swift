@@ -78,6 +78,67 @@ enum HealthSync {
             .sorted()
     }
 
+    // MARK: - Cardio and Health
+    //
+    // A day used to become exactly one `traditionalStrengthTraining` workout.
+    // With cardio in the log that is wrong in a way that matters outside this
+    // app: a thirty-minute run filed as strength training gets no distance, no
+    // pace, and the wrong icon in Fitness, and Apple's own trends read it as
+    // lifting. So each cardio bout goes over as its own workout, of its own
+    // type, and the lifting sets keep the one they had.
+    //
+    // Mapped here rather than in `HealthBridge` so it is testable without a
+    // device and a human tapping a permission sheet.
+
+    /// The Apple activity types a gym's cardio floor maps onto. `mixed` is the
+    /// honest fallback — better than filing a ski erg as running because both
+    /// involve moving.
+    enum CardioActivity: String, CaseIterable {
+        case running, walking, cycling, elliptical, rowing, stairs
+        case jumpRope, swimming, mixed
+
+        /// Which distance quantity, if any, Health wants alongside it. A stair
+        /// climber and a rope have no distance Health understands, and writing
+        /// one as walking distance would inflate a ring you did not earn.
+        enum Distance { case walkingRunning, cycling, swimming, none }
+
+        var distance: Distance {
+            switch self {
+            case .running, .walking: return .walkingRunning
+            case .cycling: return .cycling
+            case .swimming: return .swimming
+            case .elliptical, .rowing, .stairs, .jumpRope, .mixed: return .none
+            }
+        }
+    }
+
+    /// Match by slug, most specific first.
+    ///
+    /// Ordered rather than a dictionary because "treadmill-walk" must not be
+    /// caught by the "walk" rule after the "treadmill" one has already claimed
+    /// it as a run — the pair only works if the qualified names are tested
+    /// before the bare ones.
+    static func activity(forSlug slug: String) -> CardioActivity {
+        let rules: [(String, CardioActivity)] = [
+            ("treadmill-walk", .walking),
+            ("outdoor-walk", .walking),
+            ("stair", .stairs),
+            ("ski-erg", .rowing),
+            ("rower", .rowing),
+            ("row", .rowing),
+            ("elliptical", .elliptical),
+            ("jump-rope", .jumpRope),
+            ("swim", .swimming),
+            ("bike", .cycling),
+            ("cycl", .cycling),
+            ("treadmill", .running),
+            ("run", .running),
+            ("walk", .walking),
+        ]
+        for (needle, activity) in rules where slug.contains(needle) { return activity }
+        return .mixed
+    }
+
     static let poundsPerKilogram = 2.2046226218
 
     static func pounds(fromKilograms kg: Double) -> Double {
@@ -87,4 +148,8 @@ enum HealthSync {
     static func kilograms(fromPounds lb: Double) -> Double {
         lb / poundsPerKilogram
     }
+
+    static let metresPerMile = 1609.344
+
+    static func metres(fromMiles miles: Double) -> Double { miles * metresPerMile }
 }

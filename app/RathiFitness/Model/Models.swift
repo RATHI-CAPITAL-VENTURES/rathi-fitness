@@ -25,6 +25,17 @@ final class Exercise {
     /// which is the usual convention and stated here so nobody has to guess
     /// why the numbers are fractional.
     var secondaryMuscles: String = ""
+    /// Whether this is something you lift or something you run on.
+    ///
+    /// A separate axis from `loading`, which is about what goes on a bar. A
+    /// treadmill has no loading style and a barbell has no incline, and folding
+    /// the two into one enum would make every switch statement answer two
+    /// questions at once.
+    var modality: String = Modality.strength.rawValue
+    /// Which cardio numbers this machine actually has, as comma-separated
+    /// `CardioMetric` raw values. A rower has no incline; a treadmill has no
+    /// damper. Empty on a strength lift.
+    var cardioMetrics: String = ""
     var createdAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade, inverse: \SetEntry.exercise)
@@ -33,16 +44,51 @@ final class Exercise {
     @Relationship(deleteRule: .cascade, inverse: \PlanItem.exercise)
     var planItems: [PlanItem]? = []
 
+    /// Where you set the machine. See `MachineSetting`.
+    @Relationship(deleteRule: .cascade, inverse: \MachineSetting.exercise)
+    var machineSettings: [MachineSetting]? = []
+
     init(name: String, slug: String? = nil,
          loading: Loading = .barbell, barWeight: Double = 45,
-         primary: MuscleGroup = .other, secondary: [MuscleGroup] = []) {
+         primary: MuscleGroup = .other, secondary: [MuscleGroup] = [],
+         modality: Modality = .strength, metrics: [CardioMetric] = []) {
         self.name = name
         self.slug = slug ?? Exercise.slugify(name)
         self.loading = loading.rawValue
         self.barWeight = barWeight
         self.primaryMuscle = primary.rawValue
         self.secondaryMuscles = secondary.map(\.rawValue).joined(separator: ",")
+        self.modality = modality.rawValue
+        // A cardio machine with no stated metrics gets the common four rather
+        // than none — an exercise you cannot record anything against is worse
+        // than one that offers a field you ignore.
+        let resolved = metrics.isEmpty && modality == .cardio
+            ? CardioMetric.commonSet : metrics
+        self.cardioMetrics = resolved.map(\.rawValue).joined(separator: ",")
         self.createdAt = .now
+    }
+
+    enum Modality: String, CaseIterable, Identifiable {
+        case strength, cardio
+        var id: String { rawValue }
+        var label: String { self == .strength ? "Lifting" : "Cardio" }
+    }
+
+    var kind: Modality { Modality(rawValue: modality) ?? .strength }
+    var isCardio: Bool { kind == .cardio }
+
+    /// The numbers this machine has, in a fixed order so two screens cannot
+    /// show them in different sequences.
+    var metrics: [CardioMetric] {
+        let raw = Set(cardioMetrics.split(separator: ",").map(String.init))
+        return CardioMetric.allCases.filter { raw.contains($0.rawValue) }
+    }
+
+    /// Machine settings in a stable order.
+    var settings: [MachineSetting] {
+        (machineSettings ?? []).sorted {
+            ($0.setting.order, $0.setting.label) < ($1.setting.order, $1.setting.label)
+        }
     }
 
     var primary: MuscleGroup { MuscleGroup(rawValue: primaryMuscle) ?? .other }
@@ -75,6 +121,14 @@ final class PlanItem {
     var targetReps: Int = 10
     var targetWeight: Double = 0
     var restSeconds: Int = 90
+    /// Cardio targets. Zero means "not part of the plan for this one" — a
+    /// treadmill slot can prescribe twenty minutes at 3% and leave the speed to
+    /// how you feel, which is how people actually run.
+    var targetSeconds: Int = 0
+    var targetDistance: Double = 0
+    var targetSpeed: Double = 0
+    var targetIncline: Double = 0
+    var targetResistance: Double = 0
     /// Items sharing a non-zero group are a superset: you alternate between
     /// them and rest once at the end of the round, not after each exercise.
     /// `0` means "on its own". Without this the cooldown ring is not merely
@@ -85,7 +139,15 @@ final class PlanItem {
     var day: PlannedDay?
 
     init(order: Int, exercise: Exercise, targetSets: Int, targetReps: Int,
-         targetWeight: Double, restSeconds: Int = 90, supersetGroup: Int = 0) {
+         targetWeight: Double, restSeconds: Int = 90, supersetGroup: Int = 0,
+         targetSeconds: Int = 0, targetDistance: Double = 0,
+         targetSpeed: Double = 0, targetIncline: Double = 0,
+         targetResistance: Double = 0) {
+        self.targetSeconds = targetSeconds
+        self.targetDistance = targetDistance
+        self.targetSpeed = targetSpeed
+        self.targetIncline = targetIncline
+        self.targetResistance = targetResistance
         self.supersetGroup = supersetGroup
         self.order = order
         self.exercise = exercise
@@ -133,6 +195,22 @@ final class SetEntry {
     var rpe: Double = 0
     /// Anything you want to remember about it. "Left shoulder clicked."
     var note: String = ""
+    /// What a cardio piece records instead of weight × reps. All zero on a
+    /// lift, and zero means "not recorded" rather than "zero minutes".
+    var seconds: Int = 0
+    /// Miles. The app is in pounds; mixing units inside one app is how you get
+    /// a 5 that means two different distances.
+    var distance: Double = 0
+    /// Miles per hour.
+    var speed: Double = 0
+    /// Percent grade.
+    var incline: Double = 0
+    /// The machine's own resistance number — a bike level, a rower's damper.
+    /// Unitless on purpose: it is a dial position, not a physical quantity, and
+    /// it does not compare between machines.
+    var resistance: Double = 0
+    /// Average heart rate, bpm. Typed in from the console or the watch.
+    var averageHeartRate: Int = 0
     /// `user` or `demo`. Demo rows are sample data and can be removed wholesale;
     /// see `Seed`. Without this there is no way to tell an invented set from one
     /// you actually did, and an app that cannot tell should not be drawing
@@ -142,7 +220,15 @@ final class SetEntry {
 
     init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int,
          date: Date = .now, kind: SetKind = .working, rpe: Double = 0,
-         note: String = "", source: Source = .user) {
+         note: String = "", source: Source = .user,
+         seconds: Int = 0, distance: Double = 0, speed: Double = 0,
+         incline: Double = 0, resistance: Double = 0, averageHeartRate: Int = 0) {
+        self.seconds = seconds
+        self.distance = distance
+        self.speed = speed
+        self.incline = incline
+        self.resistance = resistance
+        self.averageHeartRate = averageHeartRate
         self.exercise = exercise
         self.weight = weight
         self.reps = reps
@@ -156,6 +242,166 @@ final class SetEntry {
 
     var isDemo: Bool { source == Source.demo.rawValue }
     var setKind: SetKind { SetKind(rawValue: kind) ?? .working }
+
+    /// A cardio entry records time or distance and never weight × reps.
+    var isCardio: Bool { seconds > 0 || distance > 0 }
+
+    /// Average speed as actually achieved, when both halves are known. Preferred
+    /// over the `speed` field for anything historical: `speed` is the number on
+    /// the console when you glanced at it, this is what you did.
+    var achievedSpeed: Double? {
+        guard seconds > 0, distance > 0 else { return nil }
+        return distance / (Double(seconds) / 3600)
+    }
+
+    func value(for metric: CardioMetric) -> Double {
+        switch metric {
+        case .duration: return Double(seconds)
+        case .distance: return distance
+        case .speed: return speed
+        case .incline: return incline
+        case .resistance: return resistance
+        case .heartRate: return Double(averageHeartRate)
+        }
+    }
+}
+
+/// What a cardio machine measures.
+///
+/// The complete set a commercial gym's consoles show, so wrapping a new machine
+/// is choosing from this list rather than adding a field. Anything absent is
+/// absent on purpose: calories, because the console's guess and the watch's
+/// measurement land in the same ring and disagree (the same argument that keeps
+/// a burn out of the HealthKit export); watts and cadence, because no treadmill
+/// or basic bike reports them and a field nothing fills teaches you to skip the
+/// screen.
+enum CardioMetric: String, CaseIterable, Identifiable {
+    case duration, distance, speed, incline, resistance, heartRate
+
+    var id: String { rawValue }
+
+    /// The four every piece of cardio equipment in a normal gym has, used when
+    /// nobody has said which ones a machine offers.
+    static let commonSet: [CardioMetric] = [.duration, .distance, .speed, .incline]
+
+    var label: String {
+        switch self {
+        case .duration: return "Time"
+        case .distance: return "Distance"
+        case .speed: return "Speed"
+        case .incline: return "Incline"
+        case .resistance: return "Resistance"
+        case .heartRate: return "Heart rate"
+        }
+    }
+
+    var unit: String {
+        switch self {
+        case .duration: return "min"
+        case .distance: return "mi"
+        case .speed: return "mph"
+        case .incline: return "%"
+        case .resistance: return "level"
+        case .heartRate: return "bpm"
+        }
+    }
+
+    /// How much one tap of the stepper moves it. Duration is in seconds because
+    /// that is what the model stores; everything else is in its own unit.
+    var step: Double {
+        switch self {
+        case .duration: return 60
+        case .distance: return 0.1
+        case .speed: return 0.1
+        case .incline: return 0.5
+        case .resistance: return 1
+        case .heartRate: return 1
+        }
+    }
+
+    /// Zero is "not recorded" for every one of these — nobody runs zero miles
+    /// at zero incline and writes it down.
+    func isRecorded(_ value: Double) -> Bool { value > 0 }
+}
+
+/// Where you set the machine.
+///
+/// "2 on the leg press" is a real thing you have to remember every week, and it
+/// was nowhere in a set log. It belongs to the EXERCISE rather than to a set:
+/// the seat does not change between Tuesday and Thursday, and recording it per
+/// set would make you re-enter it four times an evening.
+///
+/// One row per dial, driven by `MachineSettingKind`, so adding "foot plate"
+/// later is a case rather than a column.
+@Model
+final class MachineSetting {
+    var kind: String = MachineSettingKind.seat.rawValue
+    /// Free text, because machine dials are not one type. "2", "4", "12 in",
+    /// "30°", "third notch". A number field would have forced a lie on half of
+    /// them.
+    var value: String = ""
+    var updatedAt: Date = Date.now
+    var exercise: Exercise?
+
+    init(kind: MachineSettingKind, value: String, exercise: Exercise? = nil) {
+        self.kind = kind.rawValue
+        self.value = value
+        self.exercise = exercise
+        self.updatedAt = .now
+    }
+
+    var setting: MachineSettingKind { MachineSettingKind(rawValue: kind) ?? .other }
+}
+
+/// The dials a gym machine actually has.
+///
+/// Enumerated rather than free-form so two entries cannot be "seat" and "Seat
+/// height", which would make the whole feature useless the first time you read
+/// it back. The list is what a commercial gym floor offers; `other` is the
+/// escape hatch.
+enum MachineSettingKind: String, CaseIterable, Identifiable {
+    case seat, back, seatDepth, chestPad, legPad, thighPad, footPlate
+    case handle, grip, pulley, leverArm, rangeLimiter, benchAngle
+    case rackPins, safetyBars, headrest, other
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .seat: return "Seat"
+        case .back: return "Back pad"
+        case .seatDepth: return "Seat depth"
+        case .chestPad: return "Chest pad"
+        case .legPad: return "Leg pad"
+        case .thighPad: return "Thigh pad"
+        case .footPlate: return "Foot plate"
+        case .handle: return "Handle"
+        case .grip: return "Grip"
+        case .pulley: return "Pulley"
+        case .leverArm: return "Lever arm"
+        case .rangeLimiter: return "Range limiter"
+        case .benchAngle: return "Bench angle"
+        case .rackPins: return "Rack pins"
+        case .safetyBars: return "Safety bars"
+        case .headrest: return "Headrest"
+        case .other: return "Other"
+        }
+    }
+
+    /// Display order — the ones you set most often, first.
+    var order: Int { MachineSettingKind.allCases.firstIndex(of: self) ?? 99 }
+
+    /// What the field looks like before you have typed in it. Concrete, because
+    /// "value" as a placeholder says nothing about the shape of answer the
+    /// machine wants.
+    var hint: String {
+        switch self {
+        case .benchAngle: return "30°"
+        case .rackPins, .safetyBars: return "hole 12"
+        case .grip: return "wide"
+        default: return "2"
+        }
+    }
 }
 
 enum Source: String { case user, demo }

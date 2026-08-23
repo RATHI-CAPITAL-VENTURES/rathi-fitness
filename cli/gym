@@ -29,9 +29,11 @@ import os
 import sys
 from pathlib import Path
 
-# 2 — set kinds. `volume`, `top_weight` and `sets` mean WORKING sets; warm-ups
-# are counted separately. See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 2
+# 3 — cardio and machine settings. An exercise may be `modality: "cardio"`, in
+# which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
+# numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
+# See docs/SNAPSHOT.md.
+SCHEMA_SUPPORTED = 3
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -131,6 +133,60 @@ def ago(when: dt.datetime | None) -> str:
     return "a while ago"
 
 
+def clock(seconds) -> str:
+    """1320 → `22 min`; 5400 → `1 h 30 min`. Minutes, because that is the unit
+    every guideline about cardio is written in."""
+    if not seconds:
+        return "—"
+    minutes = round(seconds / 60)
+    if minutes >= 60:
+        hours, rest = divmod(minutes, 60)
+        return f"{hours} h" if rest == 0 else f"{hours} h {rest} min"
+    return f"{minutes} min"
+
+
+def miles(v) -> str:
+    if not v:
+        return "—"
+    return f"{v:.2f}" if v < 10 else f"{v:.1f}"
+
+
+def cardio_line(block: dict) -> str:
+    """One cardio block as a sentence. Only the parts that were recorded — a
+    treadmill you did not enter a grade for should not read `0%`."""
+    if not block:
+        return ""
+    parts = []
+    if block.get("seconds"):
+        parts.append(clock(block["seconds"]))
+    if block.get("distance"):
+        parts.append(f"{miles(block['distance'])} mi")
+    if block.get("average_incline"):
+        parts.append(f"{block['average_incline']:g}% grade")
+    if block.get("average_speed"):
+        parts.append(f"{block['average_speed']:g} mph")
+    if block.get("bouts", 0) > 1:
+        parts.append(f"{block['bouts']} bouts")
+    return " · ".join(parts)
+
+
+def cardio_target_line(target: dict) -> str:
+    if not target:
+        return "no target"
+    parts = []
+    if target.get("seconds"):
+        parts.append(clock(target["seconds"]))
+    if target.get("distance"):
+        parts.append(f"{miles(target['distance'])} mi")
+    if target.get("incline"):
+        parts.append(f"{target['incline']:g}% grade")
+    if target.get("speed"):
+        parts.append(f"{target['speed']:g} mph")
+    if target.get("resistance"):
+        parts.append(f"level {target['resistance']:g}")
+    return " · ".join(parts) or "no target"
+
+
 def tonnage(pounds: float) -> str:
     """Total load moved. Tons past 20k, because six digits of pounds stops
     meaning anything you can picture."""
@@ -170,6 +226,14 @@ def cmd_today(args, data) -> None:
              f"{today['exercises_done']} of {today['exercises_planned']} done · "
              f"{today['sets_done']} of {today['sets_planned']} sets", ""]
     for item in today["items"]:
+        if item.get("modality") == "cardio":
+            mark = "✓" if item["done"] else "·"
+            did = cardio_line(item.get("cardio") or {})
+            tail = did or cardio_target_line(item.get("cardio_target") or {})
+            target = item.get("cardio_target") or {}
+            planned = clock(target.get("seconds")) if target.get("seconds") else "—"
+            lines.append(f"  {mark} {item['name']:<22} {planned:>8}   {tail}")
+            continue
         working = [p for p in item["performed"] if p.get("kind", "working") != "warmup"]
         if item["done"]:
             mark, tail = "✓", "all " + str(item["sets_done"]) + " hit"
@@ -188,8 +252,14 @@ def cmd_today(args, data) -> None:
             mark, tail = "·", f"{item['target_sets']} × {item['target_reps']}"
         lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb   {tail}")
     moved = today.get("volume") or 0
-    if moved:
-        lines += ["", f"Moved today: {tonnage(moved)}"]
+    minutes = sum((i.get("cardio") or {}).get("seconds", 0) for i in today["items"])
+    if moved or minutes:
+        summary = []
+        if moved:
+            summary.append(f"Moved today: {tonnage(moved)}")
+        if minutes:
+            summary.append(f"Cardio: {clock(minutes)}")
+        lines += ["", "  ·  ".join(summary)]
     lines += ["", f"Body weight {num(body.get('current'))} lb "
                   f"({signed(body.get('change_30d'))} in 30 days)"]
     emit(args, today, "\n".join(lines))
@@ -256,7 +326,11 @@ def cmd_muscles(args, data) -> None:
 
 
 def cmd_lifts(args, data) -> None:
-    rows = [e for e in data.get("exercises", []) if e.get("working_weight") is not None]
+    # Cardio has no working weight, and printing one would be inventing it.
+    # `gym cardio` is where a treadmill answers for itself.
+    rows = [e for e in data.get("exercises", [])
+            if e.get("modality", "strength") != "cardio"
+            and e.get("working_weight") is not None]
     rows.sort(key=lambda e: -(e.get("working_weight") or 0))
     lines = [f"  {'':<22}{'now':>6}{'30d':>7}   {'last':<10}"]
     for e in rows:
@@ -277,15 +351,40 @@ def cmd_exercise(args, data) -> None:
     muscles = e.get("primary_muscle") or "other"
     if muscles != "other" and e.get("secondary_muscles"):
         muscles += " + " + ", ".join(e["secondary_muscles"])
-    lines = [f"{e['name']}  ({e['loading']}"
-             + (f", {muscles}" if muscles != "other" else "") + ")",
-             f"  working {num(e.get('working_weight'))} lb · "
-             f"{signed(e.get('change_30d'))} in 30 days"]
-    best = e.get("best")
-    if best:
-        lines.append(f"  best    {num(best['weight'])} × {best['reps']} on {best['date']}")
+    is_cardio = e.get("modality", "strength") == "cardio"
+    kind = "cardio" if is_cardio else e["loading"]
+    lines = [f"{e['name']}  ({kind}"
+             + (f", {muscles}" if muscles != "other" else "") + ")"]
+
+    if is_cardio:
+        best = e.get("cardio_best") or {}
+        bits = []
+        if best.get("farthest"):
+            bits.append(f"furthest {miles(best['farthest'])} mi")
+        if best.get("longest_seconds"):
+            bits.append(f"longest {clock(best['longest_seconds'])}")
+        if best.get("fastest"):
+            bits.append(f"fastest {best['fastest']:g} mph")
+        lines.append("  " + (" · ".join(bits) if bits else "nothing logged yet"))
+    else:
+        lines.append(f"  working {num(e.get('working_weight'))} lb · "
+                     f"{signed(e.get('change_30d'))} in 30 days")
+        best = e.get("best")
+        if best:
+            lines.append(f"  best    {num(best['weight'])} × {best['reps']} on {best['date']}")
+
+    # Where the machine goes. Printed near the top on purpose: it is the thing
+    # you want BEFORE you get there, which is the whole reason it is recorded.
+    settings = e.get("machine_settings") or []
+    if settings:
+        lines.append("  set to  "
+                     + " · ".join(f"{m['label'].lower()} {m['value']}" for m in settings))
+
     lines.append("")
     for s in e.get("recent", []):
+        if is_cardio:
+            lines.append(f"  {s['date']}   {cardio_line(s.get('cardio') or {})}")
+            continue
         reps = ", ".join(str(r) for r in s["reps"])
         extra = ""
         if s.get("average_rpe"):
@@ -293,9 +392,14 @@ def cmd_exercise(args, data) -> None:
         if s.get("warmup_sets"):
             extra += f"  (+{s['warmup_sets']} warm-up)"
         lines.append(f"  {s['date']}   {num(s['top_weight']):>5} · {reps}{extra}")
-    tops = [s["top_weight"] for s in reversed(e.get("recent", []))]
-    if len(tops) > 1:
-        lines += ["", f"  {sparkline(tops)}  oldest → newest"]
+
+    if is_cardio:
+        spark = [(s.get("cardio") or {}).get("seconds", 0)
+                 for s in reversed(e.get("recent", []))]
+    else:
+        spark = [s["top_weight"] for s in reversed(e.get("recent", []))]
+    if len(spark) > 1:
+        lines += ["", f"  {sparkline(spark)}  oldest → newest"]
     emit(args, e, "\n".join(lines))
 
 
@@ -304,8 +408,10 @@ def cmd_sessions(args, data) -> None:
     lines = []
     for s in rows:
         head = f"  {s['date']}  {s.get('day') or 'workout':<8}"
-        lines.append(f"{head} {s['exercises']} exercises · {s['sets']} sets · "
-                     f"{tonnage(s['volume'])} moved")
+        body = f"{s['exercises']} exercises · {s['sets']} sets · {tonnage(s['volume'])} moved"
+        if s.get("cardio_minutes"):
+            body += f" · {clock(s['cardio_minutes'] * 60)} cardio"
+        lines.append(f"{head} {body}")
         if s.get("top_lifts"):
             lines.append(f"           {' · '.join(s['top_lifts'])}")
     emit(args, rows, "Recent sessions\n" + ("\n".join(lines) or "  none yet"))
@@ -339,6 +445,56 @@ def cmd_volume(args, data) -> None:
     total = sum(values)
     lines += ["", f"  {tonnage(total)} over {len(weeks)} weeks"]
     emit(args, weeks, "Load moved\n" + "\n".join(lines))
+
+
+def cmd_cardio(args, data) -> None:
+    """Minutes and miles. Deliberately never tonnage — converting a treadmill
+    into pounds means inventing a rate nobody measured."""
+    rows = [e for e in data.get("exercises", [])
+            if e.get("modality", "strength") == "cardio"]
+    if not rows:
+        emit(args, [], "No cardio logged yet.")
+        return
+
+    sessions = data.get("sessions", [])
+    if args.days:
+        cutoff = (dt.date.today() - dt.timedelta(days=args.days)).isoformat()
+        sessions = [s for s in sessions if s["date"] >= cutoff]
+    total_minutes = sum(s.get("cardio_minutes") or 0 for s in sessions)
+    total_miles = sum(s.get("cardio_distance") or 0 for s in sessions)
+
+    window = f"last {args.days} days" if args.days else "all time"
+    lines = [f"Cardio · {window}",
+             f"  {clock(total_minutes * 60)} on the clock"
+             + (f" · {miles(total_miles)} mi covered" if total_miles else ""),
+             ""]
+    for e in sorted(rows, key=lambda r: r["name"]):
+        recent = e.get("recent", [])
+        seconds = sum((s.get("cardio") or {}).get("seconds", 0) for s in recent)
+        last = recent[0]["date"] if recent else "—"
+        lines.append(f"  {e['name']:<22} {clock(seconds):>10}   last {last}")
+        settings = e.get("machine_settings") or []
+        if settings:
+            lines.append("      set to "
+                         + " · ".join(f"{m['label'].lower()} {m['value']}" for m in settings))
+    emit(args, {"total_minutes": total_minutes, "total_miles": total_miles,
+                "exercises": rows}, "\n".join(lines))
+
+
+def cmd_machines(args, data) -> None:
+    """Where every machine is set — the thing you otherwise rediscover by
+    sitting down and finding out it is wrong."""
+    rows = [e for e in data.get("exercises", []) if e.get("machine_settings")]
+    if not rows:
+        emit(args, [], "No machine settings recorded yet.\n"
+                       "  Set them on the exercise screen in the app.")
+        return
+    lines = []
+    for e in sorted(rows, key=lambda r: r["name"]):
+        settings = " · ".join(f"{m['label'].lower()} {m['value']}"
+                              for m in e["machine_settings"])
+        lines.append(f"  {e['name']:<24} {settings}")
+    emit(args, rows, "Machine settings\n" + "\n".join(lines))
 
 
 def cmd_passes(args, data) -> None:
@@ -421,6 +577,10 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--days", type=int, default=7)
     m.set_defaults(fn=cmd_muscles)
 
+    c = sub.add_parser("cardio", help="minutes and miles, never tonnage")
+    c.add_argument("--days", type=int, default=30)
+    c.set_defaults(fn=cmd_cardio)
+    sub.add_parser("machines", help="where every machine is set").set_defaults(fn=cmd_machines)
     sub.add_parser("passes", help="stored gym passes (never the codes)").set_defaults(fn=cmd_passes)
     sub.add_parser("status", help="where the snapshot is and how fresh").set_defaults(fn=cmd_status)
     sub.add_parser("raw", help="the whole snapshot as JSON").set_defaults(fn=cmd_raw)

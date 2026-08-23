@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 2,
+    "schema": 3,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -50,6 +50,15 @@ FIXTURE = {
              "target_reps": 15, "target_weight": 20, "rest_seconds": 60,
              "sets_done": 0, "warmup_sets": 0, "done": False, "volume": 0,
              "performed": []},
+            {"slug": "treadmill", "name": "Treadmill", "target_sets": 1,
+             "target_reps": 0, "target_weight": 0, "rest_seconds": 0,
+             "sets_done": 0, "warmup_sets": 0, "done": True, "volume": 0,
+             "modality": "cardio",
+             "cardio_target": {"seconds": 1200, "incline": 3.0},
+             "cardio": {"bouts": 1, "seconds": 1500, "distance": 2.1,
+                        "average_incline": 3.0, "average_speed": 5.04},
+             "performed": [{"weight": 0, "reps": 0, "kind": "working",
+                            "seconds": 1500, "distance": 2.1, "incline": 3.0}]},
         ],
     },
     "exercises": [
@@ -66,6 +75,26 @@ FIXTURE = {
          "working_weight": 315, "last_performed": "2026-08-17",
          "change_30d": None, "primary_muscle": "back",
          "secondary_muscles": ["hamstrings"], "recent": []},
+        {"slug": "leg-press", "name": "Leg Press", "loading": "machine",
+         "working_weight": 360, "last_performed": "2026-08-12",
+         "change_30d": 20, "primary_muscle": "quads", "secondary_muscles": ["glutes"],
+         "machine_settings": [{"kind": "seat", "label": "Seat", "value": "2"},
+                              {"kind": "back", "label": "Back pad", "value": "4"}],
+         "recent": [{"date": "2026-08-12", "top_weight": 360, "reps": [10, 10, 8],
+                     "volume": 10080, "warmup_sets": 1, "average_rpe": None}]},
+        {"slug": "treadmill", "name": "Treadmill", "loading": "machine",
+         "modality": "cardio", "working_weight": None, "last_performed": "2026-08-20",
+         "change_30d": None, "primary_muscle": "quads", "secondary_muscles": ["calves"],
+         "machine_settings": [{"kind": "other", "label": "Other", "value": "belt 3"}],
+         "cardio_best": {"farthest": 3.2, "longest_seconds": 2400, "fastest": 6.1},
+         "recent": [{"date": "2026-08-20", "top_weight": 0, "reps": [],
+                     "volume": 0, "warmup_sets": 0, "average_rpe": None,
+                     "cardio": {"bouts": 1, "seconds": 1500, "distance": 2.1,
+                                "average_incline": 3.0, "average_speed": 5.04}},
+                    {"date": "2026-08-13", "top_weight": 0, "reps": [],
+                     "volume": 0, "warmup_sets": 0, "average_rpe": None,
+                     "cardio": {"bouts": 1, "seconds": 2400, "distance": 3.2,
+                                "average_incline": 1.5, "average_speed": 4.8}}]},
     ],
     "plan": [],
     "passes": [
@@ -75,7 +104,8 @@ FIXTURE = {
     ],
     "sessions": [
         {"date": "2026-08-19", "day": "Push A", "exercises": 6, "sets": 20,
-         "volume": 12830, "warmup_sets": 2, "top_lifts": ["Bench Press 185"]},
+         "volume": 12830, "warmup_sets": 2, "top_lifts": ["Bench Press 185"],
+         "cardio_minutes": 25.0, "cardio_distance": 2.1},
         {"date": "2026-08-17", "day": "Pull A", "exercises": 5, "sets": 16,
          "volume": 15810, "warmup_sets": 0, "top_lifts": ["Deadlift 315"]},
         {"date": "2026-08-12", "day": "Legs", "exercises": 5, "sets": 17,
@@ -250,7 +280,10 @@ class Commands(unittest.TestCase):
         with fixture():
             _, out = run("--json", "lifts")
         parsed = json.loads(out)
-        self.assertEqual(parsed[0]["name"], "Deadlift")
+        # Heaviest first — the contract the human table also relies on.
+        self.assertEqual([r["name"] for r in parsed][:2], ["Leg Press", "Deadlift"])
+        self.assertNotIn("Treadmill", [r["name"] for r in parsed],
+                         "cardio has no working weight and must stay out of `lifts`")
 
     def test_status_flags_a_stale_snapshot(self):
         old = dict(FIXTURE, generated_at="2020-01-01T00:00:00Z")
@@ -404,3 +437,101 @@ class Secrets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Cardio(unittest.TestCase):
+    """A treadmill answers in minutes and miles, and never in pounds."""
+
+    def test_today_shows_a_cardio_row_in_its_own_units(self):
+        with fixture():
+            _, out = run("today")
+        self.assertIn("Treadmill", out)
+        self.assertIn("25 min", out)
+        self.assertIn("2.10 mi", out)
+        # No fabricated weight column for something with no weight.
+        self.assertNotIn("Treadmill              0 lb", out)
+
+    def test_today_reports_cardio_time_alongside_tonnage(self):
+        with fixture():
+            _, out = run("today")
+        self.assertIn("Cardio: 25 min", out)
+
+    def test_cardio_command_totals_the_window(self):
+        with fixture():
+            _, out = run("cardio")
+        self.assertIn("Treadmill", out)
+        self.assertIn("min", out)
+
+    def test_cardio_command_says_so_when_there_is_none(self):
+        bare = dict(FIXTURE, exercises=[e for e in FIXTURE["exercises"]
+                                        if e.get("modality") != "cardio"])
+        with fixture(bare):
+            _, out = run("cardio")
+        self.assertIn("No cardio logged yet", out)
+
+    def test_exercise_shows_cardio_history_not_a_weight(self):
+        with fixture():
+            _, out = run("exercise", "treadmill")
+        self.assertIn("cardio", out)
+        self.assertIn("furthest 3.20 mi", out)
+        self.assertIn("fastest 6.1 mph", out)
+        self.assertNotIn("working", out)
+
+    def test_sessions_mention_cardio_minutes(self):
+        with fixture():
+            _, out = run("sessions")
+        self.assertIn("25 min cardio", out)
+
+    def test_clock_reads_like_a_person(self):
+        self.assertEqual(gym.clock(1320), "22 min")
+        self.assertEqual(gym.clock(5400), "1 h 30 min")
+        self.assertEqual(gym.clock(3600), "1 h")
+        self.assertEqual(gym.clock(0), "—")
+
+    def test_a_metric_nobody_recorded_is_absent_rather_than_zero(self):
+        # The whole reason the snapshot nulls these instead of writing 0.
+        line = gym.cardio_line({"bouts": 1, "seconds": 900, "distance": 0})
+        self.assertEqual(line, "15 min")
+        self.assertNotIn("0%", line)
+        # Not a substring check: "min" contains "mi". The claim is that no
+        # distance clause was emitted at all.
+        self.assertNotIn("mi\u0020", line + " ")
+        self.assertEqual(line.count("·"), 0)
+
+
+class Machines(unittest.TestCase):
+    """Where the seat goes — the thing you otherwise rediscover by sitting down
+    and finding out it is wrong."""
+
+    def test_machines_lists_every_recorded_dial(self):
+        with fixture():
+            _, out = run("machines")
+        self.assertIn("Leg Press", out)
+        self.assertIn("seat 2", out)
+        self.assertIn("back pad 4", out)
+
+    def test_settings_appear_on_the_exercise_itself(self):
+        with fixture():
+            _, out = run("exercise", "leg-press")
+        self.assertIn("set to", out)
+        self.assertIn("seat 2", out)
+
+    def test_machines_says_so_when_nothing_is_recorded(self):
+        bare = dict(FIXTURE, exercises=[{k: v for k, v in e.items()
+                                         if k != "machine_settings"}
+                                        for e in FIXTURE["exercises"]])
+        with fixture(bare):
+            _, out = run("machines")
+        self.assertIn("No machine settings recorded", out)
+
+
+class SchemaGate(unittest.TestCase):
+    def test_an_older_snapshot_says_the_phone_is_behind(self):
+        old = dict(FIXTURE, schema=2)
+        with fixture(old):
+            code, _ = run("today")
+        self.assertNotEqual(code, 0, "an unreadable schema must not look like success")
+
+    def test_the_supported_schema_is_the_one_the_app_writes(self):
+        # Bumping one without the other is how the CLI goes blind for a week.
+        self.assertEqual(gym.SCHEMA_SUPPORTED, 3)

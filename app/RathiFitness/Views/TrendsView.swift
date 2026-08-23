@@ -34,6 +34,7 @@ struct TrendsView: View {
     /// history, so the control does not fill with things done once.
     private var featured: [Exercise] {
         exercises
+            .filter { !$0.isCardio }
             .map { ex in (ex, allSets.filter { $0.exercise?.slug == ex.slug }.count) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
@@ -65,6 +66,7 @@ struct TrendsView: View {
                     rangePicker
 
                     muscleWork
+                    cardio
 
                     VStack(alignment: .leading, spacing: RFDesign.sm) {
                         HStack {
@@ -339,6 +341,91 @@ struct TrendsView: View {
 
     // MARK: measurements
 
+    /// Cardio, in the units cardio is measured in.
+    ///
+    /// Deliberately NOT folded into tonnage or into the muscle chart. Minutes
+    /// and miles are the only honest summary of a treadmill, and converting
+    /// them into anything comparable with a bench press means inventing a rate
+    /// nobody measured.
+    @ViewBuilder private var cardio: some View {
+        let bouts = cardioBouts(since: rangeCutoff)
+        if !bouts.isEmpty {
+            VStack(alignment: .leading, spacing: RFDesign.sm) {
+                HStack {
+                    Text("Cardio").rfEyebrow()
+                    Spacer()
+                    Text(rangeLabel).rfEyebrow()
+                }
+                HStack(alignment: .firstTextBaseline, spacing: RFDesign.lg) {
+                    figure(Fmt.minutes(bouts.reduce(0) { $0 + $1.seconds }), "on the clock")
+                    let miles = Tally.cardioDistance(bouts)
+                    if miles > 0 { figure("\(Fmt.distance(miles)) mi", "covered") }
+                    figure("\(bouts.count)", bouts.count == 1 ? "session" : "sessions")
+                }
+                ForEach(cardioRows(since: rangeCutoff), id: \.name) { row in
+                    HStack {
+                        Text(row.name)
+                            .font(RFDesign.ui(13.5))
+                            .foregroundStyle(RFDesign.speech)
+                        Spacer()
+                        Text(row.detail)
+                            .font(RFDesign.ui(13))
+                            .monospacedDigit()
+                            .foregroundStyle(RFDesign.label)
+                    }
+                    .padding(.vertical, 5)
+                }
+            }
+            .padding(.top, RFDesign.md)
+        }
+    }
+
+    private func figure(_ value: String, _ caption: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(RFDesign.figure(26, relativeTo: .title2))
+                .monospacedDigit()
+                .foregroundStyle(RFDesign.ready)
+            Text(caption).rfEyebrow()
+        }
+    }
+
+    /// `All` has no cutoff, so it gets a date nothing precedes rather than a
+    /// special case at every call site.
+    private var rangeCutoff: Date {
+        guard let days = range.days else { return .distantPast }
+        return Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now
+    }
+
+    private var rangeLabel: String {
+        range.days.map { "last \($0) days" } ?? "all time"
+    }
+
+    private func cardioBouts(since cutoff: Date) -> [Tally.Bout] {
+        allSets
+            .filter { $0.date >= cutoff && ($0.seconds > 0 || $0.distance > 0) }
+            .map { Tally.Bout(seconds: $0.seconds, distance: $0.distance,
+                              incline: $0.incline, speed: $0.speed,
+                              resistance: $0.resistance, heartRate: $0.averageHeartRate) }
+    }
+
+    private func cardioRows(since cutoff: Date) -> [(name: String, detail: String)] {
+        let entries = allSets.filter {
+            $0.date >= cutoff && ($0.seconds > 0 || $0.distance > 0)
+        }
+        let byExercise = Dictionary(grouping: entries) { $0.exercise?.name ?? "—" }
+        return byExercise
+            .map { name, rows -> (name: String, detail: String) in
+                let seconds = rows.reduce(0) { $0 + $1.seconds }
+                let miles = rows.reduce(0) { $0 + $1.distance }
+                var parts = [Fmt.minutes(seconds)]
+                if miles > 0 { parts.append("\(Fmt.distance(miles)) mi") }
+                parts.append("\(rows.count)×")
+                return (name, parts.joined(separator: " · "))
+            }
+            .sorted { $0.name < $1.name }
+    }
+
     private var measurements: some View {
         VStack(alignment: .leading, spacing: RFDesign.sm) {
             HStack {
@@ -435,6 +522,10 @@ struct TrendsView: View {
     private var strengthRows: [Row] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
         return exercises.compactMap { ex -> Row? in
+            // Cardio has no working weight. A treadmill row reading "0 lb" is
+            // not a gap in the table, it is the table answering a question the
+            // exercise does not have.
+            guard !ex.isCardio else { return nil }
             let mine = allSets.filter { $0.exercise?.slug == ex.slug }
             guard !mine.isEmpty else { return nil }
             let byDay = Dictionary(grouping: mine) { Calendar.current.startOfDay(for: $0.date) }

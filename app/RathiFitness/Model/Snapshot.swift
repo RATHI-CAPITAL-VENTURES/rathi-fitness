@@ -25,7 +25,14 @@ struct Snapshot: Codable {
     /// are unchanged for logs recorded before set kinds existed (everything was
     /// a working set then), but the definition changed, and the rule in
     /// docs/SNAPSHOT.md is that a changed meaning bumps this.
-    static let currentSchema = 2
+    /// **3** — cardio and machine settings. Two additions and one changed
+    /// meaning, which is what forces the bump rather than a minor version:
+    /// `exercises` may now be `modality: "cardio"`, in which case `volume` and
+    /// `working_weight` are **zero and mean nothing** — a treadmill has no
+    /// tonnage, and a reader that averages it in is reporting a fiction.
+    /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
+    /// where the seat goes.
+    static let currentSchema = 3
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -83,6 +90,34 @@ struct Snapshot: Codable {
             var done: Bool
             var volume: Double
             var performed: [Performed]
+            /// `strength` or `cardio`. Present on every item so a reader never
+            /// has to infer it from a zero weight.
+            var modality: String = Exercise.Modality.strength.rawValue
+            /// What the plan asks for on a cardio slot. Absent on a lift, and
+            /// absent field-by-field: a plan can prescribe twenty minutes at 3%
+            /// and leave the speed to how you feel.
+            var cardioTarget: CardioTarget?
+            /// What the console said, summed over the bouts done today.
+            var cardio: CardioDone?
+        }
+
+        struct CardioTarget: Codable {
+            var seconds: Int?
+            var distance: Double?
+            var speed: Double?
+            var incline: Double?
+            var resistance: Double?
+        }
+
+        struct CardioDone: Codable {
+            var bouts: Int
+            var seconds: Int
+            var distance: Double
+            /// Average over the bouts, weighted by their time — an eight-minute
+            /// warm-up walk must not drag a thirty-minute run's grade down as
+            /// if the two were equal.
+            var averageIncline: Double?
+            var averageSpeed: Double?
         }
         struct Performed: Codable {
             var weight: Double
@@ -93,6 +128,15 @@ struct Snapshot: Codable {
             /// same as easy, and is why this is nullable rather than 0.
             var rpe: Double?
             var note: String?
+            /// The console. Every field nullable for the same reason RPE is:
+            /// zero incline is a real answer and "not recorded" is a different
+            /// one, and a reader cannot tell them apart from a 0.
+            var seconds: Int?
+            var distance: Double?
+            var speed: Double?
+            var incline: Double?
+            var resistance: Double?
+            var heartRate: Int?
         }
     }
 
@@ -109,14 +153,38 @@ struct Snapshot: Codable {
         var best: Best?
         var change30d: Double?
         var recent: [SessionLine]
+        /// `strength` or `cardio`. On a cardio exercise `workingWeight`, `best`
+        /// and every `volume` below are zero and carry no meaning.
+        var modality: String = Exercise.Modality.strength.rawValue
+        /// Where the machine goes — "seat: 2", "back pad: 4". The whole point
+        /// of the feature reaching the Mac: RIA can tell you before you get
+        /// there.
+        var machineSettings: [MachineSettingLine]?
+        /// Lifetime cardio bests, absent on a lift.
+        var cardioBest: CardioBest?
 
         enum CodingKeys: String, CodingKey {
-            case slug, name, loading, best, recent
+            case slug, name, loading, best, recent, modality
             case primaryMuscle = "primary_muscle"
             case secondaryMuscles = "secondary_muscles"
             case workingWeight = "working_weight"
             case lastPerformed = "last_performed"
             case change30d = "change_30d"
+            case machineSettings = "machine_settings"
+            case cardioBest = "cardio_best"
+        }
+
+        struct MachineSettingLine: Codable {
+            /// A `MachineSettingKind` raw value.
+            var kind: String
+            var label: String
+            var value: String
+        }
+
+        struct CardioBest: Codable {
+            var farthest: Double?
+            var longestSeconds: Int?
+            var fastest: Double?
         }
 
         struct Best: Codable { var weight: Double; var reps: Int; var date: String }
@@ -130,6 +198,8 @@ struct Snapshot: Codable {
             var warmupSets: Int
             /// Mean RPE of the working sets that recorded one.
             var averageRpe: Double?
+            /// Cardio for that day, absent on a lift.
+            var cardio: Today.CardioDone?
         }
     }
 
@@ -140,6 +210,8 @@ struct Snapshot: Codable {
         struct PlanEntry: Codable {
             var slug: String; var name: String
             var sets: Int; var reps: Int; var weight: Double; var restSeconds: Int
+            var modality: String = Exercise.Modality.strength.rawValue
+            var cardioTarget: Today.CardioTarget?
         }
     }
 
@@ -166,6 +238,10 @@ struct Snapshot: Codable {
         var warmupSets: Int
         var volume: Double
         var topLifts: [String]
+        /// Minutes of cardio in that session, and how far. Zero rather than
+        /// absent: "no cardio" is a fact worth stating on a lifting day.
+        var cardioMinutes: Double = 0
+        var cardioDistance: Double = 0
     }
 }
 
@@ -245,7 +321,11 @@ enum SnapshotBuilder {
             // Warm-ups do not move you toward the target. Three warm-ups used to
             // mark an exercise done, which is the checklist lying to you.
             let working = performed.filter { $0.setKind.counts }
-            let isDone = working.count >= item.targetSets
+            // A cardio slot is done when its bouts are done. Judging it against
+            // `targetSets` alone leaves the treadmill permanently unfinished.
+            let isDone = ex.isCardio
+                ? performed.count >= max(1, item.targetSets)
+                : working.count >= item.targetSets
             if isDone { done += 1 }
             items.append(.init(
                 slug: ex.slug, name: ex.name,
@@ -257,11 +337,10 @@ enum SnapshotBuilder {
                 volume: Tally.volume(performed.map {
                     Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
                 }),
-                performed: performed.map {
-                    .init(weight: $0.weight, reps: $0.reps, kind: $0.kind,
-                          rpe: $0.rpe > 0 ? $0.rpe : nil,
-                          note: $0.note.isEmpty ? nil : $0.note)
-                }))
+                performed: performed.map(performedLine),
+                modality: ex.modality,
+                cardioTarget: ex.isCardio ? cardioTarget(item) : nil,
+                cardio: ex.isCardio ? cardioDone(performed) : nil))
         }
         // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
@@ -272,6 +351,59 @@ enum SnapshotBuilder {
                      setsPlanned: items.reduce(0) { $0 + $1.targetSets },
                      exercisesDone: done, exercisesPlanned: items.count,
                      volume: moved, items: items)
+    }
+
+    private static func performedLine(_ e: SetEntry) -> Snapshot.Today.Performed {
+        .init(weight: e.weight, reps: e.reps, kind: e.kind,
+              rpe: e.rpe > 0 ? e.rpe : nil,
+              note: e.note.isEmpty ? nil : e.note,
+              seconds: e.seconds > 0 ? e.seconds : nil,
+              distance: e.distance > 0 ? round1(e.distance) : nil,
+              speed: e.speed > 0 ? round1(e.speed) : nil,
+              incline: e.incline > 0 ? round1(e.incline) : nil,
+              resistance: e.resistance > 0 ? round1(e.resistance) : nil,
+              heartRate: e.averageHeartRate > 0 ? e.averageHeartRate : nil)
+    }
+
+    private static func cardioTarget(_ item: PlanItem) -> Snapshot.Today.CardioTarget? {
+        let target = Snapshot.Today.CardioTarget(
+            seconds: item.targetSeconds > 0 ? item.targetSeconds : nil,
+            distance: item.targetDistance > 0 ? round1(item.targetDistance) : nil,
+            speed: item.targetSpeed > 0 ? round1(item.targetSpeed) : nil,
+            incline: item.targetIncline > 0 ? round1(item.targetIncline) : nil,
+            resistance: item.targetResistance > 0 ? round1(item.targetResistance) : nil)
+        // Nothing prescribed at all is `null`, not an object of five nulls.
+        if target.seconds == nil, target.distance == nil, target.speed == nil,
+           target.incline == nil, target.resistance == nil { return nil }
+        return target
+    }
+
+    /// The day's bouts, summed — with the averages weighted by TIME.
+    ///
+    /// A plain mean would let an eight-minute warm-up walk pull a thirty-minute
+    /// run's grade down as though the two were the same amount of work. Nobody
+    /// reading "average incline 1.5%" would guess it was computed that way.
+    private static func cardioDone(_ entries: [SetEntry]) -> Snapshot.Today.CardioDone? {
+        let bouts = entries.filter { $0.seconds > 0 || $0.distance > 0 }
+        guard !bouts.isEmpty else { return nil }
+        let seconds = bouts.reduce(0) { $0 + $1.seconds }
+        let distance = bouts.reduce(0) { $0 + $1.distance }
+
+        var incline: Double?
+        let inclined = bouts.filter { $0.incline > 0 && $0.seconds > 0 }
+        let inclinedTime = inclined.reduce(0) { $0 + $1.seconds }
+        if inclinedTime > 0 {
+            incline = inclined.reduce(0) { $0 + $1.incline * Double($1.seconds) }
+                / Double(inclinedTime)
+        }
+
+        // Distance over time across the whole day, which is the only average
+        // speed that survives being questioned.
+        let speed = (seconds > 0 && distance > 0)
+            ? distance / (Double(seconds) / 3600) : nil
+
+        return .init(bouts: bouts.count, seconds: seconds, distance: round1(distance),
+                     averageIncline: incline.map(round1), averageSpeed: speed.map(round1))
     }
 
     private static func summary(_ ex: Exercise, sets: [SetEntry],
@@ -290,7 +422,8 @@ enum SnapshotBuilder {
                 }),
                 warmupSets: entries.count - working.count,
                 averageRpe: rpes.isEmpty ? nil
-                    : (rpes.reduce(0, +) / Double(rpes.count) * 10).rounded() / 10)
+                    : (rpes.reduce(0, +) / Double(rpes.count) * 10).rounded() / 10,
+                cardio: ex.isCardio ? cardioDone(entries) : nil)
         }.sorted { $0.date > $1.date }
 
         // "Best" is the heaviest set, ties broken by reps — a heavier single
@@ -306,24 +439,48 @@ enum SnapshotBuilder {
             older.map { latest - $0.topWeight }
         }
 
+        let settings = ex.settings
+            .filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { Snapshot.ExerciseSummary.MachineSettingLine(
+                kind: $0.kind, label: $0.setting.label, value: $0.value) }
+
         return .init(
             slug: ex.slug, name: ex.name, loading: ex.loading,
             primaryMuscle: ex.primaryMuscle,
             secondaryMuscles: ex.secondary.map(\.rawValue),
-            workingWeight: lines.first?.topWeight,
+            workingWeight: ex.isCardio ? nil : lines.first?.topWeight,
             lastPerformed: lines.first?.date,
-            best: best.map { .init(weight: $0.weight, reps: $0.reps, date: Fmt.day($0.date)) },
-            change30d: change.map(round1),
-            recent: Array(lines.prefix(12)))
+            best: ex.isCardio ? nil
+                : best.map { .init(weight: $0.weight, reps: $0.reps, date: Fmt.day($0.date)) },
+            change30d: ex.isCardio ? nil : change.map(round1),
+            recent: Array(lines.prefix(12)),
+            modality: ex.modality,
+            machineSettings: settings.isEmpty ? nil : settings,
+            cardioBest: ex.isCardio ? cardioBest(mine) : nil)
+    }
+
+    /// Lifetime cardio bests. Nil rather than zeros when nothing qualifies —
+    /// "furthest ever: 0 mi" is not a fact anyone wants read back to them.
+    private static func cardioBest(_ entries: [SetEntry]) -> Snapshot.ExerciseSummary.CardioBest? {
+        let bouts = entries.filter { $0.seconds > 0 || $0.distance > 0 }
+        guard !bouts.isEmpty else { return nil }
+        let farthest = bouts.map(\.distance).max() ?? 0
+        let longest = bouts.map(\.seconds).max() ?? 0
+        let fastest = bouts.compactMap(\.achievedSpeed).max() ?? 0
+        return .init(farthest: farthest > 0 ? round1(farthest) : nil,
+                     longestSeconds: longest > 0 ? longest : nil,
+                     fastest: fastest > 0 ? round1(fastest) : nil)
     }
 
     private static func planDay(_ d: PlannedDay) -> Snapshot.PlanDay {
         .init(name: d.name, weekday: d.weekday,
               items: d.orderedItems.compactMap { item in
-                  item.exercise.map {
-                      .init(slug: $0.slug, name: $0.name, sets: item.targetSets,
+                  item.exercise.map { ex in
+                      .init(slug: ex.slug, name: ex.name, sets: item.targetSets,
                             reps: item.targetReps, weight: item.targetWeight,
-                            restSeconds: item.restSeconds)
+                            restSeconds: item.restSeconds,
+                            modality: ex.modality,
+                            cardioTarget: ex.isCardio ? cardioTarget(item) : nil)
                   }
               })
     }
@@ -350,10 +507,10 @@ enum SnapshotBuilder {
                 let byExercise = Dictionary(grouping: entries) { $0.exercise?.slug ?? "?" }
                 let top = byExercise
                     .compactMap { _, e -> (String, Double)? in
-                        guard let name = e.first?.exercise?.name,
+                        guard let exercise = e.first?.exercise, !exercise.isCardio,
                               let w = e.filter({ $0.setKind.counts })
-                                  .map(\.weight).max() else { return nil }
-                        return (name, w)
+                                  .map(\.weight).max(), w > 0 else { return nil }
+                        return (exercise.name, w)
                     }
                     // Ties broken by name. Without it, two lifts at the same
                     // weight swap places between writes — Swift's Dictionary
@@ -372,7 +529,11 @@ enum SnapshotBuilder {
                     volume: Tally.volume(entries.map {
                         Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
                     }),
-                    topLifts: Array(top))
+                    topLifts: Array(top),
+                    cardioMinutes: round1(Tally.cardioMinutes(entries.map {
+                        Tally.Bout(seconds: $0.seconds, distance: $0.distance)
+                    })),
+                    cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }))
             }
             .sorted { $0.date > $1.date }
     }

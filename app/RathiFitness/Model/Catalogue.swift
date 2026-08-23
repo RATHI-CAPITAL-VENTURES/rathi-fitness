@@ -16,12 +16,26 @@ enum Catalogue {
         let loading: Exercise.Loading
         let primary: MuscleGroup
         let secondary: [MuscleGroup]
+        var modality: Exercise.Modality = .strength
+        /// Which console numbers this machine has. Empty on a lift, and empty
+        /// on a cardio entry means "the common four" — see `Exercise.init`.
+        var metrics: [CardioMetric] = []
         var bar: Double { loading == .barbell ? 45 : 0 }
     }
 
     static func make(_ name: String, _ loading: Exercise.Loading,
                      _ primary: MuscleGroup, _ secondary: [MuscleGroup] = []) -> Entry {
         Entry(name: name, loading: loading, primary: primary, secondary: secondary)
+    }
+
+    /// A cardio machine. Separate constructor rather than a defaulted argument
+    /// on `make`, so the cardio block below reads as a different kind of thing —
+    /// which it is: none of these has a bar weight or a rep.
+    static func cardio(_ name: String, _ primary: MuscleGroup,
+                       _ metrics: [CardioMetric],
+                       _ secondary: [MuscleGroup] = []) -> Entry {
+        Entry(name: name, loading: .machine, primary: primary, secondary: secondary,
+              modality: .cardio, metrics: metrics)
     }
 
     static let all: [Entry] = [
@@ -116,6 +130,37 @@ enum Catalogue {
         make("Pallof Press", .cable, .core, []),
         make("Sit-Up", .bodyweight, .core, []),
         make("Back Squat (Pause)", .barbell, .quads, [.glutes, .core]),
+
+        // Cardio
+        //
+        // Each one declares the numbers ITS console actually shows. A rower has
+        // no incline and a treadmill has no damper, and offering every field on
+        // every machine is how a logging screen becomes something you skip.
+        cardio("Treadmill", .quads, [.duration, .distance, .speed, .incline, .heartRate],
+               [.hamstrings, .calves, .glutes]),
+        cardio("Treadmill Walk", .quads, [.duration, .distance, .speed, .incline, .heartRate],
+               [.calves, .glutes]),
+        cardio("Stationary Bike", .quads, [.duration, .distance, .resistance, .heartRate],
+               [.hamstrings, .calves]),
+        cardio("Spin Bike", .quads, [.duration, .distance, .resistance, .heartRate],
+               [.glutes, .calves]),
+        cardio("Assault Bike", .quads, [.duration, .distance, .heartRate],
+               [.shoulders, .core]),
+        cardio("Elliptical", .quads, [.duration, .distance, .resistance, .incline, .heartRate],
+               [.glutes, .hamstrings]),
+        cardio("Rower", .back, [.duration, .distance, .resistance, .heartRate],
+               [.lats, .quads, .biceps, .core]),
+        cardio("Ski Erg", .lats, [.duration, .distance, .resistance, .heartRate],
+               [.triceps, .core]),
+        cardio("Stair Climber", .glutes, [.duration, .resistance, .heartRate],
+               [.quads, .calves]),
+        cardio("Jump Rope", .calves, [.duration, .heartRate], [.shoulders]),
+        cardio("Outdoor Run", .quads, [.duration, .distance, .speed, .heartRate],
+               [.hamstrings, .calves, .glutes]),
+        cardio("Outdoor Walk", .quads, [.duration, .distance, .speed, .heartRate],
+               [.calves, .glutes]),
+        cardio("Swim", .lats, [.duration, .distance, .heartRate],
+               [.shoulders, .back, .core]),
     ]
 
     static func entry(named name: String) -> Entry? {
@@ -133,7 +178,8 @@ enum Catalogue {
     /// Build the model object for a catalogue entry.
     static func exercise(from entry: Entry) -> Exercise {
         Exercise(name: entry.name, loading: entry.loading, barWeight: entry.bar,
-                 primary: entry.primary, secondary: entry.secondary)
+                 primary: entry.primary, secondary: entry.secondary,
+                 modality: entry.modality, metrics: entry.metrics)
     }
 
     /// Fill in what we know about an exercise created by typing a name.
@@ -143,5 +189,9 @@ enum Catalogue {
         exercise.barWeight = entry.bar
         exercise.primaryMuscle = entry.primary.rawValue
         exercise.secondaryMuscles = entry.secondary.map(\.rawValue).joined(separator: ",")
+        exercise.modality = entry.modality.rawValue
+        exercise.cardioMetrics = (entry.metrics.isEmpty && entry.modality == .cardio
+                                  ? CardioMetric.commonSet : entry.metrics)
+            .map(\.rawValue).joined(separator: ",")
     }
 }
