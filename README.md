@@ -207,6 +207,31 @@ iCloud sync on together. Connect it in Settings → Apple Health.
 
 ## The app icon
 
+**RIA's face goes in the middle, and that is a house rule.** Every app in the
+RIA family carries her — this app is not an organ of RIA (she only reads it),
+but it is hers the way a badge is, and a home screen full of unrelated marks is
+how a family of apps stops looking like one.
+
+It is her **face**, not her name. The first cut set the letters "RIA" in
+Fraunces, which is a label about her rather than a picture of her. The mark is
+the character: `RIAIcon.swift` in the RIA repo renders the live `FacePanel`
+rather than a drawing of it, precisely so an icon cannot disagree with the
+creature the app runs.
+
+That reasoning crosses repos, which is why this script does not redraw her in
+PIL. It uses **`ria_icon`, the shared kit at `~/RIA/app/icons/ria_icon.py`**,
+which composites the real transparent render `swift run RIAIcon` produces. A
+future satellite app brings its own motif and takes the ground, her light, her
+face and the iOS size ladder from the same place. If the kit is not on disk —
+it lives in the RIA repo, so only on branches that have it — this script says
+so and exits; the committed PNGs are unaffected.
+
+**The whole ladder, not just the 1024.** A lone 1024 renders a correct home
+screen and a *blank notification icon*: Xcode derives the 60pt and 76pt
+renditions from it and none of the small ones, so the 20pt a notification draws
+is simply absent from the bundle. This app pings you when a rest ends, so that
+banner is the feature, not a corner case.
+
 `python3 design/make_icon.py` renders it — the cooldown ring, ember to teal, on
 the RIAKit ground. The colours come from the same ramp the app draws with rather
 than from an eyedropper, so retuning the mechanic and re-running keeps the icon
