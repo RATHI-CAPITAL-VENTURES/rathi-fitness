@@ -108,3 +108,25 @@ is filled in by `SetView` on appear and cleared on disappear, so a squeeze from
 the Trends tab controls music and nothing else. A phantom set logged by a
 screen that does not know which exercise you are on would be a worse bug than
 having no gestures at all; `HandsFreeTests` asserts the refusal.
+
+## 2026-08-22 — The ping does not talk
+
+**Rejected, hours after shipping it: spoken confirmations.** The first cut of
+hands-free read the set back when a squeeze logged it ("set three, one eighty
+five for eight, resting ninety seconds") and named the lift when the cooldown
+ended.
+
+The reasoning was that a tone tells you *something* happened and only a
+sentence tells you *what*. The reasoning was wrong about which question you
+have. A rest ending is **one bit of information**, arriving while you are
+catching your breath — you already know what you just lifted and what is next,
+because you set it up thirty seconds ago. The sentence is the app talking over
+your music to say what the chime already said.
+
+So: `AudioHub.say` has exactly one caller left, the `announce` gesture, which
+speaks because you squeezed to ask it something. The `cue.speaks` setting is
+gone rather than defaulted off — a toggle for a feature nothing uses is a
+setting that exists to be explained.
+
+Kept: both channels of the ping itself. Three ticks, then a chime and a haptic
+swell. That is a signal, not narration.

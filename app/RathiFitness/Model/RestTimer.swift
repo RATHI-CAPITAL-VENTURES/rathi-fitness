@@ -20,11 +20,6 @@ final class RestTimer: ObservableObject {
     private var completion: Task<Void, Never>?
     private static let notificationID = "rest-over"
 
-    /// Said out loud when the rest ends, if hands-free speech is on. Set by the
-    /// set screen so the sentence can name the weight you are about to lift
-    /// rather than just the exercise.
-    var spokenHandover: (() -> String)?
-
     var isResting: Bool { endsAt != nil }
 
     /// 0 = just racked the bar, 1 = recovered. The input to the whole colour idea.
@@ -114,9 +109,6 @@ final class RestTimer: ObservableObject {
         // the whole reason people stare at the screen while they rest.
         Haptics.shared.play(.restOver)
         AudioHub.shared.play(.restOver)
-        if let sentence = spokenHandover?() {
-            AudioHub.shared.say(sentence)
-        }
         endsAt = nil
         exerciseName = nil
     }

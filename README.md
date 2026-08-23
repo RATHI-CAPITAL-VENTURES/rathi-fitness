@@ -20,7 +20,7 @@ reader distrust the rest of the file.)
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
 | Music | Today and the set screen — a three-button bar. Your **Apple Music library playlists**, played by this app. |
-| Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. |
+| Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
 
 ## Shape
@@ -181,10 +181,13 @@ logged from a screen that does not know which exercise you are on would be
 worse than having no gestures at all, and `HandsFreeTests` asserts it cannot
 happen.
 
-If hands-free is on, the app also says what it did — "set three, one eighty
-five for eight, resting ninety seconds" — because a tone tells you *something*
-happened and only a sentence tells you *what*. Turn it off in Settings → the
-cooldown ping.
+**It does not narrate.** The first cut read the set back to you when a squeeze
+logged it and named the lift when the cooldown ended. That was wrong: a rest
+ending is one bit of information arriving while you are catching your breath,
+and a sentence about it is the app talking over your music to say what the
+chime already said. The ping is the whole message. The one thing that still
+speaks is the "say where I am" gesture, which speaks because you squeezed to
+ask.
 
 ## Apple Health
 

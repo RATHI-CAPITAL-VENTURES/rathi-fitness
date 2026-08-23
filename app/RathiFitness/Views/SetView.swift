@@ -102,28 +102,18 @@ struct SetView: View {
 
     private func armHandsFree() {
         remote.handlers = RemoteControls.Handlers(
-            logSet: { logSet(announcing: true) },
+            logSet: { logSet() },
             skipRest: { rest.stop() },
             extendRest: { rest.extend(by: 30) },
             describe: { announcement },
             isResting: { restingHere })
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
-        rest.spokenHandover = { handover }
     }
 
     private func disarmHandsFree() {
         remote.handlers = RemoteControls.Handlers()
-        rest.spokenHandover = nil
         remote.disarm()
-    }
-
-    /// What gets said when the cooldown ends. Names the lift and the number you
-    /// are walking back to, because "rest is over" is the one thing you already
-    /// knew.
-    private var handover: String {
-        let next = min(nextWorkingSet, item.targetSets)
-        return "\(exercise.name). Set \(next), \(Fmt.spoken(weight)) for \(item.targetReps)."
     }
 
     /// The answer to "where am I", for the announce gesture.
@@ -451,7 +441,7 @@ struct SetView: View {
         return isLast ? (item.restSeconds, "Cooldown") : (20, "Move")
     }
 
-    private func logSet(announcing: Bool = false) {
+    private func logSet() {
         // Records are judged against history WITHOUT this set — including it
         // would make every set a record for beating itself.
         let history = mine.map {
@@ -482,15 +472,6 @@ struct SetView: View {
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.
         rest.start(seconds: restForThisSet.seconds, exercise: exercise.name)
-        if announcing {
-            // Said only for a squeeze. On screen you can see all of this, and an
-            // app that reads its own UI aloud is an app you turn the sound off on.
-            let seconds = restForThisSet.seconds
-            AudioHub.shared.say(
-                (record.map { "\($0). " } ?? "")
-                + "Set \(entry.setIndex), \(Fmt.spoken(entry.weight)) for \(entry.reps). "
-                + "Resting \(Fmt.spoken(Double(seconds))) seconds.")
-        }
     }
 
     private func undoLast() {

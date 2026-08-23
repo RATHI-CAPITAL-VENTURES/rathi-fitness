@@ -203,10 +203,6 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Toggle(isOn: $audio.speaks) {
-                Text("Say it out loud").font(RFDesign.ui(15))
-            }
-            .tint(RFDesign.ready)
         } header: {
             Text("The cooldown ping")
         } footer: {
@@ -214,8 +210,11 @@ struct SettingsView: View {
                  + "a haptic you can feel through a jacket. Both fire every time, because "
                  + "the phone is in a pocket and the AirPods might be out — either one "
                  + "alone is a cue you can miss.\n\n"
-                 + "Spoken confirmations name the set that was logged and the lift you are "
-                 + "walking back to, which only matters when you never looked at the screen.")
+                 + "A ping and nothing else. The app does not read your sets back to you: "
+                 + "a rest ending is one bit of information, and a sentence about it is "
+                 + "the app talking over your music to say what the chime already said. "
+                 + "The one exception is the \"say where I am\" gesture, which speaks "
+                 + "because you squeezed to ask.")
         }
     }
 
