@@ -7,7 +7,18 @@ struct RathiFitnessApp: App {
     @StateObject private var snapshots = SnapshotService()
     @StateObject private var rest = RestTimer()
     @StateObject private var health = HealthBridge()
+    @StateObject private var music: MusicController
+    /// Built from the music controller because a squeeze that means "play/pause"
+    /// has to reach the thing that is playing. One owner, one wire — and the
+    /// reason these two are constructed here rather than declared inline.
+    @StateObject private var remote: RemoteControls
+    @StateObject private var audio = AudioHub.shared
 
+    init() {
+        let music = MusicController()
+        _music = StateObject(wrappedValue: music)
+        _remote = StateObject(wrappedValue: RemoteControls(music: music))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -15,6 +26,9 @@ struct RathiFitnessApp: App {
                 .environmentObject(snapshots)
                 .environmentObject(rest)
                 .environmentObject(health)
+                .environmentObject(music)
+                .environmentObject(remote)
+                .environmentObject(audio)
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
                 .task {
@@ -40,6 +54,10 @@ struct RathiFitnessApp: App {
                         await health.importWeighIns(into: context)
                         await health.exportWorkouts(from: context)
                     }
+                    // Picks the player up if you have already granted access;
+                    // never prompts here. The ask belongs to the first tap on
+                    // the music bar, where it explains itself.
+                    await music.refreshQuietly()
                     // Write once at launch so the Mac is never more than a
                     // cold start behind, even on a day you log nothing.
                     await snapshots.writeNow(context)

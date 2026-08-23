@@ -51,3 +51,60 @@ do not.
   question ("am I getting stronger or just heavier"), so they share a screen.
 - `+0` as a 30-day delta. A dash means it ended where it started; a zero
   implies a measured change that came out zero. Different facts.
+
+## 2026-08-22 — Sound, music and the AirPods
+
+**The cooldown gets two channels, always.** A haptic pattern *and* a tone, for
+every cue, every time. The phone is in a pocket and the AirPods may be out;
+either channel alone is one you can miss, and a missed handover is the reason
+people stand there watching the ring instead of resting. Three ticks in the
+last three seconds so the end is something you arrive at rather than something
+that happens to you.
+
+Rejected: the previous behaviour, one `UINotificationFeedbackGenerator`
+`.success`. It is the system's pattern, so "rest is over" felt exactly like a
+text message arriving — which is the one thing it must not feel like.
+
+Rejected: shipping the chime as a `.caf`. The tones are synthesised from a
+short score in `AudioHub.score(for:)`, because a chime nobody can retune
+without an audio editor is a chime that stays wrong.
+
+**The app plays the music itself (MusicKit `ApplicationMusicPlayer`).** Not
+the obvious choice, and the reason is not about music at all: iOS delivers an
+AirPods squeeze to whichever app is *currently now-playing*, and to nobody
+else. There is no public API for "control whatever is playing".
+
+So `MPMusicPlayerController.systemMusicPlayer` — three lines, keeps Music's
+queue and UI — is permanently deaf to the AirPods, and Spotify's App Remote
+has the same problem plus a developer registration. Owning playback is the
+only path to hands-free logging, so it won.
+
+Stated costs, so nobody re-litigates this as a simplification: the queue lives
+in this app rather than in Music, the App ID needs the MusicKit service, and
+the Apple Music *catalogue* is deliberately absent — a gym app plays the list
+you already made. Without the service the music bar reports `.unavailable`
+rather than failing at a button, the same shape as the Health message.
+
+**Holding the now-playing role with silence.** When hands-free is armed and no
+music is playing, `AudioHub.holdRemoteControl` loops a silent buffer to keep
+the role so a squeeze still arrives. This is a trick and it is documented as
+one at the call site: it is the price of hearing a triple-press, it publishes
+the workout to the Lock Screen so the role is not invisible, and it is dropped
+the moment the set screen goes away.
+
+**Triple-press logs the set; the same squeeze skips the rest while resting.**
+Three gestures exist and no more (press-and-hold is noise control and never
+reaches an app). Press and double keep what everyone already knows; triple gets
+the workout because it is the one nobody performs by accident. It is
+context-sensitive in exactly one way — mid-rest there is no set to log — and
+those two meanings are the two buttons the screen is offering at those two
+moments.
+
+Rejected: making every gesture context-sensitive. Ambiguity you cannot see is
+worse hands-free than a mapping you can learn.
+
+**Handlers belong to the screen, not to the app.** `RemoteControls.Handlers`
+is filled in by `SetView` on appear and cleared on disappear, so a squeeze from
+the Trends tab controls music and nothing else. A phantom set logged by a
+screen that does not know which exercise you are on would be a worse bug than
+having no gestures at all; `HandsFreeTests` asserts the refusal.

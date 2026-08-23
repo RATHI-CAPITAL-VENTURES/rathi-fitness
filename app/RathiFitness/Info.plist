@@ -42,6 +42,8 @@
 	<string>To read the weight your scale already wrote to Health, so you don't have to type it in twice.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>To save your workouts and weigh-ins to Health, so they show up in Fitness and on your watch.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>To play your own playlists during a workout, so the AirPods controls belong to this app and a squeeze can log a set.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>To scan the code off your gym membership card so you can leave the card at home.</string>
 	<key>UIAppFonts</key>
@@ -52,9 +54,14 @@
 		<string>GeneralSans-Medium.ttf</string>
 		<string>GeneralSans-Semibold.ttf</string>
 	</array>
+	<!-- `audio` is load-bearing twice over: it lets the app keep playing your
+	     music with the screen locked, and it keeps the process alive so the
+	     cooldown chime and its haptic actually fire while the phone is in a
+	     pocket. Without it the rest ends as a silent notification. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>audio</string>
 	</array>
 	<!-- Exposes the snapshot container in Files and, more to the point, on the
 	     Mac at ~/Library/Mobile Documents/iCloud~com~rathi~fitness/Documents.

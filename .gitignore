@@ -4,3 +4,8 @@ DerivedData/
 *.xcuserstate
 *.xcodeproj/
 *.xcworkspace/
+
+# OMC operational state — never a deliverable.
+.omc/
+__pycache__/
+*.pyc
