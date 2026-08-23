@@ -22,6 +22,7 @@ CLI can exist at all.
 | --- | --- |
 | 1 | The original contract. |
 | 2 | Set kinds. `volume`, `top_weight` and `sets` mean **working** sets — warm-ups contribute to none of them and are counted separately as `warmup_sets`. Each performed set carries `kind`, `rpe` (nullable — not recorded is not "easy") and `note`. Each exercise carries `primary_muscle` and `secondary_muscles`. |
+| 3 | Cardio and machine settings. Two additions and one **changed meaning**, which is what forces the bump: an exercise may be `modality: "cardio"`, and on one of those `volume`, `working_weight` and `best` are absent or zero and **mean nothing** — a treadmill has no tonnage. Cardio numbers live in `cardio` blocks (`bouts`, `seconds`, `distance`, `average_incline`, `average_speed`) and in `sessions[].cardio_minutes`. `machine_settings[]` on an exercise says where the seat goes. |
 
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
   know rather than misreading a field that changed meaning. Bump it whenever a
@@ -37,6 +38,20 @@ CLI can exist at all.
   this the file's bytes differ between identical writes and it churns in iCloud
   forever.
 - **Writes are atomic.** The Mac may be reading while the phone writes.
+- **Zero is a number; "not recorded" is not.** Every optional cardio metric is
+  nullable rather than defaulted to 0, for the same reason `rpe` already was.
+  A treadmill bout with no grade entered is not a bout at 0% grade, and a reader
+  averaging the column would be told every flat walk was measured. The same rule
+  is why a cardio exercise's `working_weight` is `null` rather than `0` — a
+  0 lb bench press is indistinguishable from a real one once it is in a mean.
+- **Cardio is never converted into tonnage.** Minutes and miles are the only
+  honest summary of a treadmill; a pounds-equivalent means inventing a rate
+  nobody measured. `sessions[].volume` stays lifting-only and
+  `sessions[].cardio_minutes` sits beside it.
+- **Averages inside a `cardio` block are weighted by time.** A five-minute flat
+  walk must not pull a twenty-five-minute climb's grade down as though the two
+  were the same amount of work. Nobody reading "average incline" would guess a
+  plain mean, so it is not one.
 
 ## Pass codes are not in here, and that is the point
 
@@ -59,10 +74,39 @@ the build if that stops being true.
 | `schema`, `generated_at`, `app_version` | provenance |
 | `body_weight` | `current`, `current_date`, `change_30d`, `trend_per_week`, `history[]` |
 | `today` | the day's plan and what has been done — **absent on a rest day**, not empty |
-| `exercises[]` | `slug`, `name`, `loading`, `working_weight`, `best`, `change_30d`, `recent[]` |
-| `plan[]` | the rotation: each day and its target sets/reps/weight/rest |
+| `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |
+| `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
-| `sessions[]` | one row per training day: counts, volume, top lifts |
+| `sessions[]` | one row per training day: counts, volume, top lifts, `cardio_minutes`, `cardio_distance` |
+
+### Cardio
+
+An exercise with `modality: "cardio"` answers different questions, so read
+different fields:
+
+    exercises[].cardio_best        { farthest, longest_seconds, fastest }
+    exercises[].recent[].cardio    { bouts, seconds, distance,
+                                     average_incline, average_speed }
+    today.items[].cardio_target    what the plan asked for — any field may be
+                                   null, because "twenty minutes at 3%, speed
+                                   as you feel" is a real programme
+    today.items[].cardio           what the console actually said today
+    today.items[].performed[]      seconds, distance, speed, incline,
+                                   resistance, heart_rate — all nullable
+
+`top_lifts` on a session **excludes cardio**: "Treadmill 0" is what happens
+when it does not.
+
+### Machine settings
+
+    exercises[].machine_settings[] { kind, label, value }
+
+Where the machine goes — seat 2, back pad 4. `kind` is a stable enum raw value
+(`seat`, `back`, `seat_depth`, …); `label` is what to show a human; `value` is
+free text, because dials are not all numbers ("30°", "hole 12", "wide"). It
+belongs to the exercise rather than to a set: the seat does not change between
+Tuesday and Thursday. This is in the snapshot specifically so RIA can tell you
+where the pin goes *before* you get there.
 
 `slug` is the stable identifier. Names can be edited; slugs are what RIA and the
 CLI refer to.

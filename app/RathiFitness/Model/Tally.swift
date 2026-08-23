@@ -212,6 +212,98 @@ enum Tally {
                           because: "one more rep than last time and it goes up")
     }
 
+    // MARK: - Cardio
+    //
+    // Deliberately a separate vocabulary rather than an extension of `Set`.
+    // Tonnage is weight × reps and a treadmill has neither; folding cardio into
+    // volume would put an invented number into the one figure on Today that is
+    // supposed to be countable. A bout contributes MINUTES, and minutes are
+    // reported as minutes.
+
+    struct Bout: Equatable {
+        var seconds: Int = 0
+        var distance: Double = 0
+        var incline: Double = 0
+        var speed: Double = 0
+        var resistance: Double = 0
+        var heartRate: Int = 0
+
+        /// Miles per hour actually achieved. The `speed` field is whatever the
+        /// console read when you glanced at it; this is the whole bout.
+        var averageSpeed: Double? {
+            guard seconds > 0, distance > 0 else { return nil }
+            return distance / (Double(seconds) / 3600)
+        }
+    }
+
+    /// Total time on cardio. Minutes, because that is the unit every guideline
+    /// about it is written in.
+    static func cardioMinutes(_ bouts: [Bout]) -> Double {
+        Double(bouts.reduce(0) { $0 + $1.seconds }) / 60
+    }
+
+    static func cardioDistance(_ bouts: [Bout]) -> Double {
+        bouts.reduce(0) { $0 + $1.distance }
+    }
+
+    /// What a cardio bout beat.
+    ///
+    /// Three, and no more. Distance, time and average speed are the questions a
+    /// treadmill answers; a "best incline" record would reward walking up a
+    /// wall for ninety seconds, which is not a thing to be encouraged by an app.
+    enum CardioRecord: Equatable {
+        case farthest(Double)
+        case longest(Int)
+        case fastest(Double)
+
+        var rank: Int {
+            switch self {
+            case .farthest: return 0
+            case .fastest: return 1
+            case .longest: return 2
+            }
+        }
+
+        var headline: String {
+            switch self {
+            case .farthest(let mi): return "Furthest ever — \(Fmt.distance(mi)) mi"
+            case .longest(let s): return "Longest ever — \(Fmt.minutes(s))"
+            case .fastest(let mph): return "Fastest ever — \(Fmt.rate(mph)) mph"
+            }
+        }
+    }
+
+    /// `history` must NOT include the new bout. Same rule as lifting: ties are
+    /// not records.
+    static func cardioRecords(for candidate: Bout, history: [Bout]) -> [CardioRecord] {
+        guard candidate.seconds > 0 || candidate.distance > 0 else { return [] }
+        var found: [CardioRecord] = []
+
+        let farthest = history.map(\.distance).max() ?? 0
+        if candidate.distance > farthest && candidate.distance > 0 {
+            found.append(.farthest(candidate.distance))
+        }
+
+        let longest = history.map(\.seconds).max() ?? 0
+        if candidate.seconds > longest && candidate.seconds > 0 {
+            found.append(.longest(candidate.seconds))
+        }
+
+        // Only against bouts that HAVE an average speed. A twenty-minute row
+        // with no distance recorded is not evidence you have never gone faster.
+        let comparable = history.compactMap(\.averageSpeed)
+        if let mine = candidate.averageSpeed,
+           mine > (comparable.max() ?? 0) + 0.05, !comparable.isEmpty {
+            found.append(.fastest(mine))
+        }
+
+        return found.sorted { $0.rank < $1.rank }
+    }
+
+    static func cardioHeadline(for candidate: Bout, history: [Bout]) -> String? {
+        cardioRecords(for: candidate, history: history).first?.headline
+    }
+
     // MARK: - Comparing a session to the last one like it
 
     struct SessionComparison: Equatable {

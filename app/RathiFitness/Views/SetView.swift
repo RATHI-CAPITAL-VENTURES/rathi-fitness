@@ -54,6 +54,7 @@ struct SetView: View {
                 hero
                 statusLine
                 recordBanner
+                MachineSettingsRow(exercise: exercise)
                 Divider().overlay(RFDesign.hairline)
                 stepper
                 setControls

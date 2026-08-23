@@ -130,3 +130,66 @@ setting that exists to be explained.
 
 Kept: both channels of the ping itself. Three ticks, then a chime and a haptic
 swell. That is a signal, not narration.
+
+## 2026-08-22 — Cardio, and where the seat goes
+
+**Cardio gets its own screen and its own units.** A treadmill shares almost
+nothing with a bench — no plate math, no rep target, a clock rather than a
+weight as the headline figure — so `CardioSetView` is a second screen rather
+than a mode on `SetView`. One screen doing both would have been a column of
+`if isCardio` and two half-designs.
+
+**Modality is a separate axis from loading.** `Exercise.loading` is about what
+goes on a bar; a treadmill has no loading style and a barbell has no incline.
+Folding them into one enum would have made every switch answer two questions at
+once. Rejected: adding a `.cardio` case to `Loading`.
+
+**Cardio contributes minutes, never tonnage.** Volume is weight × reps and a
+treadmill has neither. A pounds-equivalent would put an invented number into the
+one figure on Today that is supposed to be countable, so `Tally.Bout` is a
+separate vocabulary from `Tally.Set`, `sessions[].volume` stays lifting-only,
+and cardio is excluded from the working-weight table and from `top_lifts`.
+"Treadmill 0" is what the alternative looks like.
+
+**Each machine declares its own metrics.** A rower has no incline, a treadmill
+no damper. `Exercise.metrics` is a per-machine list from `CardioMetric`, and the
+logging screen renders exactly those. Offering every field on every machine is
+how a screen becomes one you skip.
+
+Rejected inside `CardioMetric`: **calories** — the console's guess and the
+watch's measurement land in the same ring and disagree, which is the argument
+that already keeps a burn out of the HealthKit export. **Watts and cadence** —
+nothing in a normal gym reports them, and a field nothing fills teaches you to
+skip the screen.
+
+**It records; it does not time you.** No in-app stopwatch for cardio. The
+machine has a clock on a display the size of a laptop, and a second one that
+disagrees is worse than none. The gap being filled is that the console's number
+exists nowhere ten seconds after you step off.
+
+**Averages inside a cardio block are weighted by time.** A five-minute flat
+walk must not pull a twenty-five-minute climb's grade down as though equal.
+Nobody reading "average incline" would guess a plain mean.
+
+**Each bout goes to Health as its own workout of its own type.** A day used to
+become one `traditionalStrengthTraining` workout; a run filed that way gets no
+distance, no pace, the wrong icon in Fitness, and is read as lifting by Apple's
+own trends. Machines with no distance Health understands — stair climber, jump
+rope — write none rather than an invented walking distance that would inflate a
+ring nobody earned. Heart rate is deliberately not written: what we hold is an
+average typed off a console, and a single sample stamped across thirty minutes
+would overwrite a watch's real series with one number.
+
+**Machine settings belong to the exercise, not to the set.** The seat does not
+change between Tuesday and Thursday, and recording it per set would make you
+re-enter it four times an evening.
+
+The *dials* are an enum and the *values* are free text, and both halves matter.
+An enum stops "seat" and "Seat height" becoming two different things — which is
+exactly how the obvious alternative, a notes field, would have decayed within a
+month. Free-text values are because dials are not all numbers: "2", "hole 12",
+"30°", "wide". A numeric field would have forced a lie on half of them.
+
+Rejected: keeping it in the exercise's note. A workaround for a missing field
+becomes the permanent shape of the data, because nobody re-migrates a notes
+field.

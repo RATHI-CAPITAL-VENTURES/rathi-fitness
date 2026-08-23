@@ -190,10 +190,16 @@ struct DayEditorView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
         .sheet(isPresented: $addingExercise) {
             ExercisePickerView { exercise in
-                let item = PlanItem(order: day.orderedItems.count, exercise: exercise,
-                                    targetSets: 3, targetReps: 10,
-                                    targetWeight: suggestedWeight(for: exercise),
-                                    restSeconds: 90)
+                // A treadmill opened at "3 × 10 · 0 lb · 90s rest" is the app
+                // asking you to fix it before you can use it.
+                let item = exercise.isCardio
+                    ? PlanItem(order: day.orderedItems.count, exercise: exercise,
+                               targetSets: 1, targetReps: 0, targetWeight: 0,
+                               restSeconds: 0, targetSeconds: 20 * 60)
+                    : PlanItem(order: day.orderedItems.count, exercise: exercise,
+                               targetSets: 3, targetReps: 10,
+                               targetWeight: suggestedWeight(for: exercise),
+                               restSeconds: 90)
                 item.day = day
                 context.insert(item)
                 save()
@@ -211,14 +217,31 @@ struct DayEditorView: View {
                 Text(item.exercise?.name ?? "—")
                     .font(RFDesign.uiMedium(15.5))
                     .foregroundStyle(RFDesign.speech)
-                Text("\(item.targetSets) × \(item.targetReps) · "
-                     + "\(Fmt.weight(item.targetWeight)) lb · \(item.restSeconds)s rest"
-                     + (item.supersetGroup > 0 ? " · superset" : ""))
+                Text(summaryLine(item))
                     .font(RFDesign.ui(12.5))
                     .foregroundStyle(RFDesign.labelDim)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// One line describing the slot, in the vocabulary the exercise has.
+    private func summaryLine(_ item: PlanItem) -> String {
+        if item.exercise?.isCardio == true {
+            var parts: [String] = []
+            if item.targetSeconds > 0 { parts.append(Fmt.minutes(item.targetSeconds)) }
+            if item.targetDistance > 0 { parts.append("\(Fmt.distance(item.targetDistance)) mi") }
+            if item.targetIncline > 0 { parts.append("\(Fmt.rate(item.targetIncline))% grade") }
+            if item.targetSpeed > 0 { parts.append("\(Fmt.rate(item.targetSpeed)) mph") }
+            if item.targetResistance > 0 { parts.append("level \(Int(item.targetResistance))") }
+            if item.targetSets > 1 {
+                parts.append("\(item.targetSets) intervals · \(item.restSeconds)s between")
+            }
+            return parts.isEmpty ? "no target set" : parts.joined(separator: " · ")
+        }
+        return "\(item.targetSets) × \(item.targetReps) · "
+            + "\(Fmt.weight(item.targetWeight)) lb · \(item.restSeconds)s rest"
+            + (item.supersetGroup > 0 ? " · superset" : "")
     }
 
     /// Open a new slot on what he last lifted, not on zero.
@@ -258,8 +281,138 @@ struct PlanItemEditorView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
 
+    private var isCardio: Bool { item.exercise?.isCardio == true }
+
     var body: some View {
         Form {
+            if isCardio {
+                cardioTargets
+            } else {
+                strengthTargets
+            }
+
+            if !isCardio {
+                Section {
+                    Toggle("Superset with the next exercise", isOn: supersetBinding)
+                } header: {
+                    Text("Pairing")
+                } footer: {
+                    Text("You alternate between the linked exercises and rest once at the "
+                         + "end of the round. Between them the timer gives you twenty "
+                         + "seconds to walk over, not the full cooldown.")
+                }
+            }
+
+            Section {
+                Picker(isCardio ? "Between intervals" : "Rest", selection: $item.restSeconds) {
+                    if isCardio { Text("None").tag(0) }
+                    ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
+                        Text(Fmt.clock(s)).tag(s)
+                    }
+                }
+            } header: {
+                Text("Cooldown")
+            } footer: {
+                Text(isCardio
+                     ? "Only used when this slot is intervals. A single bout does not start "
+                     + "a cooldown — nobody wants to be asked to stand next to a treadmill "
+                     + "for ninety seconds after the only thing they came to do."
+                     : "How long the ring counts down after each set of this exercise.")
+            }
+
+            if let exercise = item.exercise {
+                Section("Exercise") {
+                    NavigationLink {
+                        ExerciseEditorView(exercise: exercise)
+                    } label: {
+                        LabeledContent(exercise.name,
+                                       value: exercise.isCardio ? "cardio"
+                                                                : exercise.loadingKind.rawValue)
+                    }
+                    NavigationLink {
+                        MachineSettingsList(exercise: exercise)
+                    } label: {
+                        LabeledContent("Machine settings",
+                                       value: exercise.settings.isEmpty
+                                           ? "none" : "\(exercise.settings.count)")
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(RFDesign.ground.ignoresSafeArea())
+        .navigationTitle(item.exercise?.name ?? "Exercise")
+        .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            try? context.save()
+            snapshots.setNeedsWrite(context)
+        }
+    }
+
+    /// What the plan asks for on a treadmill. Every field is optional and zero
+    /// means "not prescribed" — twenty minutes at 3% with the speed left to how
+    /// you feel is a real programme, and the commonest one.
+    @ViewBuilder private var cardioTargets: some View {
+        Section {
+            Stepper("Time: \(item.targetSeconds > 0 ? Fmt.minutes(item.targetSeconds) : "—")",
+                    value: minutesBinding, in: 0...180, step: 5)
+            if item.exercise?.metrics.contains(.distance) == true {
+                cardioStepper("Distance", value: $item.targetDistance,
+                              unit: "mi", step: 0.1, format: Fmt.distance)
+            }
+            if item.exercise?.metrics.contains(.incline) == true {
+                cardioStepper("Incline", value: $item.targetIncline,
+                              unit: "%", step: 0.5, format: Fmt.rate)
+            }
+            if item.exercise?.metrics.contains(.speed) == true {
+                cardioStepper("Speed", value: $item.targetSpeed,
+                              unit: "mph", step: 0.1, format: Fmt.rate)
+            }
+            if item.exercise?.metrics.contains(.resistance) == true {
+                cardioStepper("Resistance", value: $item.targetResistance,
+                              unit: "level", step: 1) { String(Int($0)) }
+            }
+            Stepper("Intervals: \(item.targetSets)", value: $item.targetSets, in: 1...20)
+        } header: {
+            Text("Target")
+        } footer: {
+            Text("Leave anything at zero to not prescribe it — it then shows as a dash "
+                 + "rather than as a target you missed. One interval means a single bout, "
+                 + "which is what most cardio is.")
+        }
+    }
+
+    private var minutesBinding: Binding<Int> {
+        Binding(get: { item.targetSeconds / 60 },
+                set: { item.targetSeconds = $0 * 60 })
+    }
+
+    private func cardioStepper(_ label: String, value: Binding<Double>, unit: String,
+                               step: Double, format: @escaping (Double) -> String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Button { value.wrappedValue = max(0, value.wrappedValue - step) } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
+            Text(value.wrappedValue > 0 ? "\(format(value.wrappedValue)) \(unit)" : "—")
+                .font(RFDesign.uiMedium(15))
+                .monospacedDigit()
+                .frame(minWidth: 82)
+                .multilineTextAlignment(.center)
+            Button {
+                // Rounded to the step so repeated taps cannot land on 3.0999999.
+                let next = value.wrappedValue + step
+                value.wrappedValue = (next / step).rounded() * step
+            } label: {
+                Image(systemName: "plus.circle")
+            }
+            .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
+        }
+    }
+
+    @ViewBuilder private var strengthTargets: some View {
             Section("Target") {
                 Stepper("Sets: \(item.targetSets)", value: $item.targetSets, in: 1...12)
                 Stepper("Reps: \(item.targetReps)", value: $item.targetReps, in: 1...50)
@@ -277,47 +430,6 @@ struct PlanItemEditorView: View {
                         .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
                 }
             }
-
-            Section {
-                Toggle("Superset with the next exercise", isOn: supersetBinding)
-            } header: {
-                Text("Pairing")
-            } footer: {
-                Text("You alternate between the linked exercises and rest once at the "
-                     + "end of the round. Between them the timer gives you twenty "
-                     + "seconds to walk over, not the full cooldown.")
-            }
-
-            Section {
-                Picker("Rest", selection: $item.restSeconds) {
-                    ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
-                        Text(Fmt.clock(s)).tag(s)
-                    }
-                }
-            } header: {
-                Text("Cooldown")
-            } footer: {
-                Text("How long the ring counts down after each set of this exercise.")
-            }
-
-            if let exercise = item.exercise {
-                Section("Exercise") {
-                    NavigationLink {
-                        ExerciseEditorView(exercise: exercise)
-                    } label: {
-                        LabeledContent(exercise.name, value: exercise.loadingKind.rawValue)
-                    }
-                }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(RFDesign.ground.ignoresSafeArea())
-        .navigationTitle(item.exercise?.name ?? "Exercise")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            try? context.save()
-            snapshots.setNeedsWrite(context)
-        }
     }
 
     /// Linking to the next exercise puts both in one group. Groups are numbered
@@ -470,6 +582,17 @@ struct ExerciseEditorView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
 
+    private func metricBinding(_ metric: CardioMetric) -> Binding<Bool> {
+        Binding(
+            get: { exercise.metrics.contains(metric) },
+            set: { on in
+                var all = Set(exercise.metrics)
+                if on { all.insert(metric) } else { all.remove(metric) }
+                exercise.cardioMetrics = CardioMetric.allCases
+                    .filter(all.contains).map(\.rawValue).joined(separator: ",")
+            })
+    }
+
     private func secondaryBinding(_ muscle: MuscleGroup) -> Binding<Bool> {
         Binding(
             get: { exercise.secondary.contains(muscle) },
@@ -486,12 +609,38 @@ struct ExerciseEditorView: View {
                 TextField("Bench Press", text: $exercise.name)
             }
             Section {
+                Picker("Kind", selection: $exercise.modality) {
+                    ForEach(Exercise.Modality.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+            } header: {
+                Text("Lifting or cardio")
+            } footer: {
+                Text("Cardio gets its own screen: a clock instead of a weight, and the "
+                     + "numbers off the console rather than reps.")
+            }
+
+            if exercise.isCardio {
+                Section {
+                    ForEach(CardioMetric.allCases) { metric in
+                        Toggle(metric.label, isOn: metricBinding(metric))
+                            .font(RFDesign.ui(14))
+                    }
+                } header: {
+                    Text("What this machine shows")
+                } footer: {
+                    Text("A rower has no incline and a treadmill has no damper. Only the "
+                         + "ones you tick appear on the logging screen — offering every "
+                         + "field on every machine is how a screen becomes one you skip.")
+                }
+            }
+
+            Section {
                 Picker("Loaded by", selection: $exercise.loading) {
                     ForEach(Exercise.Loading.allCases, id: \.rawValue) { kind in
                         Text(kind.rawValue.capitalized).tag(kind.rawValue)
                     }
                 }
-                if exercise.loadingKind.showsPlateMath {
+                if exercise.loadingKind.showsPlateMath && !exercise.isCardio {
                     Picker("Bar", selection: $exercise.barWeight) {
                         Text("45 lb — standard").tag(45.0)
                         Text("35 lb — women's").tag(35.0)
@@ -555,5 +704,30 @@ enum Weekdays {
 
     static func name(_ number: Int) -> String? {
         all.first { $0.number == number }?.name
+    }
+}
+
+
+/// The machine settings for one exercise, reachable from the plan as well as
+/// from the set screen — you set the seat standing at the machine, but you edit
+/// the programme sitting at home.
+struct MachineSettingsList: View {
+    let exercise: Exercise
+    @State private var editing = true
+
+    var body: some View {
+        VStack(spacing: RFDesign.md) {
+            MachineSettingsRow(exercise: exercise)
+                .padding(.horizontal, RFDesign.md)
+            Text("Tap to add or change where this machine is set.")
+                .font(RFDesign.ui(12.5))
+                .foregroundStyle(RFDesign.labelDim)
+            Spacer()
+        }
+        .padding(.top, RFDesign.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RFDesign.ground.ignoresSafeArea())
+        .navigationTitle("Machine settings")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -55,7 +55,7 @@ final class SnapshotTests: XCTestCase {
 
         let data = try SnapshotWriter.encoder().encode(try SnapshotBuilder.build(from: context))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(object["schema"] as? Int, 2)
+        XCTAssertEqual(object["schema"] as? Int, Snapshot.currentSchema)
 
         let exercise = try XCTUnwrap((object["exercises"] as? [[String: Any]])?
             .first { ($0["slug"] as? String) == "bench-press" })
@@ -115,7 +115,11 @@ final class SnapshotTests: XCTestCase {
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(object["schema"] as? Int, Snapshot.currentSchema)
-        XCTAssertEqual(Snapshot.currentSchema, 2)
+        // Pinned as a literal on purpose, and it is the ONLY place that is.
+        // The CLI refuses a version it does not know, so bumping the app's
+        // schema without bumping `SCHEMA_SUPPORTED` in `cli/gym` makes RIA go
+        // blind until someone notices. Failing here is the reminder.
+        XCTAssertEqual(Snapshot.currentSchema, 3)
         // The CLI reads these exact keys. Renaming one is a schema bump.
         for key in ["generated_at", "body_weight", "exercises", "plan", "passes", "sessions"] {
             XCTAssertNotNil(object[key], "missing top-level key \(key)")

@@ -201,11 +201,18 @@ struct TodayView: View {
             ForEach(Array(day.orderedItems.enumerated()), id: \.element.persistentModelID) { i, item in
                 if let exercise = item.exercise {
                     NavigationLink {
-                        SetView(item: item, exercise: exercise)
+                        // Two screens, because a treadmill and a bench share
+                        // almost nothing: no plate math, no rep target, and a
+                        // clock rather than a weight as the headline figure.
+                        if exercise.isCardio {
+                            CardioSetView(item: item, exercise: exercise)
+                        } else {
+                            SetView(item: item, exercise: exercise)
+                        }
                     } label: {
                         ExerciseRow(name: exercise.name,
                                     meta: meta(for: item),
-                                    trailing: Fmt.weight(item.targetWeight),
+                                    trailing: trailing(for: item, exercise: exercise),
                                     state: state(for: item))
                             .accessibilityIdentifier("row-\(exercise.slug)")
                     }
@@ -346,7 +353,22 @@ struct TodayView: View {
     }
 
     private func isDone(_ item: PlanItem) -> Bool {
-        working(item).count >= item.targetSets
+        // One bout ticks a cardio slot off unless the plan asked for intervals.
+        // Counting it against `targetSets` alone would leave the treadmill
+        // permanently unfinished, because its default target is three.
+        if item.exercise?.isCardio == true {
+            return performed(item).count >= max(1, item.targetSets)
+        }
+        return working(item).count >= item.targetSets
+    }
+
+    /// The number on the right of a row: the weight for a lift, the time for
+    /// cardio. It is the thing you are about to go and do either way.
+    private func trailing(for item: PlanItem, exercise: Exercise) -> String {
+        guard exercise.isCardio else { return Fmt.weight(item.targetWeight) }
+        if item.targetSeconds > 0 { return Fmt.minutes(item.targetSeconds) }
+        if item.targetDistance > 0 { return "\(Fmt.distance(item.targetDistance)) mi" }
+        return "—"
     }
 
     private func state(for item: PlanItem) -> ExerciseRow.State {
@@ -358,6 +380,7 @@ struct TodayView: View {
 
     /// The plan and the deviation in the same breath.
     private func meta(for item: PlanItem) -> String {
+        if item.exercise?.isCardio == true { return cardioMeta(for: item) }
         let done = working(item)
         let warmups = performed(item).count - done.count
         let plan = "\(item.targetSets) × \(item.targetReps) · \(Fmt.weight(item.targetWeight)) lb"
@@ -375,6 +398,30 @@ struct TodayView: View {
         }
         return "set \(done.count) of \(item.targetSets) done"
             + (warmups > 0 ? " · +\(warmups) warm-up" : "")
+    }
+
+    /// Cardio's version: what was asked for, then what actually happened on the
+    /// console. No reps, because there are none.
+    private func cardioMeta(for item: PlanItem) -> String {
+        let bouts = performed(item)
+        if bouts.isEmpty {
+            var parts: [String] = []
+            if item.targetSeconds > 0 { parts.append(Fmt.minutes(item.targetSeconds)) }
+            if item.targetDistance > 0 { parts.append("\(Fmt.distance(item.targetDistance)) mi") }
+            if item.targetIncline > 0 { parts.append("\(Fmt.rate(item.targetIncline))% grade") }
+            if item.targetSpeed > 0 { parts.append("\(Fmt.rate(item.targetSpeed)) mph") }
+            if item.targetSets > 1 { parts.append("\(item.targetSets) intervals") }
+            return parts.isEmpty ? "no target" : parts.joined(separator: " · ")
+        }
+        let seconds = bouts.reduce(0) { $0 + $1.seconds }
+        let miles = bouts.reduce(0) { $0 + $1.distance }
+        var parts: [String] = []
+        if seconds > 0 { parts.append(Fmt.minutes(seconds)) }
+        if miles > 0 { parts.append("\(Fmt.distance(miles)) mi") }
+        if item.targetSets > 1 {
+            parts.append("\(bouts.count) of \(item.targetSets)")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

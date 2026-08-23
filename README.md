@@ -19,6 +19,8 @@ reader distrust the rest of the file.)
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
+| Cardio | Treadmill, bike, rower, elliptical, stairs and the rest — their own screen, with time, distance, incline, speed, resistance and heart rate. Each machine offers only the numbers its console has. |
+| Machine settings | "2 on the leg press" — kept with the exercise, shown at the top of its screen, and readable from the Mac with `gym machines`. |
 | Music | Today and the set screen — a three-button bar. Your **Apple Music library playlists**, played by this app. |
 | Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
@@ -188,6 +190,62 @@ and a sentence about it is the app talking over your music to say what the
 chime already said. The ping is the whole message. The one thing that still
 speaks is the "say where I am" gesture, which speaks because you squeezed to
 ask.
+
+## Cardio is measured in minutes, not pounds
+
+A treadmill has its own screen (`CardioSetView`), because it shares almost
+nothing with a bench: no plate math, no rep target, and a clock rather than a
+weight as the headline figure. One screen doing both would have been a column
+of `if isCardio` and two half-designs.
+
+**Each machine offers only the numbers its own console has.** A rower has no
+incline and a treadmill has no damper, so `Exercise.metrics` is a per-machine
+list from `CardioMetric` — time, distance, speed, incline, resistance, heart
+rate. Offering every field on every machine is how a logging screen becomes one
+you skip. Absent on purpose: calories (the console's guess and the watch's
+measurement land in the same ring and disagree — the same argument that keeps a
+burn out of the Health export), watts and cadence (nothing in a normal gym
+reports them).
+
+**It records; it does not time you.** The machine in front of you already has a
+clock, a distance and a grade on a display the size of a laptop. An app racing
+it would be a second number that disagrees. You copy the console over when you
+step off — which is the actual gap, because otherwise that number exists
+nowhere ten seconds later.
+
+**Cardio never becomes tonnage.** Volume is weight × reps and a treadmill has
+neither; a pounds-equivalent means inventing a rate nobody measured. So a bout
+contributes *minutes*, minutes are reported as minutes, and cardio is kept out
+of the working-weight table and out of `top_lifts` — "Treadmill 0" is what
+happens when it is not. Trends grows a cardio block; `gym cardio` is the same
+answer on the Mac.
+
+Health gets each bout as its own workout of its own type (running, cycling,
+rowing…) with a distance sample where Health has one for it. A thirty-minute
+run filed as `traditionalStrengthTraining` — which is what a day used to become
+— gets no distance, no pace, the wrong icon in Fitness, and is read as lifting
+by Apple's own trends. A stair climber and a jump rope write no distance at all
+rather than an invented walking one.
+
+## "2 on the leg press"
+
+The seat position is a real thing you have to remember every week, and it was
+nowhere in a set log — so you rediscover it by sitting down and finding out it
+is wrong.
+
+It belongs to the **exercise**, not to a set: the seat does not change between
+Tuesday and Thursday, and recording it per set would make you re-enter it four
+times an evening. It sits at the top of the exercise's screen, is editable from
+there or from the plan, and rides along in the snapshot so `gym machines` can
+tell you where the pin goes before you leave the house.
+
+The dials are an enum (`MachineSettingKind` — seat, back pad, seat depth, chest
+pad, leg pad, thigh pad, foot plate, handle, grip, pulley, lever arm, range
+limiter, bench angle, rack pins, safety bars, headrest, other) rather than free
+text, so you cannot end up with "seat" and "Seat height" as two different
+things — which is exactly how a notes field for this would have decayed. The
+*value* is free text, because dials are not all numbers: "2", "hole 12", "30°",
+"wide".
 
 ## Apple Health
 
