@@ -285,3 +285,28 @@ breaks it across devices.
 already in the plan, and the footer says so. A setting that silently rewrites
 your existing programme is a setting you stop trusting — and there is a test
 that walks the seeded plan and asserts every item is untouched afterwards.
+
+## 2026-08-24 — Swiping back to past days
+
+**Read-only, and this is the whole design.** Today is a live checklist: tapping
+a row opens the set screen and logging writes `Date.now`. Making yesterday
+swipeable in that same form means the first mis-swipe logs a set into the wrong
+day — silently, because the screen said Tuesday. So `PastDayView` is a summary:
+what you did, what it added up to, and no affordance to add to it.
+
+Rejected: reusing `TodayView` with a date parameter. It is the obvious
+implementation and it is the bug.
+
+**Paged by sessions, not by calendar days.** Calendar days are the obvious
+paging unit and the wrong one — most of them are rest days, so swiping would
+mostly show nothing. Capped at sixty; nobody thumbs back three months, and each
+page is a view.
+
+**The day's name is derived from the exercises, not the weekday.** The
+programme rotates (see `Rotation`), so a weekday lookup is wrong within a
+fortnight. Matching logged slugs against each planned day's contents is right
+however far the cycle has drifted, and returns nothing rather than a guess when
+an improvised session matches nothing — an hour you made up is not "Push A".
+
+**Past days are drawn in `said`, not `ready`.** History should not glow like
+the live screen does; the teal is reserved for what is happening now.
