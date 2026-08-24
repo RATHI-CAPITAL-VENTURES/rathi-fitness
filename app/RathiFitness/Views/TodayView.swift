@@ -17,6 +17,11 @@ struct TodayView: View {
     @State private var overrideDay: PlannedDay?
     @State private var showingSettings = false
     @State private var showingPlan = false
+    /// 0 is today; 1 and up walk backwards through the days you actually
+    /// trained. Calendar days would be the obvious paging unit and the wrong
+    /// one — most of them are rest days, so swiping would mostly show nothing.
+    @State private var page = 0
+    @AppStorage("today.swipeHintSeen") private var swipeHintSeen = false
 
     private var calendar: Calendar { .current }
     private var config: Rotation.Config { schedules.first?.config ?? Rotation.Config() }
@@ -73,35 +78,44 @@ struct TodayView: View {
         allSets.filter { calendar.isDate($0.date, inSameDayAs: .now) }
     }
 
+    /// The days with something logged on them, newest first. Capped because
+    /// this builds a page each and nobody swipes back three months.
+    private var pastDays: [Date] {
+        let days = Set(allSets.map { calendar.startOfDay(for: $0.date) })
+            .filter { !calendar.isDate($0, inSameDayAs: .now) }
+        return Array(days.sorted(by: >).prefix(60))
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: RFDesign.md + 2) {
-                    LegacyDataBanner()
-                    header
-                    if let day = today {
-                        progress(for: day)
-                        rows(for: day)
-                        moved(for: day)
-                    } else {
-                        restDay
-                    }
-                    MusicBar()
-                    bodyWeight
+            TabView(selection: $page) {
+                todayPage.tag(0)
+                ForEach(Array(pastDays.enumerated()), id: \.element) { index, day in
+                    PastDayView(date: day).tag(index + 1)
                 }
-                .padding(.horizontal, 22)
-                .padding(.bottom, RFDesign.xl)
             }
-            .scrollIndicators(.hidden)
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .background(RoomBackground(hue: roomHue, energy: roomEnergy))
+            .onChange(of: page) { _, new in
+                if new != 0 { swipeHintSeen = true }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape")
-                            .foregroundStyle(RFDesign.label)
+                    if page == 0 {
+                        Button { showingSettings = true } label: {
+                            Image(systemName: "gearshape")
+                                .foregroundStyle(RFDesign.label)
+                        }
+                        .accessibilityLabel("Settings")
+                    } else {
+                        // Sixty swipes back is a long way to come home from.
+                        Button { withAnimation { page = 0 } } label: {
+                            Label("Today", systemImage: "chevron.left")
+                                .font(RFDesign.ui(14, bold: true))
+                                .foregroundStyle(RFDesign.ready)
+                        }
                     }
-                    .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -135,6 +149,46 @@ struct TodayView: View {
                     Task { await health.write(weighIn: pounds) }
                 }
             }
+        }
+    }
+
+    /// Today, live. Everything you can act on lives here — a past day is a
+    /// summary and cannot be logged into, because logging always writes
+    /// `Date.now` and a swipeable editable yesterday would put sets in the
+    /// wrong day without saying so.
+    private var todayPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: RFDesign.md + 2) {
+                LegacyDataBanner()
+                header
+                if let day = today {
+                    progress(for: day)
+                    rows(for: day)
+                    moved(for: day)
+                } else {
+                    restDay
+                }
+                MusicBar()
+                bodyWeight
+                swipeHint
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, RFDesign.xl)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// Shown once, and only when there is actually something back there. A
+    /// gesture nobody can discover is a gesture nobody has.
+    @ViewBuilder private var swipeHint: some View {
+        if !swipeHintSeen, !pastDays.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold))
+                Text("Swipe for \(pastDays.count == 1 ? "your last session" : "past sessions")")
+            }
+            .rfEyebrow()
+            .frame(maxWidth: .infinity)
+            .padding(.top, RFDesign.sm)
         }
     }
 

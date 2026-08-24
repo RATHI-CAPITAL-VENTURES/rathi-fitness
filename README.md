@@ -16,6 +16,7 @@ reader distrust the rest of the file.)
 | Log an exercise + current body weight, see trends over time | Trends tab — body weight chart, working weight table |
 | Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes. Scan with the camera **or pull the code out of a screenshot you already have**. QR, Code 128, PDF417 and Aztec. |
 | A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time |
+| Look back at past sessions | Swipe left on Today. Read-only summaries, newest first — see below. |
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
@@ -192,6 +193,27 @@ and a sentence about it is the app talking over your music to say what the
 chime already said. The ping is the whole message. The one thing that still
 speaks is the "say where I am" gesture, which speaks because you squeezed to
 ask.
+
+## Swiping back is read-only, on purpose
+
+Swipe left on Today to walk backwards through the days you actually trained.
+
+**Past days are summaries, not checklists, and that is the design rather than a
+shortcut.** Today is live: tapping a row opens the set screen, and logging
+writes `Date.now`. Make yesterday swipeable in that same form and the first
+thing that happens is a set logged into the wrong day — silently, because the
+screen you were looking at said Tuesday. So a past day shows what you did, what
+it added up to, and offers no way to add to it.
+
+**The paging unit is sessions, not calendar days.** Most days are rest days;
+swiping through them would mostly show nothing. It caps at sixty, because
+nobody thumbs back three months.
+
+Which workout a past day *was* is worked out from the exercises logged, not
+from the weekday — the programme rotates, so "Push A is Tuesday" is wrong
+within a fortnight. `PastDayView` matches the logged lifts against each planned
+day's contents, and says nothing rather than guessing when an improvised
+session matches none of them.
 
 ## Cardio is measured in minutes, not pounds
 
