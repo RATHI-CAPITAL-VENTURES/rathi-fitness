@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(HealthKit)
+import HealthKit
+#endif
 
 /// The decisions about Health, with no HealthKit in them.
 ///
@@ -76,6 +79,38 @@ enum HealthSync {
         return days
             .filter { $0 < today && !alreadyExported.contains($0) }
             .sorted()
+    }
+
+    // MARK: - Picking the connection back up
+
+    /// What a launch should conclude from HealthKit's request status.
+    ///
+    /// Split out here because `HealthBridge` needs a device and a human tapping
+    /// a sheet, and this rule is the part that was wrong: the app assumed
+    /// `.notAsked` every launch and made you reconnect each time.
+    ///
+    /// `.unnecessary` is the interesting one. It does NOT mean "authorised" —
+    /// HealthKit will not tell you that for read types, deliberately, since the
+    /// answer leaks what is in your Health app. It means "asking would show no
+    /// sheet", i.e. every type has been answered one way or the other. That is
+    /// precisely what `connected` has always meant here, which is why the two
+    /// map onto each other.
+    static func resumed(from request: HKAuthorizationRequestStatus,
+                        current: HealthBridge.Status) -> HealthBridge.Status {
+        switch request {
+        case .unnecessary:
+            return .connected
+        case .shouldRequest:
+            return .notAsked
+        case .unknown:
+            // The daemon could not say. Offering the button is the safe wrong
+            // answer: tapping it when you are already connected shows no sheet
+            // and costs nothing, while wrongly claiming to be connected would
+            // gate the launch sync on a permission that may not exist.
+            return .notAsked
+        @unknown default:
+            return current
+        }
     }
 
     // MARK: - Cardio and Health

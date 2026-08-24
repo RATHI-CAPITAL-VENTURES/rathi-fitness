@@ -56,6 +56,9 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            // Cheap, and it means opening Settings never shows a stale
+            // "Connect Apple Health" for a connection that already exists.
+            .task { await health.resume() }
         }
     }
 
