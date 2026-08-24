@@ -25,6 +25,21 @@ final class Exercise {
     /// which is the usual convention and stated here so nobody has to guess
     /// why the numbers are fractional.
     var secondaryMuscles: String = ""
+    /// The weight on this machine makes the exercise **easier**, not harder.
+    ///
+    /// An assisted pull-up machine counterweights you: 100 lb of help is a much
+    /// easier set than 40, and getting stronger means the number going DOWN.
+    /// Every piece of arithmetic in the app assumed the opposite, and the
+    /// failures were not cosmetic — a 100 lb assist registered as a
+    /// heaviest-ever personal best, hitting all your reps suggested *adding*
+    /// help next time, and the assistance was counted as tonnage moved, so the
+    /// weaker you got the better the numbers looked.
+    ///
+    /// A flag rather than a signed weight: storing assistance as −100 would
+    /// make every display, stepper and chart carry a minus sign it has to
+    /// explain, and one forgotten `abs()` would put a negative into a total.
+    var assisted: Bool = false
+
     /// Whether this is something you lift or something you run on.
     ///
     /// A separate axis from `loading`, which is about what goes on a bar. A
@@ -51,7 +66,9 @@ final class Exercise {
     init(name: String, slug: String? = nil,
          loading: Loading = .barbell, barWeight: Double = 45,
          primary: MuscleGroup = .other, secondary: [MuscleGroup] = [],
-         modality: Modality = .strength, metrics: [CardioMetric] = []) {
+         modality: Modality = .strength, metrics: [CardioMetric] = [],
+         assisted: Bool = false) {
+        self.assisted = assisted
         self.name = name
         self.slug = slug ?? Exercise.slugify(name)
         self.loading = loading.rawValue
@@ -76,6 +93,14 @@ final class Exercise {
 
     var kind: Modality { Modality(rawValue: modality) ?? .strength }
     var isCardio: Bool { kind == .cardio }
+
+    /// What the big number on the set screen is measuring. "lb" on a bench,
+    /// "lb help" on an assisted pull-up — the one place the distinction has to
+    /// be visible rather than merely correct.
+    var weightUnit: String { assisted ? "lb help" : "lb" }
+
+    /// Whether a smaller number is the better one.
+    var lowerIsBetter: Bool { assisted }
 
     /// The numbers this machine has, in a fixed order so two screens cannot
     /// show them in different sequences.

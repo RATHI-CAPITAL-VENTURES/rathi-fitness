@@ -29,11 +29,15 @@ import os
 import sys
 from pathlib import Path
 
+# 4 — assisted machines. `assisted: true` inverts what an exercise's numbers
+# MEAN: `working_weight` is how much HELP you needed, so lower is better and a
+# negative `change_30d` is progress. Never print it as a heavier lift.
+#
 # 3 — cardio and machine settings. An exercise may be `modality: "cardio"`, in
 # which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
 # numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
 # See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 3
+SCHEMA_SUPPORTED = 4
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -187,6 +191,17 @@ def cardio_target_line(target: dict) -> str:
     return " · ".join(parts) or "no target"
 
 
+def assisted_change(v) -> str:
+    """The 30-day change on an assisted machine, with the direction named.
+
+    `signed()` alone is honest about the number and misleading about the fact:
+    "−10" under a column headed "30d" reads as losing ground, when taking ten
+    pounds off a pull-up assist is the whole point of doing them."""
+    if not v:
+        return "—"
+    return f"−{num(abs(v))} help" if v < 0 else f"+{num(v)} help"
+
+
 def tonnage(pounds: float) -> str:
     """Total load moved. Tons past 20k, because six digits of pounds stops
     meaning anything you can picture."""
@@ -332,10 +347,22 @@ def cmd_lifts(args, data) -> None:
             if e.get("modality", "strength") != "cardio"
             and e.get("working_weight") is not None]
     rows.sort(key=lambda e: -(e.get("working_weight") or 0))
-    lines = [f"  {'':<22}{'now':>6}{'30d':>7}   {'last':<10}"]
+    lines = [f"  {'':<22}{'now':>6}{'30d':>11}   {'last':<10}"]
     for e in rows:
-        lines.append(f"  {e['name']:<22}{num(e['working_weight']):>6}"
-                     f"{signed(e.get('change_30d')):>7}   {e.get('last_performed') or '—'}")
+        if e.get("assisted"):
+            # A row that means the opposite of the ones around it has to say so
+            # on its own line — a reader scanning the column cannot be expected
+            # to remember which machines counterweight you.
+            change = assisted_change(e.get("change_30d"))
+            name = e["name"] + " *"
+        else:
+            change = signed(e.get("change_30d"))
+            name = e["name"]
+        lines.append(f"  {name:<22}{num(e['working_weight']):>6}"
+                     f"{change:>11}   {e.get('last_performed') or '—'}")
+    if any(e.get("assisted") for e in rows):
+        lines.append("")
+        lines.append("  * assisted — the number is how much HELP you needed, so down is up.")
     emit(args, rows, "Working weight\n" + "\n".join(lines))
 
 
@@ -352,7 +379,8 @@ def cmd_exercise(args, data) -> None:
     if muscles != "other" and e.get("secondary_muscles"):
         muscles += " + " + ", ".join(e["secondary_muscles"])
     is_cardio = e.get("modality", "strength") == "cardio"
-    kind = "cardio" if is_cardio else e["loading"]
+    kind = "cardio" if is_cardio else (
+        f"assisted {e['loading']}" if e.get("assisted") else e["loading"])
     lines = [f"{e['name']}  ({kind}"
              + (f", {muscles}" if muscles != "other" else "") + ")"]
 
@@ -366,6 +394,14 @@ def cmd_exercise(args, data) -> None:
         if best.get("fastest"):
             bits.append(f"fastest {best['fastest']:g} mph")
         lines.append("  " + (" · ".join(bits) if bits else "nothing logged yet"))
+    elif e.get("assisted"):
+        lines.append(f"  help    {num(e.get('working_weight'))} lb · "
+                     f"{assisted_change(e.get('change_30d'))} in 30 days")
+        best = e.get("best")
+        if best:
+            lines.append(f"  least   {num(best['weight'])} lb help × {best['reps']} "
+                         f"on {best['date']}")
+        lines.append("  (assisted machine — less help is the progress)")
     else:
         lines.append(f"  working {num(e.get('working_weight'))} lb · "
                      f"{signed(e.get('change_30d'))} in 30 days")

@@ -16,6 +16,7 @@ enum Catalogue {
         let loading: Exercise.Loading
         let primary: MuscleGroup
         let secondary: [MuscleGroup]
+        var assisted: Bool = false
         var modality: Exercise.Modality = .strength
         /// Which console numbers this machine has. Empty on a lift, and empty
         /// on a cardio entry means "the common four" — see `Exercise.init`.
@@ -26,6 +27,13 @@ enum Catalogue {
     static func make(_ name: String, _ loading: Exercise.Loading,
                      _ primary: MuscleGroup, _ secondary: [MuscleGroup] = []) -> Entry {
         Entry(name: name, loading: loading, primary: primary, secondary: secondary)
+    }
+
+    /// A machine whose weight makes the exercise easier. See `Exercise.assisted`.
+    static func assisted(_ name: String, _ primary: MuscleGroup,
+                         _ secondary: [MuscleGroup] = []) -> Entry {
+        Entry(name: name, loading: .machine, primary: primary, secondary: secondary,
+              assisted: true)
     }
 
     /// A cardio machine. Separate constructor rather than a defaulted argument
@@ -50,6 +58,7 @@ enum Catalogue {
         make("Chest Press Machine", .machine, .chest, [.triceps]),
         make("Push-Up", .bodyweight, .chest, [.triceps, .core]),
         make("Dip", .bodyweight, .chest, [.triceps]),
+        assisted("Assisted Dip", .chest, [.triceps]),
         make("Pec Deck", .machine, .chest, []),
 
         // Back
@@ -65,6 +74,10 @@ enum Catalogue {
         make("Lat Pulldown", .machine, .lats, [.biceps]),
         make("Pull-Up", .bodyweight, .lats, [.biceps, .back]),
         make("Chin-Up", .bodyweight, .lats, [.biceps]),
+        // The counterweighted versions. Same movement, opposite arithmetic:
+        // the number going down is the progress.
+        assisted("Assisted Pull-Up", .lats, [.biceps, .back]),
+        assisted("Assisted Chin-Up", .lats, [.biceps]),
         make("Straight-Arm Pulldown", .cable, .lats, []),
         make("Face Pull", .cable, .traps, [.shoulders]),
         make("Shrug", .barbell, .traps, [.forearms]),
@@ -179,7 +192,8 @@ enum Catalogue {
     static func exercise(from entry: Entry) -> Exercise {
         Exercise(name: entry.name, loading: entry.loading, barWeight: entry.bar,
                  primary: entry.primary, secondary: entry.secondary,
-                 modality: entry.modality, metrics: entry.metrics)
+                 modality: entry.modality, metrics: entry.metrics,
+                 assisted: entry.assisted)
     }
 
     /// Fill in what we know about an exercise created by typing a name.
@@ -189,6 +203,7 @@ enum Catalogue {
         exercise.barWeight = entry.bar
         exercise.primaryMuscle = entry.primary.rawValue
         exercise.secondaryMuscles = entry.secondary.map(\.rawValue).joined(separator: ",")
+        exercise.assisted = entry.assisted
         exercise.modality = entry.modality.rawValue
         exercise.cardioMetrics = (entry.metrics.isEmpty && entry.modality == .cardio
                                   ? CardioMetric.commonSet : entry.metrics)

@@ -20,6 +20,7 @@ reader distrust the rest of the file.)
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
 | Cardio | Treadmill, bike, rower, elliptical, stairs and the rest — their own screen, with time, distance, incline, speed, resistance and heart rate. Each machine offers only the numbers its console has. |
+| Assisted machines | Pull-up/dip assist, where the weight makes it **easier**. Records, progression, tonnage and the trend arrow all run the other way. Toggle it on any exercise. |
 | Machine settings | "2 on the leg press" — kept with the exercise, shown at the top of its screen, and readable from the Mac with `gym machines`. |
 | Music | Today and the set screen — a three-button bar. Your **Apple Music library playlists**, played by this app. |
 | Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
@@ -226,6 +227,45 @@ run filed as `traditionalStrengthTraining` — which is what a day used to becom
 — gets no distance, no pace, the wrong icon in Fitness, and is read as lifting
 by Apple's own trends. A stair climber and a jump rope write no distance at all
 rather than an invented walking one.
+
+## Machines where the weight makes it easier
+
+An assisted pull-up machine counterweights you: 100 lb of help is a much easier
+set than 40, and getting stronger means the number going **down**.
+
+Every piece of arithmetic in the app assumed the opposite, and none of the
+failures looked like failures — they all produced plausible numbers pointing the
+wrong way:
+
+- a 100 lb assist registered as a **heaviest-ever personal best**;
+- hitting all your reps suggested **adding** help next time;
+- the assistance counted as **tonnage moved**, so the more help you needed the
+  better the session looked — 100 lb × 8 reads as 800 lb "moved";
+- the 30-day arrow on Trends went teal when the help went **up**;
+- `best` in the snapshot exported the day you needed the most help, and RIA
+  reads that file out loud.
+
+So `Exercise.assisted` is a flag on the exercise, and everything with an opinion
+about the number checks it. A record becomes the least help you have ever
+needed (and "Unassisted — no help at all" when it reaches zero). Progression
+takes help off and floors at zero. Assistance is excluded from tonnage entirely,
+for the same reason bodyweight movements are: converting it to
+bodyweight-minus-assistance means storing a bodyweight per set and guessing for
+every day you did not weigh yourself.
+
+Two smaller decisions inside it:
+
+- **A flag, not a signed weight.** Storing assistance as −100 would put a minus
+  sign into every display, stepper and chart that then has to explain it, and
+  one forgotten `abs()` would drop a negative into a total.
+- **The rep record is stricter here than for lifts.** The exact mirror would be
+  "most reps at this help or less", which is true and awful: adding help almost
+  always buys reps, so every deload would manufacture a record and the app would
+  cheer each step backwards. It only counts at your hardest setting to date.
+
+`SetEntry.tally` exists because of this. Nine call sites built `Tally.Set` by
+hand and every one of them would have silently defaulted the flag to false —
+one converter means a rule added to the value is a change in one place.
 
 ## "2 on the leg press"
 

@@ -193,3 +193,48 @@ month. Free-text values are because dials are not all numbers: "2", "hole 12",
 Rejected: keeping it in the exercise's note. A workaround for a missing field
 becomes the permanent shape of the data, because nobody re-migrates a notes
 field.
+
+## 2026-08-24 — Machines where the weight makes it easier
+
+**`Exercise.assisted`, and everything with an opinion about the number checks
+it.** An assisted pull-up machine counterweights you, so 100 lb of help is an
+easier set than 40 and progress is the number going down.
+
+This was not a missing feature, it was five live bugs, and the reason none had
+been noticed is that every one produced a *plausible* number pointing the wrong
+way: a heaviest-ever PR at maximum assistance, a suggestion to add help after a
+good session, assistance counted as tonnage (so needing more help improved the
+totals), a teal trend arrow for regressing, and `best` exporting the worst day
+to the file RIA reads aloud.
+
+**A flag, not a signed weight.** Rejected: storing assistance as −100. It would
+put a minus sign into every display, stepper and chart that then has to explain
+it, and one forgotten `abs()` puts a negative into a total.
+
+**Assistance is excluded from tonnage rather than converted.** Rejected:
+bodyweight-minus-assistance. It needs a bodyweight per set and a guess for every
+day you did not weigh yourself — the same invention that already keeps push-ups
+out of tonnage. Excluding is honest; converting is a number nobody measured.
+
+**No estimated one-rep max on a counterweight.** Epley applied to assistance is
+arithmetic without a meaning, and it would produce a number — which is exactly
+the danger.
+
+**The rep record is stricter here than for lifts, on purpose.** The exact mirror
+of "most reps at this weight or above" is "most reps at this help or less". It
+is technically true and practically awful: adding help almost always buys reps,
+so every deload manufactures a record and the app cheers each step backwards —
+the precise failure the flag exists to stop. A rep record on an assisted machine
+only counts at your hardest setting to date. The asymmetry with the resisted
+rule is deliberate and is the one place the mirror was refused.
+
+**`SetEntry.tally` — one door.** Nine call sites constructed `Tally.Set` by
+hand, spelling out weight/reps/kind, and every one of them silently defaulted
+`assisted` to false. That is exactly how a pull-up assist ends up in tonnage.
+One converter means the next rule added to the value is a change in one place
+instead of nine.
+
+**Schema 4.** Adding the field is an addition; what forces the bump is that
+`working_weight`, `change_30d` and `best` now MEAN something different on those
+rows. A CLI that does not know the flag reads them the old way and congratulates
+him for getting weaker, so refusing is the correct behaviour.

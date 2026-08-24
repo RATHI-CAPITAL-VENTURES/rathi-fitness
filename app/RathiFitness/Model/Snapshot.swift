@@ -25,6 +25,13 @@ struct Snapshot: Codable {
     /// are unchanged for logs recorded before set kinds existed (everything was
     /// a working set then), but the definition changed, and the rule in
     /// docs/SNAPSHOT.md is that a changed meaning bumps this.
+    /// **4** — assisted machines. `assisted: true` on an exercise inverts what
+    /// its numbers MEAN: `working_weight` is how much help you needed, so a
+    /// smaller one is better and `change_30d` is progress when it is negative.
+    /// Assistance is excluded from `volume` for the same reason bodyweight is —
+    /// counting it made needing more help look like moving more weight. A
+    /// reader that does not know the flag will congratulate you for getting
+    /// weaker, which is why this is a bump and not an addition.
     /// **3** — cardio and machine settings. Two additions and one changed
     /// meaning, which is what forces the bump rather than a minor version:
     /// `exercises` may now be `modality: "cardio"`, in which case `volume` and
@@ -32,7 +39,7 @@ struct Snapshot: Codable {
     /// tonnage, and a reader that averages it in is reporting a fiction.
     /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
     /// where the seat goes.
-    static let currentSchema = 3
+    static let currentSchema = 4
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -156,6 +163,10 @@ struct Snapshot: Codable {
         /// `strength` or `cardio`. On a cardio exercise `workingWeight`, `best`
         /// and every `volume` below are zero and carry no meaning.
         var modality: String = Exercise.Modality.strength.rawValue
+        /// The weight makes it EASIER — an assisted pull-up or dip machine.
+        /// When true, `workingWeight` is assistance: lower is better, a negative
+        /// `change30d` is progress, and none of it is in `volume`.
+        var assisted: Bool = false
         /// Where the machine goes — "seat: 2", "back pad: 4". The whole point
         /// of the feature reaching the Mac: RIA can tell you before you get
         /// there.
@@ -164,7 +175,7 @@ struct Snapshot: Codable {
         var cardioBest: CardioBest?
 
         enum CodingKeys: String, CodingKey {
-            case slug, name, loading, best, recent, modality
+            case slug, name, loading, best, recent, modality, assisted
             case primaryMuscle = "primary_muscle"
             case secondaryMuscles = "secondary_muscles"
             case workingWeight = "working_weight"
@@ -335,7 +346,7 @@ enum SnapshotBuilder {
                 warmupSets: performed.count - working.count,
                 done: isDone,
                 volume: Tally.volume(performed.map {
-                    Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                    $0.tally
                 }),
                 performed: performed.map(performedLine),
                 modality: ex.modality,
@@ -344,7 +355,7 @@ enum SnapshotBuilder {
         }
         // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
-            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+            $0.tally
         })
         return .init(date: Fmt.day(now), day: day.name,
                      setsDone: items.reduce(0) { $0 + $1.setsDone },
@@ -415,10 +426,13 @@ enum SnapshotBuilder {
             let rpes = working.map(\.rpe).filter { $0 > 0 }
             return .init(
                 date: date,
-                topWeight: working.map(\.weight).max() ?? 0,
+                // The hardest set of that day: most weight normally, least help
+                // on an assisted machine.
+                topWeight: (ex.assisted ? working.map(\.weight).min()
+                                        : working.map(\.weight).max()) ?? 0,
                 reps: working.sorted { $0.setIndex < $1.setIndex }.map(\.reps),
                 volume: Tally.volume(entries.map {
-                    Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                    $0.tally
                 }),
                 warmupSets: entries.count - working.count,
                 averageRpe: rpes.isEmpty ? nil
@@ -430,9 +444,14 @@ enum SnapshotBuilder {
         // beats a lighter set of eight for this purpose, which is what a
         // working-weight number is for.
         // A warm-up is not a personal best, here as on the phone.
-        let best = mine.filter { $0.setKind.counts }.max { a, b in
-            a.weight == b.weight ? a.reps < b.reps : a.weight < b.weight
-        }
+        //
+        // On an assisted machine "best" is the LEAST help, so the comparison
+        // flips. Leaving it as `max` would export the day you needed most help
+        // as your personal best, which is the whole bug in one field.
+        let counted = mine.filter { $0.setKind.counts }
+        let best = ex.assisted
+            ? counted.min { a, b in a.weight == b.weight ? a.reps > b.reps : a.weight < b.weight }
+            : counted.max { a, b in a.weight == b.weight ? a.reps < b.reps : a.weight < b.weight }
         let cutoff = cal.date(byAdding: .day, value: -30, to: now) ?? now
         let older = lines.first { ($0.date) <= Fmt.day(cutoff) }
         let change = (lines.first?.topWeight).flatMap { latest in
@@ -455,6 +474,7 @@ enum SnapshotBuilder {
             change30d: ex.isCardio ? nil : change.map(round1),
             recent: Array(lines.prefix(12)),
             modality: ex.modality,
+            assisted: ex.assisted,
             machineSettings: settings.isEmpty ? nil : settings,
             cardioBest: ex.isCardio ? cardioBest(mine) : nil)
     }
@@ -507,7 +527,11 @@ enum SnapshotBuilder {
                 let byExercise = Dictionary(grouping: entries) { $0.exercise?.slug ?? "?" }
                 let top = byExercise
                     .compactMap { _, e -> (String, Double)? in
-                        guard let exercise = e.first?.exercise, !exercise.isCardio,
+                        // Assisted machines are excluded alongside cardio:
+                        // "Assisted Pull-Up 100" would top the list on the day
+                        // you needed the most help.
+                        guard let exercise = e.first?.exercise,
+                              !exercise.isCardio, !exercise.assisted,
                               let w = e.filter({ $0.setKind.counts })
                                   .map(\.weight).max(), w > 0 else { return nil }
                         return (exercise.name, w)
@@ -527,7 +551,7 @@ enum SnapshotBuilder {
                     sets: working.count,
                     warmupSets: entries.count - working.count,
                     volume: Tally.volume(entries.map {
-                        Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                        $0.tally
                     }),
                     topLifts: Array(top),
                     cardioMinutes: round1(Tally.cardioMinutes(entries.map {
