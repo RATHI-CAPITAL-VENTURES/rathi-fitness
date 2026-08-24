@@ -614,20 +614,26 @@ struct MeasureSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Picker("Where", selection: $kind) {
-                    ForEach(MetricKind.allCases) { Text($0.label).tag($0) }
-                }
-                HStack {
+            VStack(alignment: .leading, spacing: RFDesign.lg) {
+                ChoiceRow(label: "Where", value: kind,
+                          options: MetricKind.allCases.map { ($0, $0.label) },
+                          showsDivider: false) { kind = $0 }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     TextField("32.5", text: $text)
                         .keyboardType(.decimalPad)
-                        .font(RFDesign.figure(30, relativeTo: .title))
+                        .font(RFDesign.figure(44))
                         .monospacedDigit()
-                    Text("inches").rfEyebrow(RFDesign.labelDim, size: 12)
+                        .foregroundStyle(RFDesign.speech)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.plain)
+                    Text("inches").rfEyebrow(RFDesign.labelDim, size: 13)
                 }
+                Spacer()
             }
-            .scrollContentBackground(.hidden)
-            .background(RFDesign.ground.ignoresSafeArea())
+            .padding(.horizontal, SettingsKit.margin)
+            .padding(.top, RFDesign.md)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoomBackground())
             .navigationTitle("Measurement")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

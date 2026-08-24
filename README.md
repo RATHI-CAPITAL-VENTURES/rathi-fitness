@@ -50,6 +50,36 @@ out to `gym`, the same shape as every other RIA tool.
 Writes go the other direction through an `inbox/` folder the app drains on
 launch. Not built yet — RIA is read-only until there is a reason.
 
+## CI — what will fail your PR
+
+The shipping guards come from the shared template at `~/RIA/templates/ci`, so
+this repo did not invent them: `bootstrap` installed them and
+`bootstrap --check` reports when the template has moved on. `guards.conf` holds
+the facts about *this* project; the shared logic is never edited here.
+
+Run them yourself before pushing:
+
+```
+BASE_SHA=$(git merge-base HEAD origin/main) HEAD_SHA=$(git rev-parse HEAD) \
+  bash .github/scripts/guards.sh all
+bash .github/scripts/guards.d.test.sh    # this project's own guards
+```
+
+On top of the template's eleven — docs, tests, changelog, version-sync,
+bump-level, retro, follow-ups and the rest — three are specific to this app and
+each exists because it broke:
+
+| Guard | Fails when |
+| --- | --- |
+| `snapshot-schema` | `Snapshot.currentSchema`, `SCHEMA_SUPPORTED` in `cli/gym` and the history table in `docs/SNAPSHOT.md` disagree. The contract has three ends in two languages and they cannot be derived from each other; when they drifted, `gym` went blind on the Mac and nothing failed until the next `gym today`. |
+| `house-style` | A stock `Form` appears in `Views/`, or a colour is declared outside `RFDesign`. Settings and the plan editor were the only screens that did not look like the app, and the diagnosis was a grep. `List` is still allowed — `onMove` and `onDelete` are real features. |
+| `icon-ladder` | The icon set is missing any of the thirteen iOS sizes. A lone 1024 renders a correct home screen and a **blank notification icon**, and this app notifies you when a rest ends. |
+
+The build itself is `ci.yml`: the `gym` CLI tests on Ubuntu, and the Swift build
+and test suite on `macos-15` — the latter gated on `app/` having changed,
+because macOS minutes bill at **10x** on a private repo and a docs-only change
+should not spend them.
+
 ## Installing on the phone
 
 Two builds, and the difference matters.
@@ -415,6 +445,20 @@ or `sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer` once.
 
 Two tests skip on that runtime: Vision cannot create an inference context in
 this simulator, so the code round-trip cannot run there. It works on the device.
+
+**It fails a second way on CI**, which only showed up once the suite ran on a
+machine that was not this one: the runner's simulator *does* start Vision, runs
+the detection, and finds nothing — surfacing as `Failure.nothingFound` rather
+than a refusal. Same environmental problem, different symptom, so the skip
+covers both. `nothingFound` is forgiven **only** under
+`#if targetEnvironment(simulator)`; on a device it stays a hard failure, because
+a pass that renders and cannot be read back is exactly the bug that test exists
+to catch.
+
+The cost is worth stating plainly: **the round-trip verifies nothing in CI.** It
+is a device property. What CI still covers is that the scanner, the importer and
+the renderer agree on the same set of formats — pure logic, and the likelier
+regression anyway.
 
 ## Not decided yet
 

@@ -30,6 +30,17 @@ public enum RFDesign {
     public static let labelDim = Color.white.opacity(0.34)
     public static let hairline = Color.white.opacity(0.08)
 
+    // The pass card is the one light surface in the app, and it has to be:
+    // a turnstile scanner needs a bright ground behind the code, so that card
+    // goes white at full brightness while everything around it stays dark.
+    // Its text therefore cannot come from the palette above — white-on-white —
+    // and these are the two values it needs. Named here rather than written
+    // into the view, because a colour that lives in one screen is how a design
+    // system stops being one.
+    public static let lightGround = Color.white
+    public static let onLight = Color(red: 0.043, green: 0.055, blue: 0.067)
+    public static let onLightDim = Color(red: 0.42, green: 0.455, blue: 0.482)
+
     /// Ready. Where RIA sits at idle.
     public static let ready = Color(hue: readyHue / 360, saturation: 0.66, brightness: 0.86)
     /// Just racked the bar.
