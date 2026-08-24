@@ -166,11 +166,11 @@ struct PassCard: View {
             VStack(spacing: 3) {
                 Text(pass.name)
                     .font(RFDesign.ui(15, bold: true))
-                    .foregroundStyle(Color(red: 0.043, green: 0.055, blue: 0.067))
+                    .foregroundStyle(RFDesign.onLight)
                 if !pass.location.isEmpty {
                     Text(pass.location)
                         .font(RFDesign.ui(12.5))
-                        .foregroundStyle(Color(red: 0.42, green: 0.455, blue: 0.482))
+                        .foregroundStyle(RFDesign.onLightDim)
                 }
             }
             if !pass.memberID.isEmpty {
@@ -181,17 +181,17 @@ struct PassCard: View {
                     .font(RFDesign.uiMedium(12))
                     .tracking(3)
                     .monospacedDigit()
-                    .foregroundStyle(Color(red: 0.043, green: 0.055, blue: 0.067))
+                    .foregroundStyle(RFDesign.onLight)
             }
             if let state = pass.stateLine {
                 Text(state)
                     .font(RFDesign.ui(11.5))
-                    .foregroundStyle(Color(red: 0.42, green: 0.455, blue: 0.482))
+                    .foregroundStyle(RFDesign.onLightDim)
             }
         }
         .padding(22)
         .frame(maxWidth: .infinity)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 22))
+        .background(RFDesign.lightGround, in: RoundedRectangle(cornerRadius: 22))
     }
 
     @ViewBuilder private var codeImage: some View {
@@ -206,7 +206,7 @@ struct PassCard: View {
         } else {
             Text("This pass has no code stored yet.")
                 .font(RFDesign.ui(13))
-                .foregroundStyle(Color(red: 0.42, green: 0.455, blue: 0.482))
+                .foregroundStyle(RFDesign.onLightDim)
                 .frame(height: 120)
         }
     }
