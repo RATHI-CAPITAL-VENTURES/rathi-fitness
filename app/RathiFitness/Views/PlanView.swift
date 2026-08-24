@@ -30,33 +30,52 @@ struct PlanList: View {
 
     var body: some View {
         Group {
+            // `List` survives here, and only here, because `onMove` and
+            // `onDelete` are real features — reimplementing drag-to-reorder to
+            // win a typeface is a bad trade. Everything the list would impose
+            // is stripped: its background, its row fills, its separators and
+            // its insets, so what is left is the app's own row on the app's own
+            // ground at the app's own margin.
             List {
-                Section {
-                    ForEach(days) { day in
-                        Button { editing = day } label: { row(day) }
-                            .buttonStyle(.plain)
-                    }
-                    .onDelete(perform: deleteDays)
-                    .onMove(perform: moveDays)
-                } footer: {
-                    Text("A day with no weekday is one you do when you feel like it — "
-                         + "it will not open by itself, but you can pick it from the "
-                         + "calendar button on Today.")
+                ForEach(days) { day in
+                    Button { editing = day } label: { row(day) }
+                        .buttonStyle(.plain)
                 }
+                .onDelete(perform: deleteDays)
+                .onMove(perform: moveDays)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(RFDesign.hairline)
+                .listRowInsets(EdgeInsets(top: 0, leading: SettingsKit.margin,
+                                          bottom: 0, trailing: SettingsKit.margin))
 
-                Section {
-                    Button {
-                        let day = PlannedDay(name: "New day", weekday: 0, order: days.count)
-                        context.insert(day)
-                        save()
-                        editing = day
-                    } label: {
-                        Label("Add a day", systemImage: "plus")
-                    }
+                Button {
+                    let day = PlannedDay(name: "New day", weekday: 0, order: days.count)
+                    context.insert(day)
+                    save()
+                    editing = day
+                } label: {
+                    ActionRow(label: "Add a day", symbol: "plus", showsDivider: false) {}
+                        .allowsHitTesting(false)
                 }
+                .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: SettingsKit.margin,
+                                          bottom: 0, trailing: SettingsKit.margin))
+
+                Text("A day with no weekday is one you do when you feel like it — it will "
+                     + "not open by itself, but you can pick it from the calendar button "
+                     + "on Today.")
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.labelDim)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: RFDesign.sm, leading: SettingsKit.margin,
+                                              bottom: RFDesign.xl, trailing: SettingsKit.margin))
             }
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(RFDesign.ground.ignoresSafeArea())
+            .background(RoomBackground())
             .navigationTitle("The plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -134,57 +153,76 @@ struct DayEditorView: View {
     private var dayCount: Int { max(allDays.count, 1) }
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Push A", text: $day.name)
-                    .font(RFDesign.uiMedium(16))
-                if rotating {
-                    LabeledContent("Position", value: "\(day.order + 1) of \(dayCount)")
-                } else {
-                    Picker("Weekday", selection: $day.weekday) {
-                        Text("Unscheduled").tag(0)
-                        ForEach(Weekdays.all, id: \.number) { d in
-                            Text(d.name).tag(d.number)
+        ScrollView {
+            VStack(alignment: .leading, spacing: RFDesign.lg + 4) {
+                SettingsSection(
+                    title: rotating ? "Name and place in the rotation" : "Name and day",
+                    footer: rotating
+                        ? "You are on a rotation, so this workout is not pinned to a "
+                        + "weekday — it comes up when the cycle reaches it. Drag the days "
+                        + "on the previous screen to change the order."
+                        : nil
+                ) {
+                    TextField("Push A", text: $day.name)
+                        .font(RFDesign.uiMedium(16))
+                        .foregroundStyle(RFDesign.speech)
+                        .textFieldStyle(.plain)
+                        .padding(.vertical, 13)
+                        .overlay(alignment: .bottom) { Divider().overlay(RFDesign.hairline) }
+                    if rotating {
+                        SettingRow(label: "Position", showsDivider: false) {
+                            SettingFigure(value: "\(day.order + 1)",
+                                          unit: "of \(dayCount)")
                         }
+                    } else {
+                        ChoiceRow(label: "Weekday", value: day.weekday,
+                                  options: [(0, "Unscheduled")]
+                                      + Weekdays.all.map { ($0.number, $0.name) },
+                                  showsDivider: false) { day.weekday = $0 }
                     }
                 }
-            } header: {
-                Text(rotating ? "Name and place in the rotation" : "Name and day")
-            } footer: {
-                if rotating {
-                    Text("You are on a rotation, so this workout is not pinned to a "
-                         + "weekday — it comes up when the cycle reaches it. Drag the "
-                         + "days on the previous screen to change the order.")
-                }
-            }
 
-            Section {
-                ForEach(day.orderedItems) { item in
-                    NavigationLink {
-                        PlanItemEditorView(item: item)
-                    } label: {
-                        itemRow(item)
+                SettingsSection(
+                    title: "Exercises",
+                    footer: "The order here is the order you do them in. Swipe to remove, "
+                          + "drag to reorder — the pencil in the corner turns that on. Link "
+                          + "two in a row into a superset and you go straight from one to "
+                          + "the other; the cooldown waits until the end of the round."
+                ) {
+                    // Reordering matters more here than anywhere else in the
+                    // app — the order IS the workout — so this stays a `List`,
+                    // stripped of everything it would otherwise impose. It needs
+                    // an explicit height because a `List` inside a `ScrollView`
+                    // has no intrinsic one.
+                    List {
+                        ForEach(day.orderedItems) { item in
+                            NavigationLink {
+                                PlanItemEditorView(item: item)
+                            } label: {
+                                itemRow(item)
+                            }
+                        }
+                        .onDelete(perform: deleteItems)
+                        .onMove(perform: moveItems)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparatorTint(RFDesign.hairline)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     }
-                }
-                .onDelete(perform: deleteItems)
-                .onMove(perform: moveItems)
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .scrollDisabled(true)
+                    .frame(height: max(1, CGFloat(day.orderedItems.count) * 62))
 
-                Button {
-                    addingExercise = true
-                } label: {
-                    Label("Add an exercise", systemImage: "plus")
+                    ActionRow(label: "Add an exercise", symbol: "plus",
+                              showsDivider: false) { addingExercise = true }
                 }
-            } header: {
-                Text("Exercises")
-            } footer: {
-                Text("The order here is the order you do them in. Swipe to remove, "
-                     + "drag to reorder. Link two in a row into a superset and you "
-                     + "go straight from one to the other — the cooldown waits "
-                     + "until the end of the round.")
             }
+            .padding(.horizontal, SettingsKit.margin)
+            .padding(.top, RFDesign.sm)
+            .padding(.bottom, RFDesign.xl)
         }
-        .scrollContentBackground(.hidden)
-        .background(RFDesign.ground.ignoresSafeArea())
+        .scrollIndicators(.hidden)
+        .background(RoomBackground())
         .navigationTitle(day.name.isEmpty ? "New day" : day.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
@@ -288,64 +326,31 @@ struct PlanItemEditorView: View {
 
     private var isCardio: Bool { item.exercise?.isCardio == true }
 
+    /// Which figure the stepper is currently under. Nil until you tap one, so
+    /// the screen opens as a readout rather than as a control panel.
+    @State private var editing: Field?
+
+    /// The numbers this slot has. A treadmill's are not a bench's, and neither
+    /// has the other's — so the row is built from the exercise rather than from
+    /// a fixed set of four.
+    enum Field: Hashable {
+        case sets, reps, weight, rest
+        case cardio(CardioMetric)
+    }
+
     var body: some View {
-        Form {
-            if isCardio {
-                cardioTargets
-            } else {
-                strengthTargets
+        ScrollView {
+            VStack(alignment: .leading, spacing: RFDesign.lg + 4) {
+                figures
+                if !isCardio { pairing }
+                links
             }
-
-            if !isCardio {
-                Section {
-                    Toggle("Superset with the next exercise", isOn: supersetBinding)
-                } header: {
-                    Text("Pairing")
-                } footer: {
-                    Text("You alternate between the linked exercises and rest once at the "
-                         + "end of the round. Between them the timer gives you twenty "
-                         + "seconds to walk over, not the full cooldown.")
-                }
-            }
-
-            Section {
-                Picker(isCardio ? "Between intervals" : "Rest", selection: $item.restSeconds) {
-                    if isCardio { Text("None").tag(0) }
-                    ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
-                        Text(Fmt.clock(s)).tag(s)
-                    }
-                }
-            } header: {
-                Text("Cooldown")
-            } footer: {
-                Text(isCardio
-                     ? "Only used when this slot is intervals. A single bout does not start "
-                     + "a cooldown — nobody wants to be asked to stand next to a treadmill "
-                     + "for ninety seconds after the only thing they came to do."
-                     : "How long the ring counts down after each set of this exercise.")
-            }
-
-            if let exercise = item.exercise {
-                Section("Exercise") {
-                    NavigationLink {
-                        ExerciseEditorView(exercise: exercise)
-                    } label: {
-                        LabeledContent(exercise.name,
-                                       value: exercise.isCardio ? "cardio"
-                                                                : exercise.loadingKind.rawValue)
-                    }
-                    NavigationLink {
-                        MachineSettingsList(exercise: exercise)
-                    } label: {
-                        LabeledContent("Machine settings",
-                                       value: exercise.settings.isEmpty
-                                           ? "none" : "\(exercise.settings.count)")
-                    }
-                }
-            }
+            .padding(.horizontal, SettingsKit.margin)
+            .padding(.top, RFDesign.sm)
+            .padding(.bottom, RFDesign.xl)
         }
-        .scrollContentBackground(.hidden)
-        .background(RFDesign.ground.ignoresSafeArea())
+        .scrollIndicators(.hidden)
+        .background(RoomBackground())
         .navigationTitle(item.exercise?.name ?? "Exercise")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
@@ -354,92 +359,212 @@ struct PlanItemEditorView: View {
         }
     }
 
-    /// What the plan asks for on a treadmill. Every field is optional and zero
-    /// means "not prescribed" — twenty minutes at 3% with the speed left to how
-    /// you feel is a real programme, and the commonest one.
-    @ViewBuilder private var cardioTargets: some View {
-        Section {
-            Stepper("Time: \(item.targetSeconds > 0 ? Fmt.minutes(item.targetSeconds) : "—")",
-                    value: minutesBinding, in: 0...180, step: 5)
-            if item.exercise?.metrics.contains(.distance) == true {
-                cardioStepper("Distance", value: $item.targetDistance,
-                              unit: "mi", step: 0.1, format: Fmt.distance)
-            }
-            if item.exercise?.metrics.contains(.incline) == true {
-                cardioStepper("Incline", value: $item.targetIncline,
-                              unit: "%", step: 0.5, format: Fmt.rate)
-            }
-            if item.exercise?.metrics.contains(.speed) == true {
-                cardioStepper("Speed", value: $item.targetSpeed,
-                              unit: "mph", step: 0.1, format: Fmt.rate)
-            }
-            if item.exercise?.metrics.contains(.resistance) == true {
-                cardioStepper("Resistance", value: $item.targetResistance,
-                              unit: "level", step: 1) { String(Int($0)) }
-            }
-            Stepper("Intervals: \(item.targetSets)", value: $item.targetSets, in: 1...20)
-        } header: {
-            Text("Target")
-        } footer: {
-            Text("Leave anything at zero to not prescribe it — it then shows as a dash "
-                 + "rather than as a target you missed. One interval means a single bout, "
-                 + "which is what most cardio is.")
+    // MARK: the numbers
+    //
+    // Editing the plan is the same act as logging a set — you are setting a
+    // number — so it gets the same treatment the set screen does: the figure is
+    // the largest thing on the row, in the serif, and a thumb changes it in
+    // place. The old version put these four behind a pushed Form, which made
+    // the commonest edit in the app four screens deep.
+
+    private var fields: [Field] {
+        if isCardio {
+            var out: [Field] = [.cardio(.duration)]
+            out += (item.exercise?.metrics ?? [])
+                .filter { $0 != .duration && $0 != .heartRate }
+                .map(Field.cardio)
+            out.append(.sets)          // intervals
+            return out
         }
+        return [.sets, .reps, .weight, .rest]
     }
 
-    private var minutesBinding: Binding<Int> {
-        Binding(get: { item.targetSeconds / 60 },
-                set: { item.targetSeconds = $0 * 60 })
-    }
-
-    private func cardioStepper(_ label: String, value: Binding<Double>, unit: String,
-                               step: Double, format: @escaping (Double) -> String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Button { value.wrappedValue = max(0, value.wrappedValue - step) } label: {
-                Image(systemName: "minus.circle")
-            }
-            .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
-            Text(value.wrappedValue > 0 ? "\(format(value.wrappedValue)) \(unit)" : "—")
-                .font(RFDesign.uiMedium(15))
-                .monospacedDigit()
-                .frame(minWidth: 82)
-                .multilineTextAlignment(.center)
-            Button {
-                // Rounded to the step so repeated taps cannot land on 3.0999999.
-                let next = value.wrappedValue + step
-                value.wrappedValue = (next / step).rounded() * step
-            } label: {
-                Image(systemName: "plus.circle")
-            }
-            .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
-        }
-    }
-
-    @ViewBuilder private var strengthTargets: some View {
-            Section("Target") {
-                Stepper("Sets: \(item.targetSets)", value: $item.targetSets, in: 1...12)
-                Stepper("Reps: \(item.targetReps)", value: $item.targetReps, in: 1...50)
-                HStack {
-                    Text("Weight")
-                    Spacer()
-                    Button { adjust(-5) } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
-                    Text("\(Fmt.weight(item.targetWeight)) lb")
-                        .font(RFDesign.uiMedium(15))
-                        .monospacedDigit()
-                        .frame(minWidth: 78)
-                        .multilineTextAlignment(.center)
-                    Button { adjust(5) } label: { Image(systemName: "plus.circle") }
-                        .buttonStyle(.plain).foregroundStyle(RFDesign.ready)
+    @ViewBuilder private var figures: some View {
+        SettingsSection(
+            title: "Target",
+            footer: isCardio
+                ? "Leave anything at zero to not prescribe it — it shows as a dash rather "
+                + "than a target you missed. One interval means a single bout, which is "
+                + "what most cardio is."
+                : "Tap a number to put the stepper under it."
+        ) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 18)],
+                      alignment: .leading, spacing: 16) {
+                ForEach(fields, id: \.self) { field in
+                    figureCell(field)
                 }
             }
+            .padding(.vertical, 4)
+
+            if let editing {
+                Divider().overlay(RFDesign.hairline)
+                stepper(for: editing)
+            }
+        }
     }
 
-    /// Linking to the next exercise puts both in one group. Groups are numbered
-    /// by the first item's order, so the number is stable when the day is
-    /// reordered around them.
+    private func figureCell(_ field: Field) -> some View {
+        let active = editing == field
+        return Button {
+            withAnimation(RFDesign.quick) { self.editing = active ? nil : field }
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title(for: field)).rfEyebrow(active ? RFDesign.ready : RFDesign.labelDim,
+                                                  size: 9.5)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(display(for: field))
+                        .font(RFDesign.figure(27, relativeTo: .title2))
+                        .monospacedDigit()
+                        .foregroundStyle(active ? RFDesign.ready : RFDesign.speech)
+                    if let unit = unit(for: field) {
+                        Text(unit).rfEyebrow(RFDesign.labelDim, size: 9)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title(for: field)), \(display(for: field))")
+    }
+
+    private func stepper(for field: Field) -> some View {
+        HStack(spacing: RFDesign.lg) {
+            nudge("minus") { adjust(field, by: -1) }
+            VStack(spacing: 1) {
+                Text(display(for: field))
+                    .font(RFDesign.figure(40))
+                    .monospacedDigit()
+                    .foregroundStyle(RFDesign.ready)
+                Text(title(for: field)).rfEyebrow()
+            }
+            .frame(minWidth: 110)
+            nudge("plus") { adjust(field, by: 1) }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, RFDesign.md)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+    }
+
+    private func nudge(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(RFDesign.speech)
+                .frame(width: 46, height: 46)
+                .background(Circle().fill(RFDesign.surface))
+                .overlay(Circle().stroke(RFDesign.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(symbol == "minus" ? "Decrease" : "Increase")
+    }
+
+    private func title(for field: Field) -> String {
+        switch field {
+        case .sets: return isCardio ? "Intervals" : "Sets"
+        case .reps: return "Reps"
+        case .weight: return item.exercise?.assisted == true ? "Help" : "Weight"
+        case .rest: return "Rest"
+        case .cardio(let metric): return metric.label
+        }
+    }
+
+    private func unit(for field: Field) -> String? {
+        switch field {
+        case .sets, .reps, .rest: return nil
+        case .weight: return item.exercise?.assisted == true ? "lb help" : "lb"
+        case .cardio(let metric): return metric == .duration ? nil : metric.unit
+        }
+    }
+
+    private func display(for field: Field) -> String {
+        switch field {
+        case .sets: return String(item.targetSets)
+        case .reps: return String(item.targetReps)
+        case .weight: return Fmt.weight(item.targetWeight)
+        case .rest: return item.restSeconds == 0 ? "—" : Fmt.clock(item.restSeconds)
+        case .cardio(let metric):
+            let value = cardioValue(metric)
+            guard value > 0 else { return "—" }
+            return metric == .duration ? Fmt.duration(Int(value)) : Fmt.metric(value, metric)
+        }
+    }
+
+    private func cardioValue(_ metric: CardioMetric) -> Double {
+        switch metric {
+        case .duration: return Double(item.targetSeconds)
+        case .distance: return item.targetDistance
+        case .speed: return item.targetSpeed
+        case .incline: return item.targetIncline
+        case .resistance: return item.targetResistance
+        case .heartRate: return 0
+        }
+    }
+
+    /// One step of whatever this field measures.
+    private func adjust(_ field: Field, by direction: Int) {
+        switch field {
+        case .sets:
+            item.targetSets = min(20, max(1, item.targetSets + direction))
+        case .reps:
+            item.targetReps = min(50, max(1, item.targetReps + direction))
+        case .weight:
+            adjust(Double(direction) * 5)
+        case .rest:
+            // The same ladder the cooldown picker offered, so a plan cannot end
+            // up with a rest nobody would choose.
+            let ladder = [0, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300]
+            let index = ladder.firstIndex { $0 >= item.restSeconds } ?? 0
+            item.restSeconds = ladder[min(ladder.count - 1, max(0, index + direction))]
+        case .cardio(let metric):
+            let stepped = max(0, cardioValue(metric) + metric.step * Double(direction))
+            // Rounded to the step so repeated taps cannot land on 3.0999999.
+            let value = (stepped / metric.step).rounded() * metric.step
+            switch metric {
+            case .duration: item.targetSeconds = Int(value)
+            case .distance: item.targetDistance = value
+            case .speed: item.targetSpeed = value
+            case .incline: item.targetIncline = value
+            case .resistance: item.targetResistance = value
+            case .heartRate: break
+            }
+        }
+    }
+
+    // MARK: the rest of it
+
+    @ViewBuilder private var pairing: some View {
+        SettingsSection(
+            title: "Pairing",
+            footer: "You alternate between the linked exercises and rest once at the end of "
+                  + "the round. Between them the timer gives you twenty seconds to walk "
+                  + "over, not the full cooldown."
+        ) {
+            ToggleRow(label: "Superset with the next exercise",
+                      isOn: supersetBinding.wrappedValue,
+                      showsDivider: false) { supersetBinding.wrappedValue.toggle() }
+        }
+    }
+
+    @ViewBuilder private var links: some View {
+        if let exercise = item.exercise {
+            SettingsSection(title: "Exercise") {
+                DisclosureRow(label: exercise.name,
+                              value: exercise.isCardio ? "cardio"
+                                   : exercise.assisted ? "assisted"
+                                   : exercise.loadingKind.rawValue) {
+                    ExerciseEditorView(exercise: exercise)
+                }
+                DisclosureRow(label: "Machine settings",
+                              value: exercise.settings.isEmpty
+                                  ? "none" : "\(exercise.settings.count)",
+                              showsDivider: false) {
+                    MachineSettingsList(exercise: exercise)
+                }
+            }
+        }
+    }
+
     private var supersetBinding: Binding<Bool> {
         Binding(
             get: { item.supersetGroup > 0 },
@@ -609,100 +734,104 @@ struct ExerciseEditorView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Name") {
+        SettingsScaffold(title: "Exercise") {
+            SettingsSection(title: "Name") {
                 TextField("Bench Press", text: $exercise.name)
+                    .font(RFDesign.uiMedium(16))
+                    .foregroundStyle(RFDesign.speech)
+                    .textFieldStyle(.plain)
+                    .padding(.vertical, 13)
+                    .overlay(alignment: .bottom) { Divider().overlay(RFDesign.hairline) }
             }
-            Section {
-                Picker("Kind", selection: $exercise.modality) {
-                    ForEach(Exercise.Modality.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-            } header: {
-                Text("Lifting or cardio")
-            } footer: {
-                Text("Cardio gets its own screen: a clock instead of a weight, and the "
-                     + "numbers off the console rather than reps.")
+
+            SettingsSection(
+                title: "Lifting or cardio",
+                footer: "Cardio gets its own screen: a clock instead of a weight, and the "
+                      + "numbers off the console rather than reps."
+            ) {
+                ChoiceRow(label: "Kind", value: exercise.modality,
+                          options: Exercise.Modality.allCases.map { ($0.rawValue, $0.label) },
+                          showsDivider: false) { exercise.modality = $0 }
             }
 
             if exercise.isCardio {
-                Section {
-                    ForEach(CardioMetric.allCases) { metric in
-                        Toggle(metric.label, isOn: metricBinding(metric))
-                            .font(RFDesign.ui(14))
+                SettingsSection(
+                    title: "What this machine shows",
+                    footer: "A rower has no incline and a treadmill has no damper. Only the "
+                          + "ones you tick appear on the logging screen — offering every "
+                          + "field on every machine is how a screen becomes one you skip."
+                ) {
+                    ForEach(Array(CardioMetric.allCases.enumerated()), id: \.offset) { i, metric in
+                        ToggleRow(label: metric.label,
+                                  isOn: exercise.metrics.contains(metric),
+                                  showsDivider: i < CardioMetric.allCases.count - 1) {
+                            metricBinding(metric).wrappedValue.toggle()
+                        }
                     }
-                } header: {
-                    Text("What this machine shows")
-                } footer: {
-                    Text("A rower has no incline and a treadmill has no damper. Only the "
-                         + "ones you tick appear on the logging screen — offering every "
-                         + "field on every machine is how a screen becomes one you skip.")
+                }
+            } else {
+                SettingsSection(
+                    title: "Which way the weight runs",
+                    footer: "On an assisted pull-up or dip machine the stack counterweights "
+                          + "you, so 100 lb of help is an easier set than 40 and progress is "
+                          + "the number going DOWN.\n\n"
+                          + "Turning this on flips everything that has an opinion about the "
+                          + "number: a record becomes the least help you have ever needed, "
+                          + "hitting your reps suggests taking help off rather than adding "
+                          + "it, and the assistance stops counting as tonnage — otherwise "
+                          + "the weaker you got, the better the totals looked."
+                ) {
+                    ToggleRow(label: "The weight makes it easier",
+                              isOn: exercise.assisted,
+                              showsDivider: false) { exercise.assisted.toggle() }
+                }
+
+                SettingsSection(
+                    title: "How it's loaded",
+                    footer: "Only barbell lifts get plate math. A cable stack has no plates "
+                          + "to work out, and showing some would be a guess."
+                ) {
+                    ChoiceRow(label: "Loaded by", value: exercise.loading,
+                              options: Exercise.Loading.allCases.map {
+                                  ($0.rawValue, $0.rawValue.capitalized) },
+                              showsDivider: exercise.loadingKind.showsPlateMath) {
+                        exercise.loading = $0
+                    }
+                    if exercise.loadingKind.showsPlateMath {
+                        ChoiceRow(label: "Bar", value: exercise.barWeight,
+                                  options: [(45.0, "45 lb — standard"),
+                                            (35.0, "35 lb — women's"),
+                                            (15.0, "15 lb — technique"),
+                                            (0.0, "None")],
+                                  showsDivider: false) { exercise.barWeight = $0 }
+                    }
                 }
             }
 
-            if !exercise.isCardio {
-                Section {
-                    Toggle("The weight makes it easier", isOn: $exercise.assisted)
-                        .font(RFDesign.ui(14))
-                } header: {
-                    Text("Which way the weight runs")
-                } footer: {
-                    Text("On an assisted pull-up or dip machine the stack counterweights "
-                         + "you, so 100 lb of help is an easier set than 40 and progress "
-                         + "is the number going DOWN.\n\n"
-                         + "Turning this on flips everything that has an opinion about "
-                         + "the number: a record becomes the least help you have ever "
-                         + "needed, hitting your reps suggests taking help off rather "
-                         + "than adding it, and the assistance stops counting as tonnage "
-                         + "— otherwise the weaker you got, the better the totals looked.")
+            SettingsSection(
+                title: "Muscles",
+                footer: "Drives sets-per-muscle-per-week on Trends. The main mover counts as "
+                      + "a whole set and each of the others as half. An exercise with none "
+                      + "set is left out of that chart entirely rather than guessed at — "
+                      + "which is why a lift you typed in yourself starts here."
+            ) {
+                ChoiceRow(label: "Mainly works", value: exercise.primaryMuscle,
+                          options: MuscleGroup.allCases.map {
+                              ($0.rawValue, $0 == .other ? "Not set" : $0.label) }) {
+                    exercise.primaryMuscle = $0
                 }
-            }
-
-            Section {
-                Picker("Loaded by", selection: $exercise.loading) {
-                    ForEach(Exercise.Loading.allCases, id: \.rawValue) { kind in
-                        Text(kind.rawValue.capitalized).tag(kind.rawValue)
+                let others = MuscleGroup.allCases.filter {
+                    $0 != .other && $0 != exercise.primary
+                }
+                ForEach(Array(others.enumerated()), id: \.offset) { i, muscle in
+                    ToggleRow(label: muscle.label,
+                              isOn: exercise.secondary.contains(muscle),
+                              showsDivider: i < others.count - 1) {
+                        secondaryBinding(muscle).wrappedValue.toggle()
                     }
                 }
-                if exercise.loadingKind.showsPlateMath && !exercise.isCardio {
-                    Picker("Bar", selection: $exercise.barWeight) {
-                        Text("45 lb — standard").tag(45.0)
-                        Text("35 lb — women's").tag(35.0)
-                        Text("15 lb — technique").tag(15.0)
-                        Text("None").tag(0.0)
-                    }
-                }
-            } header: {
-                Text("How it's loaded")
-            } footer: {
-                Text("Only barbell lifts get plate math. A cable stack has no plates to "
-                     + "work out, and showing some would be a guess.")
-            }
-
-            Section {
-                Picker("Mainly works", selection: $exercise.primaryMuscle) {
-                    ForEach(MuscleGroup.allCases) { muscle in
-                        Text(muscle == .other ? "Not set" : muscle.label).tag(muscle.rawValue)
-                    }
-                }
-                ForEach(MuscleGroup.allCases.filter { $0 != .other }) { muscle in
-                    if muscle != exercise.primary {
-                        Toggle(muscle.label, isOn: secondaryBinding(muscle))
-                            .font(RFDesign.ui(14))
-                    }
-                }
-            } header: {
-                Text("Muscles")
-            } footer: {
-                Text("Drives sets-per-muscle-per-week on Trends. The main mover counts as "
-                     + "a whole set and each of the others as half. An exercise with none "
-                     + "set is left out of that chart entirely rather than guessed at — "
-                     + "which is why a lift you typed in yourself starts here.")
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(RFDesign.ground.ignoresSafeArea())
-        .navigationTitle("Exercise")
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             // A lift typed in before the catalogue existed can still be matched
             // to it — better than making him pick muscles the app already knows.

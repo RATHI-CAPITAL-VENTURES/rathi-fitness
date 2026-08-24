@@ -194,6 +194,41 @@ chime already said. The ping is the whole message. The one thing that still
 speaks is the "say where I am" gesture, which speaks because you squeezed to
 ask.
 
+## Settings and the plan editor are drawn by hand now
+
+They used to be the only two screens built out of a stock `Form`, and they were
+the only two that did not look like this app. That was measurable rather than a
+matter of taste: between them they used **zero** of `rfEyebrow`,
+`RFDesign.figure`, `RFDesign.title` or the hairline, while Today alone used
+twelve.
+
+`.scrollContentBackground(.hidden)` hides a list's background and nothing else.
+The rows keep their own corner radius, their own separators inset from the
+margin, and San Francisco — in an app whose one typographic rule is that the
+serif is your numbers. The container was the problem, so the container went.
+
+`Views/SettingsKit.swift` is the replacement: `SettingsSection`, `SettingRow`,
+`StepperRow`, `ToggleRow`, `ChoiceRow`, `ActionRow`, `DisclosureRow`,
+`StatusLine` and `SettingsScaffold`. Every value comes from `RFDesign`, and any
+screen written after these two gets them for free.
+
+Three things came out of it beyond the typeface:
+
+- **Settings opens on what is true right now** — Health, Music, hands-free, the
+  snapshot — before anything you can change. It had grown to eleven sections,
+  all of them things you set once, and the question you actually open it with
+  is "is Health still connected".
+- **The plan item is a workbench.** Sets, reps, weight and rest are tappable
+  Fraunces figures with a stepper under the selected one. Editing the plan is
+  the same act as logging a set — you are setting a number — so it gets the
+  same treatment, and the commonest edit in the app stops being four screens
+  deep.
+- **`List` survives in exactly two places**, and on purpose: the day list and
+  the exercise list inside a day, because `onMove` and `onDelete` are real
+  features and reimplementing drag-to-reorder to win a typeface is a bad trade.
+  Both are stripped of their background, row fills, separators and insets, so
+  what is left is the app's own row on the app's own ground.
+
 ## Swiping back is read-only, on purpose
 
 Swipe left on Today to walk backwards through the days you actually trained.

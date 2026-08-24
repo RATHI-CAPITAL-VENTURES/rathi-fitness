@@ -310,3 +310,42 @@ an improvised session matches nothing — an hour you made up is not "Push A".
 
 **Past days are drawn in `said`, not `ready`.** History should not glow like
 the live screen does; the teal is reserved for what is happening now.
+
+## 2026-08-24 — The Form was the problem
+
+**Settings and the plan editor are drawn from `Views/SettingsKit.swift` now.**
+They were the only two screens built out of a stock `Form`/`List`, and the only
+two that did not look like this app. The diagnosis was a `grep`, not an opinion:
+between them they used **zero** of `rfEyebrow`, `RFDesign.figure`,
+`RFDesign.title` or the hairline; Today alone used twelve.
+
+`.scrollContentBackground(.hidden)` had been doing the work of "make it fit in",
+and it does not: it hides the list's background and leaves the row radius, the
+inset separators and San Francisco, in an app whose one typographic rule is that
+the serif is your numbers.
+
+Four directions were drawn before choosing. **01, drawing it in the app's own
+primitives, was the only one that addressed the cause** — the rest were
+restructures on top of the same container. It shipped whole.
+
+**Taken from 02: the status block only.** Settings had grown to eleven sections
+and every one is something you set once; the question you actually open it with
+is "is Health still connected". Four lines answer that before anything you can
+change. Rejected: 02's full restructure into four destinations — burying
+set-once sections behind doors trades a scroll for a hunt, and the status block
+gets most of the benefit for a fraction of the churn.
+
+**Taken from 03: the plan item only.** Sets, reps, weight and rest are tappable
+Fraunces figures with a stepper under the selected one, because editing the plan
+is the same act as logging a set — you are setting a number — and it should look
+like it. This also removes the fourth navigation level, which was the one you
+hit most often. Rejected: 03 applied to Settings, which is genuinely prose in
+places (the Health footer, the AirPods explanation) and would have ended up two
+idioms in one screen.
+
+**`List` survives in exactly two places and that is deliberate**: the day list
+and the exercise list inside a day. `onMove` and `onDelete` are real features,
+and reimplementing drag-to-reorder to win a typeface is a bad trade. Both are
+stripped of background, row fills, separators and insets, so what remains is the
+app's own row at the app's own margin — the type is house, the gesture is
+UIKit's, and neither is pretending otherwise.
