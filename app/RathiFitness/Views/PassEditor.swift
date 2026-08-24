@@ -46,81 +46,113 @@ struct PassEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("The gym") {
-                    TextField("Blink Fitness", text: $draft.name)
-                    TextField("Union Square", text: $draft.location)
-                    Toggle("Hold this one up at the door", isOn: $draft.isPrimary)
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: RFDesign.lg + 4) {
+                    SettingsSection(title: "The gym") {
+                        field("Blink Fitness", text: $draft.name)
+                        field("Union Square", text: $draft.location)
+                        ToggleRow(label: "Hold this one up at the door",
+                                  isOn: draft.isPrimary,
+                                  showsDivider: false) { draft.isPrimary.toggle() }
+                    }
 
-                Section {
-                    HStack(spacing: 14) {
-                        TextField("Scan, import or type the code", text: $draft.code)
-                            .font(.system(.body, design: .monospaced))
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                        Button { scanning = true } label: {
-                            Image(systemName: "camera.viewfinder")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(RFDesign.ready)
-                        .accessibilityLabel("Scan the code with the camera")
+                    SettingsSection(
+                        title: "The code",
+                        footer: "Point the camera at the card, or pull the code out of a "
+                              + "screenshot you already have — either way the format fills "
+                              + "itself in. The code stays on your devices; it is never "
+                              + "written to the snapshot RIA reads."
+                    ) {
+                        HStack(spacing: 12) {
+                            TextField("Scan, import or type the code", text: $draft.code)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(RFDesign.speech)
+                                .textFieldStyle(.plain)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                            Button { scanning = true } label: {
+                                Image(systemName: "camera.viewfinder")
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(RFDesign.ready)
+                            .accessibilityLabel("Scan the code with the camera")
 
-                        // The card is usually in a drawer at home; the code is
-                        // usually already a screenshot in the camera roll.
-                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                            Image(systemName: reading ? "hourglass" : "photo.on.rectangle")
+                            // The card is usually in a drawer at home; the code
+                            // is usually already a screenshot in the camera roll.
+                            PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                                Image(systemName: reading ? "hourglass" : "photo.on.rectangle")
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(RFDesign.ready)
+                            .disabled(reading)
+                            .accessibilityLabel("Find the code in a picture")
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(RFDesign.ready)
-                        .disabled(reading)
-                        .accessibilityLabel("Find the code in a picture")
-                    }
-                    if let importError {
-                        Text(importError)
-                            .font(RFDesign.ui(12.5))
-                            .foregroundStyle(RFDesign.ember)
-                    }
-                    Picker("Format", selection: $draft.symbology) {
-                        ForEach(GymPass.Symbology.allCases) { s in
-                            Text(s.label).tag(s)
-                        }
-                    }
-                    TextField("Member number (optional)", text: $draft.memberID)
-                } header: {
-                    Text("The code")
-                } footer: {
-                    Text("Point the camera at the card, or pull the code out of a screenshot "
-                         + "you already have — either way the format fills itself in. "
-                         + "The code stays on your devices; it is never written to the "
-                         + "snapshot RIA reads.")
-                }
+                        .padding(.vertical, 7)
+                        .overlay(alignment: .bottom) { Divider().overlay(RFDesign.hairline) }
 
-                Section("What it's good for") {
-                    Toggle("Expires", isOn: $draft.hasExpiry)
-                    if draft.hasExpiry {
-                        DatePicker("On", selection: $draft.expires, displayedComponents: .date)
+                        if let importError {
+                            Text(importError)
+                                .font(RFDesign.ui(12.5))
+                                .foregroundStyle(RFDesign.ember)
+                                .padding(.top, 8)
+                        }
+                        ChoiceRow(label: "Format", value: draft.symbology,
+                                  options: GymPass.Symbology.allCases.map { ($0, $0.label) }) {
+                            draft.symbology = $0
+                        }
+                        field("Member number (optional)", text: $draft.memberID,
+                              showsDivider: false)
                     }
-                    Stepper("Uses left: \(draft.usesLeft == 0 ? "unlimited" : String(draft.usesLeft))",
-                            value: $draft.usesLeft, in: 0...99)
-                    Stepper("Punch card: \(draft.punchesNeeded == 0 ? "no" : "\(draft.punches) of \(draft.punchesNeeded)")",
-                            value: $draft.punchesNeeded, in: 0...50)
-                    if draft.punchesNeeded > 0 {
-                        Stepper("Punched: \(draft.punches)", value: $draft.punches,
-                                in: 0...draft.punchesNeeded)
-                    }
-                }
 
-                if let onDelete {
-                    Section {
-                        Button("Delete this pass", role: .destructive) {
-                            onDelete(); dismiss()
+                    SettingsSection(title: "What it's good for") {
+                        ToggleRow(label: "Expires", isOn: draft.hasExpiry) {
+                            draft.hasExpiry.toggle()
+                        }
+                        if draft.hasExpiry {
+                            SettingRow(label: "On") {
+                                DatePicker("", selection: $draft.expires,
+                                           displayedComponents: .date)
+                                    .labelsHidden()
+                            }
+                        }
+                        StepperRow(label: "Uses left", value: draft.usesLeft,
+                                   range: 0...99,
+                                   format: { $0 == 0 ? "∞" : String($0) }) {
+                            draft.usesLeft = $0
+                        }
+                        StepperRow(label: "Punch card", value: draft.punchesNeeded,
+                                   range: 0...50,
+                                   format: { $0 == 0 ? "—" : String($0) },
+                                   showsDivider: draft.punchesNeeded > 0) {
+                            draft.punchesNeeded = $0
+                            draft.punches = min(draft.punches, $0)
+                        }
+                        if draft.punchesNeeded > 0 {
+                            StepperRow(label: "Punched", value: draft.punches,
+                                       range: 0...draft.punchesNeeded,
+                                       showsDivider: false) { draft.punches = $0 }
+                        }
+                    }
+
+                    if let onDelete {
+                        SettingsSection(title: "Remove") {
+                            ActionRow(label: "Delete this pass", symbol: "trash",
+                                      tint: RFDesign.ember, showsDivider: false) {
+                                onDelete(); dismiss()
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, SettingsKit.margin)
+                .padding(.top, RFDesign.sm)
+                .padding(.bottom, RFDesign.xl)
             }
-            .scrollContentBackground(.hidden)
-            .background(RFDesign.ground.ignoresSafeArea())
+            .scrollIndicators(.hidden)
+            .background(RoomBackground())
             .navigationTitle(draft.existing == nil ? "Add a pass" : "Edit pass")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -141,6 +173,21 @@ struct PassEditor: View {
                     scanning = false
                 }
             }
+        }
+    }
+
+    /// A bare text field with the house underline. `TextField` inside a
+    /// `SettingRow` would put the label and the field in a row and leave no
+    /// room to type on a phone, so these get the full width.
+    private func field(_ placeholder: String, text: Binding<String>,
+                       showsDivider: Bool = true) -> some View {
+        VStack(spacing: 0) {
+            TextField(placeholder, text: text)
+                .font(RFDesign.uiMedium(16))
+                .foregroundStyle(RFDesign.speech)
+                .textFieldStyle(.plain)
+                .padding(.vertical, 13)
+            if showsDivider { Divider().overlay(RFDesign.hairline) }
         }
     }
 

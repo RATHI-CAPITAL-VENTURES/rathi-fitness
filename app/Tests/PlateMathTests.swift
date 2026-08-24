@@ -122,3 +122,58 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(Fmt.signed(-2.5), "−2.5")
     }
 }
+
+import SwiftUI
+
+/// The one light surface in the app.
+///
+/// The pass card goes white at full brightness because a turnstile scanner
+/// needs a bright ground behind the code — so its text cannot come from the
+/// palette everything else uses, which is built to sit on near-black. Those
+/// three values used to be written into `PassView` as literals; they are tokens
+/// now, and these assertions are what stops the next person "tidying" them into
+/// the dark ones and shipping white text on a white card.
+final class LightSurfaceTests: XCTestCase {
+
+    /// Relative luminance, WCAG's definition — sRGB linearised, not the raw
+    /// channel values. The difference matters: the naive version rated this
+    /// palette's secondary grey at 0.45 and made a threshold picked by eye look
+    /// like a failure.
+    private func luminance(_ color: Color) -> CGFloat {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        func linear(_ c: CGFloat) -> CGFloat {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    /// Contrast ratio between two colours, 1:1 to 21:1.
+    private func contrast(_ a: Color, _ b: Color) -> CGFloat {
+        let l1 = luminance(a), l2 = luminance(b)
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+    }
+
+    func testTheCardIsActuallyWhite() {
+        XCTAssertEqual(luminance(RFDesign.lightGround), 1.0, accuracy: 0.01)
+    }
+
+    /// Against a real standard rather than a number chosen by eye: WCAG AAA for
+    /// the primary text, AA for the secondary line under it.
+    func testItsTextIsLegibleOnWhite() {
+        XCTAssertGreaterThan(contrast(RFDesign.onLight, RFDesign.lightGround), 7.0)
+        XCTAssertGreaterThan(contrast(RFDesign.onLightDim, RFDesign.lightGround), 4.5)
+    }
+
+    func testTheDimOneIsDimmerButStillNotTheGround() {
+        XCTAssertGreaterThan(luminance(RFDesign.onLightDim), luminance(RFDesign.onLight))
+        XCTAssertLessThan(luminance(RFDesign.onLightDim), luminance(RFDesign.lightGround))
+    }
+
+    /// The trap this exists for: the dark palette's text on the light card.
+    func testTheDarkPalettesTextWouldBeInvisibleThere() {
+        XCTAssertLessThan(contrast(RFDesign.speech, RFDesign.lightGround), 1.5,
+                          "speech is near-white — on the pass card it would vanish, "
+                          + "which is why onLight exists")
+    }
+}

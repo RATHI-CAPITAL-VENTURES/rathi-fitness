@@ -181,10 +181,8 @@ struct SetView: View {
                 + Text("\(Fmt.weight(last.weight)) × \(last.reps)")
                     .foregroundStyle(RFDesign.speech)
                 + Text(comparison(to: last)).foregroundStyle(RFDesign.label)
-            } else if let suggestion = suggestion {
-                Text("Try " + Fmt.weight(suggestion.weight)
-                     + (exercise.assisted ? " lb help" : "")
-                     + " × \(suggestion.reps) — " + suggestion.because + ".")
+            } else if let suggestion {
+                Text(suggestionLine(suggestion))
                     .foregroundStyle(RFDesign.label)
             } else if let previous = lastSession.first {
                 Text("Last time — ")
@@ -199,6 +197,22 @@ struct SetView: View {
         .font(RFDesign.ui(13))
         .frame(maxWidth: .infinity, alignment: .center)
         .multilineTextAlignment(.center)
+    }
+
+    /// Built here rather than inline in the view.
+    ///
+    /// Inline, this was five `+` operands with a ternary in the middle, and
+    /// Swift's type checker gave up on it — on Xcode 16.4, while the beta
+    /// toolchain on this Mac compiled it happily. CI caught it on the first run
+    /// it ever did, which is the entire argument for having CI on a machine
+    /// that is not the one you write on.
+    ///
+    /// The return type is annotated for the same reason: a `String` built from
+    /// concatenation is exactly what the inference engine struggles with.
+    private func suggestionLine(_ suggestion: Tally.Suggestion) -> String {
+        let weight: String = Fmt.weight(suggestion.weight)
+        let unit: String = exercise.assisted ? " lb help" : ""
+        return "Try \(weight)\(unit) × \(suggestion.reps) — \(suggestion.because)."
     }
 
     private func comparison(to entry: SetEntry) -> String {
