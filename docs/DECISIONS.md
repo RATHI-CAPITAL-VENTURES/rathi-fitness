@@ -238,3 +238,50 @@ instead of nine.
 `working_weight`, `change_30d` and `best` now MEAN something different on those
 rows. A CLI that does not know the flag reads them the old way and congratulates
 him for getting weaker, so refusing is the correct behaviour.
+
+## 2026-08-24 — The music bar was the worst-looking thing in the app
+
+**Redrawn as a cover tile on a hairline.** The first cut was a filled
+`RFDesign.surface` card, which made the only opaque box in a system whose entire
+surface treatment is a dark ground with a pool of light on it — and it sat
+immediately under the primary button, so the screen ended in two rounded
+rectangles of similar width, the second being the one you care about least. Its
+three transport glyphs were identical 30×30 targets: under the 44pt minimum, and
+giving "skip" exactly the same weight as "pause".
+
+Four directions were drawn in place before choosing: a chromeless rail, the rail
+plus a state-tinted level meter, a single centred line with no controls at all
+(on the grounds that the AirPods are the transport), and the cover tile. The
+tile won on Ishan's call — the artwork is the only photograph anywhere in the
+app, and it makes the row read as something *playing* rather than something
+configured, without a frame of animation.
+
+What it keeps from the others: **no card**, a `Divider().overlay(hairline)` like
+every other division on that screen, and exactly one filled control —
+play/pause, drawn in `RFDesign.coolColor(rest.progress())` so the music cools
+with the ring and there is no second opinion about what "now" looks like.
+
+**Previous-track was cut from the row**, not forgotten. On this screen it is the
+least-wanted of the three and it was taking the same visual weight as pause; it
+lives in the sheet and on the AirPods, where the gesture already exists.
+
+**The placeholder is lit, not grey.** A cover that is merely absent looks like a
+failed download, so a track with no art gets a tile carrying the room's colour.
+
+## 2026-08-24 — What a new exercise opens on
+
+**`PlanDefaults`: sets, reps, rest and cardio length.** Every new plan slot was
+hardcoded to 3 × 10 at 90 seconds. That is a reasonable guess for a stranger and
+wrong every single time for the one person using this app — correcting the same
+three numbers on every exercise you add is the app charging rent.
+
+**A model, not `@AppStorage`**, for the same reason `Schedule` is one: it belongs
+to the training plan and should follow it between devices rather than sit in the
+defaults of whichever phone happened to set it. `PlanDefaultsTests` pins that it
+is in the schema, so nobody "simplifies" it into `UserDefaults` and quietly
+breaks it across devices.
+
+**It never applies retroactively.** Changing the default does not touch anything
+already in the plan, and the footer says so. A setting that silently rewrites
+your existing programme is a setting you stop trusting — and there is a test
+that walks the seeded plan and asserts every item is untouched afterwards.

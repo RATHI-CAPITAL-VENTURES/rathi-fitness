@@ -1,16 +1,38 @@
 import SwiftUI
+#if canImport(MusicKit)
+import MusicKit
+#endif
 
 /// The music, as small as it can be and still be usable with one hand and a
 /// barbell in the other.
 ///
-/// It is deliberately not a player. There is no scrubber, no artwork, no queue —
-/// the screen it sits on is about the next set, and a 60pt album cover competing
-/// with the cooldown ring would be the app forgetting what it is for. What is
-/// here is the three things you reach for mid-workout: is this the right track,
-/// stop it, skip it.
+/// It is deliberately not a player: no scrubber, no queue, no second screen.
+/// What is here is the three things you reach for mid-workout — is this the
+/// right track, stop it, skip it — plus the cover, which is doing more work
+/// than it looks like it is.
+///
+/// **The first cut was a grey card and it was the worst-looking thing in the
+/// app.** `RFDesign.surface` as a fill made the only opaque box in a system
+/// whose entire surface treatment is a dark ground with a pool of light on it,
+/// and it landed immediately under the primary button — two rounded rectangles
+/// of similar width stacked, the second being the one you care about least. Its
+/// three transport glyphs were identical 30×30 targets, under the 44pt minimum
+/// and with no hierarchy between "pause" and "skip".
+///
+/// So: no card. A hairline, like every other division on that screen. One solid
+/// control — play/pause, in the room's current colour — and one quiet one. And
+/// the artwork, which is the only photograph anywhere in this app and is why
+/// the row reads as something playing rather than something configured.
 struct MusicBar: View {
     @EnvironmentObject private var music: MusicController
+    @EnvironmentObject private var rest: RestTimer
     @State private var picking = false
+
+    /// The room's colour right now — the same call the ring and the background
+    /// make, so there is no second opinion about what "now" looks like.
+    private var accent: Color {
+        rest.isResting ? RFDesign.coolColor(rest.progress()) : RFDesign.ready
+    }
 
     var body: some View {
         Group {
@@ -44,58 +66,132 @@ struct MusicBar: View {
     }
 
     @ViewBuilder private var ready: some View {
-        HStack(spacing: 12) {
-            Button { picking = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: music.isPlaying ? "waveform" : "music.note.list")
-                        .font(.system(size: 12))
-                        .foregroundStyle(music.isPlaying ? RFDesign.ready : RFDesign.labelDim)
-                        .symbolEffect(.variableColor, isActive: music.isPlaying)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(music.now?.title ?? (music.favouritePlaylist ?? "Choose a playlist"))
-                            .font(RFDesign.uiMedium(13))
-                            .foregroundStyle(RFDesign.speech)
-                            .lineLimit(1)
-                        if let artist = music.now?.artist {
-                            Text(artist)
-                                .font(RFDesign.ui(11.5))
+        VStack(spacing: 0) {
+            Divider().overlay(RFDesign.hairline)
+            HStack(spacing: 12) {
+                // The cover and the words are one target: mid-set you are not
+                // aiming at a 12pt caption.
+                Button { picking = true } label: {
+                    HStack(spacing: 12) {
+                        Cover(accent: accent, playing: music.isPlaying)
+                            .environmentObject(music)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(music.now?.title
+                                 ?? music.favouritePlaylist
+                                 ?? "Choose a playlist")
+                                .font(RFDesign.uiMedium(14))
+                                .foregroundStyle(RFDesign.speech)
+                                .lineLimit(1)
+                            Text(music.now?.artist ?? "Tap to pick a playlist")
+                                .font(RFDesign.ui(12))
                                 .foregroundStyle(RFDesign.labelDim)
                                 .lineLimit(1)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
+                .accessibilityLabel(music.now.map { "Playing \($0.title)" } ?? "Choose a playlist")
 
-            HStack(spacing: 14) {
-                transport("backward.fill") { await music.previous() }
-                transport(music.isPlaying ? "pause.fill" : "play.fill") {
-                    if music.now == nil {
-                        await music.startFavourite()
-                    } else {
-                        await music.togglePlayPause()
-                    }
+                // One solid control, one quiet one. Skipping backwards lives in
+                // the sheet: on this screen it is the least-wanted of the three
+                // and it was taking the same weight as pause.
+                PlayButton(accent: accent, playing: music.isPlaying) {
+                    if music.now == nil { await music.startFavourite() }
+                    else { await music.togglePlayPause() }
                 }
-                transport("forward.fill") { await music.next() }
+                Glyph(symbol: "forward.fill", label: "Next track",
+                      tint: RFDesign.label) { await music.next() }
             }
+            .padding(.top, 12)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(RFDesign.surface, in: RoundedRectangle(cornerRadius: RFDesign.radiusSmall))
     }
+}
 
-    private func transport(_ symbol: String, _ action: @escaping () async -> Void) -> some View {
+/// The cover, at the size a thumb can hit.
+///
+/// Falls back to a lit tile rather than a grey square — a placeholder that is
+/// merely absent looks like a failed download, and this one takes the room's
+/// colour so the row still says something while a track has no art.
+private struct Cover: View {
+    @EnvironmentObject private var music: MusicController
+    var accent: Color
+    var playing: Bool
+
+    private let side: CGFloat = 48
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(RFDesign.surfaceHigh)
+                .overlay {
+                    RadialGradient(colors: [accent.opacity(playing ? 0.34 : 0.16), .clear],
+                                   center: .topLeading, startRadius: 2, endRadius: side)
+                }
+            #if canImport(MusicKit)
+            if let artwork = music.artwork {
+                ArtworkImage(artwork, width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .id(music.artworkToken)
+                    .transition(.opacity)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(accent.opacity(0.85))
+            }
+            #else
+            Image(systemName: "music.note")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(accent.opacity(0.85))
+            #endif
+        }
+        .frame(width: side, height: side)
+        .overlay {
+            // A hairline, so a dark cover does not dissolve into the ground.
+            RoundedRectangle(cornerRadius: 9).stroke(RFDesign.hairline, lineWidth: 1)
+        }
+        .animation(RFDesign.quick, value: music.artworkToken)
+    }
+}
+
+/// The one filled control on the row, in the room's current colour.
+private struct PlayButton: View {
+    var accent: Color
+    var playing: Bool
+    var action: () async -> Void
+
+    var body: some View {
+        Button { Task { await action() } } label: {
+            Image(systemName: playing ? "pause.fill" : "play.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(RFDesign.ground)
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(accent))
+                .frame(width: 44, height: 44)      // the target, not the disc
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(playing ? "Pause" : "Play")
+        .animation(RFDesign.quick, value: playing)
+    }
+}
+
+private struct Glyph: View {
+    var symbol: String
+    var label: String
+    var tint: Color
+    var action: () async -> Void
+
+    var body: some View {
         Button { Task { await action() } } label: {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(RFDesign.speech)
-                .frame(width: 30, height: 30)
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(symbol.contains("backward") ? "Previous track"
-                            : symbol.contains("forward") ? "Next track" : "Play or pause")
+        .accessibilityLabel(label)
     }
 }
 

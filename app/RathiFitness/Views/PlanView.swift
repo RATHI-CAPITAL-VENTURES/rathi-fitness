@@ -190,16 +190,20 @@ struct DayEditorView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
         .sheet(isPresented: $addingExercise) {
             ExercisePickerView { exercise in
-                // A treadmill opened at "3 × 10 · 0 lb · 90s rest" is the app
-                // asking you to fix it before you can use it.
+                // Your numbers, not 3 × 10 — see `PlanDefaults`. A treadmill
+                // opened at "3 × 10 · 0 lb · 90s rest" is the app asking you to
+                // fix it before you can use it, and so is a bench opened at a
+                // rep target you never do.
+                let defaults = PlanDefaults.current(in: context)
                 let item = exercise.isCardio
                     ? PlanItem(order: day.orderedItems.count, exercise: exercise,
                                targetSets: 1, targetReps: 0, targetWeight: 0,
-                               restSeconds: 0, targetSeconds: 20 * 60)
+                               restSeconds: 0, targetSeconds: defaults.cardioSeconds)
                     : PlanItem(order: day.orderedItems.count, exercise: exercise,
-                               targetSets: 3, targetReps: 10,
+                               targetSets: defaults.targetSets,
+                               targetReps: defaults.targetReps,
                                targetWeight: suggestedWeight(for: exercise),
-                               restSeconds: 90)
+                               restSeconds: defaults.restSeconds)
                 item.day = day
                 context.insert(item)
                 save()
