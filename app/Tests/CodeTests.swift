@@ -7,14 +7,34 @@ import UIKit
 /// we display must be readable by something that isn't us.
 final class CodeRoundTripTests: XCTestCase {
 
-    /// Vision needs an inference context, and some simulator runtimes cannot
-    /// make one. That is the host's problem, not the code's — skip rather than
-    /// report a red suite for it.
+    /// Vision's barcode detection is not dependable in a simulator, and it fails
+    /// two different ways depending on the runtime.
+    ///
+    /// Locally it refuses outright — "could not create inference context". On
+    /// the CI image it runs and finds nothing, which surfaces as
+    /// `Failure.nothingFound`. Same environmental problem, different symptom,
+    /// and the second one only appeared once this ran on a machine that was not
+    /// this one.
+    ///
+    /// **`nothingFound` is only forgiven on a simulator.** On a device it is a
+    /// real failure and stays one — a pass that renders but cannot be read back
+    /// is the exact bug this test exists to catch.
+    ///
+    /// The honest cost: in CI this test verifies nothing. The round-trip is a
+    /// device property. What CI still covers is
+    /// `testTheScannerAndTheRendererAgreeOnWhatIsSupported`, which is pure
+    /// logic — and a format going missing from one of those three lists is the
+    /// likelier regression anyway.
     private func skipIfVisionUnavailable(_ error: Error) throws -> Never {
         let text = (error as NSError).localizedDescription
         if text.contains("inference context") {
             throw XCTSkip("Vision has no inference context on this runtime")
         }
+        #if targetEnvironment(simulator)
+        if case CodeDetector.Failure.nothingFound = error {
+            throw XCTSkip("Vision found nothing in a simulator — device-only property")
+        }
+        #endif
         throw error
     }
 

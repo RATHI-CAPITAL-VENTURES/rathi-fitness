@@ -446,6 +446,20 @@ or `sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer` once.
 Two tests skip on that runtime: Vision cannot create an inference context in
 this simulator, so the code round-trip cannot run there. It works on the device.
 
+**It fails a second way on CI**, which only showed up once the suite ran on a
+machine that was not this one: the runner's simulator *does* start Vision, runs
+the detection, and finds nothing — surfacing as `Failure.nothingFound` rather
+than a refusal. Same environmental problem, different symptom, so the skip
+covers both. `nothingFound` is forgiven **only** under
+`#if targetEnvironment(simulator)`; on a device it stays a hard failure, because
+a pass that renders and cannot be read back is exactly the bug that test exists
+to catch.
+
+The cost is worth stating plainly: **the round-trip verifies nothing in CI.** It
+is a device property. What CI still covers is that the scanner, the importer and
+the renderer agree on the same set of formats — pure logic, and the likelier
+regression anyway.
+
 ## Not decided yet
 
 - Whether the Blink check-in code is static (storable) or rotating (not).
