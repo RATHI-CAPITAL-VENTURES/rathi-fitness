@@ -47,6 +47,11 @@ struct RathiFitnessApp: App {
                        (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0 {
                         try? Seed.loadDemoHistory(context)
                     }
+                    // Ask HealthKit whether we have already been through its
+                    // sheet. Without this the app forgets between launches and
+                    // this sync never runs — the permission is fine, nobody
+                    // ever asked about it.
+                    await health.resume()
                     // If Health is already connected, it is the source of truth
                     // for body mass — pull before writing the snapshot so the
                     // Mac sees this morning's weigh-in without anyone typing it.

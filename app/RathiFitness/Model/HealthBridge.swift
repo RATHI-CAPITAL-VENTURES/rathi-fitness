@@ -52,6 +52,62 @@ final class HealthBridge: ObservableObject {
 
     init() { status = Self.initialStatus() }
 
+    #if canImport(HealthKit) && !RF_LOCAL_ONLY
+    /// Everything we write. Built once because `connect` asks for it and
+    /// `resume` has to ask about the same set — a mismatch between the two
+    /// would make the app re-prompt for a type it already holds.
+    private var shareTypes: Set<HKSampleType> {
+        var share: Set<HKSampleType> = [bodyMass, HKObjectType.workoutType()]
+        for identifier in [HKQuantityTypeIdentifier.distanceWalkingRunning,
+                           .distanceCycling, .distanceSwimming] {
+            if let type = HKQuantityType.quantityType(forIdentifier: identifier) {
+                share.insert(type)
+            }
+        }
+        return share
+    }
+    #endif
+
+    /// Pick the connection back up on launch.
+    ///
+    /// **The bug this fixes:** `status` started every launch at `.notAsked` and
+    /// only ever became `.connected` in memory, from `connect()`. So closing
+    /// the app forgot that Health was connected — Settings offered "Connect
+    /// Apple Health" again, and worse, the launch sync is gated on
+    /// `status.isConnected`, so weigh-ins silently stopped coming in until you
+    /// went and tapped the button. Nothing was actually wrong with the
+    /// permission; the app just never asked whether it had one.
+    ///
+    /// `getRequestStatusForAuthorization` is the right question: not "am I
+    /// authorised" — HealthKit deliberately will not answer that for read
+    /// types, because the answer would itself leak what is in your Health app —
+    /// but "would asking put a sheet on screen". `.unnecessary` means every
+    /// type has been answered, which is exactly what `.connected` has always
+    /// meant here.
+    func resume() async {
+        #if canImport(HealthKit) && !RF_LOCAL_ONLY
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        // Never talk over a live answer: `connect()` may have just set this.
+        guard status == .notAsked else { return }
+        let requested = await requestStatus()
+        status = HealthSync.resumed(from: requested, current: status)
+        #endif
+    }
+
+    #if canImport(HealthKit) && !RF_LOCAL_ONLY
+    /// Bridged by hand — the completion form reports through a `(status, error)`
+    /// pair that Swift does not turn into an async throwing call for us.
+    private func requestStatus() async -> HKAuthorizationRequestStatus {
+        await withCheckedContinuation { continuation in
+            store.getRequestStatusForAuthorization(
+                toShare: shareTypes, read: [bodyMass]
+            ) { requestStatus, _ in
+                continuation.resume(returning: requestStatus)
+            }
+        }
+    }
+    #endif
+
     static func initialStatus() -> Status {
         #if RF_LOCAL_ONLY
         return .unsupported("This build has no Health entitlement — see the README. "
@@ -76,14 +132,7 @@ final class HealthBridge: ObservableObject {
             // because a cardio bout writes one. Asking later would put a second
             // permission sheet in front of someone mid-workout, which is the
             // moment they are least willing to read it.
-            var share: Set<HKSampleType> = [bodyMass, HKObjectType.workoutType()]
-            for identifier in [HKQuantityTypeIdentifier.distanceWalkingRunning,
-                               .distanceCycling, .distanceSwimming] {
-                if let type = HKQuantityType.quantityType(forIdentifier: identifier) {
-                    share.insert(type)
-                }
-            }
-            try await store.requestAuthorization(toShare: share, read: [bodyMass])
+            try await store.requestAuthorization(toShare: shareTypes, read: [bodyMass])
             // NOTE: HealthKit deliberately never tells you whether READ access
             // was granted — that itself would leak information about the user.
             // So "connected" here means "the sheet was answered", and an empty

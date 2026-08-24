@@ -14,6 +14,22 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.1.1 — 2026-08-24
+
+### Fixed
+
+- **Health had to be reconnected every time the app closed.** `status` started
+  each launch at `.notAsked` and only ever became `.connected` in memory, so
+  quitting forgot it. Settings offered "Connect Apple Health" again, and the
+  launch sync — gated on `isConnected` — silently stopped importing weigh-ins
+  until you tapped the button. The permission was fine the whole time; nothing
+  ever asked whether it existed.
+
+  `HealthBridge.resume()` now asks on launch and when Settings opens. It uses
+  `getRequestStatusForAuthorization`, which answers "would asking show a sheet"
+  rather than "am I authorised" — HealthKit refuses the latter for read types on
+  purpose, because the answer would leak what is in your Health app.
+
 ## 0.1.0 — 2026-08-24
 
 The first pass, and everything since. Recorded as one entry because the repo
