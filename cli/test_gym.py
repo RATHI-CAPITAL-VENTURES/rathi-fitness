@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 3,
+    "schema": 4,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -82,6 +82,12 @@ FIXTURE = {
                               {"kind": "back", "label": "Back pad", "value": "4"}],
          "recent": [{"date": "2026-08-12", "top_weight": 360, "reps": [10, 10, 8],
                      "volume": 10080, "warmup_sets": 1, "average_rpe": None}]},
+        {"slug": "assisted-pull-up", "name": "Assisted Pull-Up", "loading": "machine",
+         "assisted": True, "working_weight": 70, "last_performed": "2026-08-18",
+         "change_30d": -20, "primary_muscle": "lats", "secondary_muscles": ["biceps"],
+         "best": {"weight": 70, "reps": 8, "date": "2026-08-18"},
+         "recent": [{"date": "2026-08-18", "top_weight": 70, "reps": [8, 8, 7],
+                     "volume": 0, "warmup_sets": 0, "average_rpe": None}]},
         {"slug": "treadmill", "name": "Treadmill", "loading": "machine",
          "modality": "cardio", "working_weight": None, "last_performed": "2026-08-20",
          "change_30d": None, "primary_muscle": "quads", "secondary_muscles": ["calves"],
@@ -527,11 +533,53 @@ class Machines(unittest.TestCase):
 
 class SchemaGate(unittest.TestCase):
     def test_an_older_snapshot_says_the_phone_is_behind(self):
-        old = dict(FIXTURE, schema=2)
+        old = dict(FIXTURE, schema=3)
         with fixture(old):
             code, _ = run("today")
         self.assertNotEqual(code, 0, "an unreadable schema must not look like success")
 
     def test_the_supported_schema_is_the_one_the_app_writes(self):
         # Bumping one without the other is how the CLI goes blind for a week.
-        self.assertEqual(gym.SCHEMA_SUPPORTED, 3)
+        self.assertEqual(gym.SCHEMA_SUPPORTED, 4)
+
+
+class Assisted(unittest.TestCase):
+    """A pull-up assist counterweights you: the number going DOWN is the
+    progress. Every one of these assertions is a place where saying nothing
+    would have meant saying the opposite."""
+
+    def test_the_change_column_names_the_direction(self):
+        with fixture():
+            _, out = run("lifts")
+        self.assertIn("Assisted Pull-Up", out)
+        # Not a bare "−20", which under a column headed 30d reads as losing
+        # ground.
+        self.assertIn("help", out)
+        self.assertIn("down is up", out)
+
+    def test_an_assisted_row_is_marked_in_the_table(self):
+        with fixture():
+            _, out = run("lifts")
+        line = next(l for l in out.splitlines() if "Assisted Pull-Up" in l)
+        self.assertIn("*", line)
+
+    def test_the_detail_view_calls_it_help_and_calls_the_best_the_least(self):
+        with fixture():
+            _, out = run("exercise", "assisted-pull-up")
+        self.assertIn("assisted machine", out)
+        self.assertIn("help", out)
+        self.assertIn("least", out)
+        # "best 70 × 8" would read as a heaviest-ever personal best.
+        self.assertNotIn("best    70", out)
+
+    def test_a_plain_lift_is_untouched_by_any_of_this(self):
+        with fixture():
+            _, out = run("exercise", "bench-press")
+        self.assertIn("working 185 lb", out)
+        self.assertNotIn("help", out)
+
+    def test_assisted_change_reads_as_help_taken_off(self):
+        self.assertEqual(gym.assisted_change(-20), "−20 help")
+        self.assertEqual(gym.assisted_change(10), "+10 help")
+        self.assertEqual(gym.assisted_change(0), "—")
+        self.assertEqual(gym.assisted_change(None), "—")

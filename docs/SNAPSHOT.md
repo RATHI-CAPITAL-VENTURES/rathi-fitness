@@ -22,6 +22,7 @@ CLI can exist at all.
 | --- | --- |
 | 1 | The original contract. |
 | 2 | Set kinds. `volume`, `top_weight` and `sets` mean **working** sets — warm-ups contribute to none of them and are counted separately as `warmup_sets`. Each performed set carries `kind`, `rpe` (nullable — not recorded is not "easy") and `note`. Each exercise carries `primary_muscle` and `secondary_muscles`. |
+| 4 | Assisted machines. `assisted: true` on an exercise **inverts what its numbers mean**: `working_weight` is how much help you needed, so lower is better and a negative `change_30d` is progress; `best` is the least help ever needed; assistance is excluded from `volume` and from `top_lifts`. A reader that does not know the flag will congratulate you for getting weaker, which is why this is a bump and not an addition. |
 | 3 | Cardio and machine settings. Two additions and one **changed meaning**, which is what forces the bump: an exercise may be `modality: "cardio"`, and on one of those `volume`, `working_weight` and `best` are absent or zero and **mean nothing** — a treadmill has no tonnage. Cardio numbers live in `cardio` blocks (`bouts`, `seconds`, `distance`, `average_incline`, `average_speed`) and in `sessions[].cardio_minutes`. `machine_settings[]` on an exercise says where the seat goes. |
 
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
@@ -96,6 +97,24 @@ different fields:
 
 `top_lifts` on a session **excludes cardio**: "Treadmill 0" is what happens
 when it does not.
+
+### Assisted machines
+
+    exercises[].assisted   true when the weight makes it EASIER
+
+Set on assisted pull-up and dip machines. When true:
+
+- `working_weight` is **assistance**, and the *lowest* of the day rather than
+  the highest — the hardest set is the one with the least help.
+- `change_30d` is progress when **negative**.
+- `best` is the least help ever needed, not the most weight.
+- the exercise contributes nothing to `sessions[].volume`, and never appears in
+  `top_lifts` — "Assisted Pull-Up 100" would otherwise top the list on the day
+  you needed the most help.
+
+`gym lifts` marks these rows with `*` and prints the direction under the table,
+because a column that quietly mixes two opposite meanings is worse than one that
+omits them.
 
 ### Machine settings
 

@@ -86,7 +86,7 @@ struct SetView: View {
             NoteSheet(note: note) { note = $0 }
         }
         .sheet(isPresented: $editingWeight) {
-            WeightSheet(weight: weight, unitLabel: "lb") { weight = $0 }
+            WeightSheet(weight: weight, unitLabel: exercise.weightUnit) { weight = $0 }
         }
         .onAppear(perform: prime)
         .onAppear(perform: armHandsFree)
@@ -182,8 +182,9 @@ struct SetView: View {
                     .foregroundStyle(RFDesign.speech)
                 + Text(comparison(to: last)).foregroundStyle(RFDesign.label)
             } else if let suggestion = suggestion {
-                Text("Try " + Fmt.weight(suggestion.weight) + " × \(suggestion.reps) — "
-                     + suggestion.because + ".")
+                Text("Try " + Fmt.weight(suggestion.weight)
+                     + (exercise.assisted ? " lb help" : "")
+                     + " × \(suggestion.reps) — " + suggestion.because + ".")
                     .foregroundStyle(RFDesign.label)
             } else if let previous = lastSession.first {
                 Text("Last time — ")
@@ -203,7 +204,17 @@ struct SetView: View {
     private func comparison(to entry: SetEntry) -> String {
         guard let prev = lastSession.first(where: { $0.setIndex == entry.setIndex }) else { return "." }
         if prev.weight == entry.weight && prev.reps == entry.reps { return ". Same as last week." }
-        if entry.weight > prev.weight { return ". Up \(Fmt.weight(entry.weight - prev.weight)) lb." }
+        let delta = entry.weight - prev.weight
+        if delta != 0 {
+            // On an assisted machine the sentence has to name the direction
+            // rather than assume it: "Up 10 lb" reads as progress, and on a
+            // pull-up assist it is the opposite of progress.
+            if exercise.assisted {
+                return delta < 0 ? ". \(Fmt.weight(-delta)) lb less help."
+                                 : ". \(Fmt.weight(delta)) lb more help."
+            }
+            if delta > 0 { return ". Up \(Fmt.weight(delta)) lb." }
+        }
         if entry.reps > prev.reps { return ". \(entry.reps - prev.reps) more reps." }
         return "."
     }
@@ -213,7 +224,7 @@ struct SetView: View {
     private var suggestion: Tally.Suggestion? {
         Tally.nextTarget(
             lastSession: lastSession.map {
-                Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+                $0.tally
             },
             target: item.targetReps,
             step: exercise.loadingKind.showsPlateMath ? 5 : 5)
@@ -231,7 +242,7 @@ struct SetView: View {
                             .font(RFDesign.figure(64))
                             .monospacedDigit()
                             .foregroundStyle(RFDesign.speech)
-                        Text("lb").rfEyebrow(RFDesign.labelDim, size: 14)
+                        Text(exercise.weightUnit).rfEyebrow(RFDesign.labelDim, size: 14)
                     }
                     HStack(spacing: 10) {
                         Button { reps = max(1, reps - 1) } label: {
@@ -446,9 +457,10 @@ struct SetView: View {
         // Records are judged against history WITHOUT this set — including it
         // would make every set a record for beating itself.
         let history = mine.map {
-            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+            $0.tally
         }
-        let candidate = Tally.Set(weight: weight, reps: reps, kind: kind)
+        let candidate = Tally.Set(weight: weight, reps: reps, kind: kind,
+                                  assisted: exercise.assisted)
         withAnimation(RFDesign.settle) {
             record = Tally.headline(for: candidate, history: history)
         }

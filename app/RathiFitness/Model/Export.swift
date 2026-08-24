@@ -14,8 +14,8 @@ enum Export {
     /// use: "which CSV is my treadmill in" is a question a spreadsheet should
     /// never make you ask, and a blank cell reads as "not applicable" to
     /// everybody without being explained.
-    static let header = "date,exercise,slug,modality,muscle,set,kind,weight_lb,reps,rpe,"
-        + "volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source"
+    static let header = "date,exercise,slug,modality,assisted,muscle,set,kind,weight_lb,reps,"
+        + "rpe,volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source"
 
     static func csv(from context: ModelContext) throws -> String {
         let sets = try context.fetch(
@@ -32,6 +32,9 @@ enum Export {
                 escape(exercise?.name ?? ""),
                 exercise?.slug ?? "",
                 exercise?.modality ?? Exercise.Modality.strength.rawValue,
+                // Without this column `weight_lb` silently mixes two opposite
+                // meanings and any sort or average over it is wrong.
+                (exercise?.assisted ?? false) ? "true" : "false",
                 exercise?.primary.rawValue ?? "",
                 String(entry.setIndex),
                 entry.setKind.rawValue,

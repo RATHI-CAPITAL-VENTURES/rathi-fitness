@@ -497,15 +497,22 @@ struct TrendsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Sparkline(values: row.spark)
                             .frame(width: 58, height: 20)
-                        Text(Fmt.weight(row.current))
-                            .font(RFDesign.figure(18, relativeTo: .body))
-                            .monospacedDigit()
-                            .foregroundStyle(RFDesign.speech)
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(Fmt.weight(row.current))
+                                .font(RFDesign.figure(18, relativeTo: .body))
+                                .monospacedDigit()
+                                .foregroundStyle(RFDesign.speech)
+                            if row.assisted {
+                                // Otherwise the column silently mixes two
+                                // opposite meanings under one heading.
+                                Text("help").rfEyebrow(RFDesign.labelDim, size: 8)
+                            }
+                        }
                         Text(row.change.map(Fmt.signed) ?? "—")
                             .font(RFDesign.ui(11.5, bold: true))
                             .monospacedDigit()
                             .frame(width: 46, alignment: .trailing)
-                            .foregroundStyle((row.change ?? 0) > 0 ? RFDesign.ready : RFDesign.labelDim)
+                            .foregroundStyle(row.improved ? RFDesign.ready : RFDesign.labelDim)
                     }
                     .padding(.vertical, 12)
                     .contentShape(Rectangle())
@@ -516,8 +523,22 @@ struct TrendsView: View {
         }
     }
 
-    private struct Row { let slug: String; let name: String; let current: Double
-                        let change: Double?; let spark: [Double] }
+    private struct Row {
+        let slug: String; let name: String; let current: Double
+        let change: Double?; let spark: [Double]
+        /// The weight makes it easier, so every judgement about this row runs
+        /// the other way — see `Exercise.assisted`.
+        var assisted = false
+
+        /// Whether the 30-day change is the good direction. Teal for progress
+        /// either way: taking 10 lb off a pull-up assist is exactly as much of
+        /// an achievement as adding 10 to a bench, and colouring it grey — or
+        /// worse, colouring the wrong one teal — is the chart lying quietly.
+        var improved: Bool {
+            guard let change, change != 0 else { return false }
+            return assisted ? change < 0 : change > 0
+        }
+    }
 
     private var strengthRows: [Row] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
@@ -537,7 +558,8 @@ struct TrendsView: View {
             let baseIndex = days.lastIndex { $0 <= cutoff }
             let change = baseIndex.map { current - tops[$0] }
             return Row(slug: ex.slug, name: ex.name, current: current,
-                       change: change, spark: Array(tops.suffix(8)))
+                       change: change, spark: Array(tops.suffix(8)),
+                       assisted: ex.assisted)
         }
         .sorted { $0.current > $1.current }
     }

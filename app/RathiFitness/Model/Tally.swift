@@ -21,8 +21,21 @@ enum Tally {
         /// the value rather than filtered by the caller so there is exactly one
         /// place that decides what counts, and callers cannot forget.
         var kind: SetKind = .working
+        /// The weight made this set EASIER — an assisted pull-up machine. Carried
+        /// on the value for the same reason `kind` is: every rule about it lives
+        /// in one place and no caller can forget to apply it.
+        var assisted: Bool = false
 
-        var volume: Double { kind.counts ? weight * Double(reps) : 0 }
+        /// Assistance is not tonnage.
+        ///
+        /// This is the worst of the assisted bugs, because the number it
+        /// produces is plausible: 100 lb of help × 8 reps reads as 800 lb
+        /// "moved", so the *more* help you needed the better your session
+        /// looked. Excluded outright rather than converted — turning it into
+        /// bodyweight-minus-assistance means storing a bodyweight per set and
+        /// guessing for every day you did not weigh yourself, which is the same
+        /// invention that keeps push-ups out of tonnage.
+        var volume: Double { (kind.counts && !assisted) ? weight * Double(reps) : 0 }
         var counts: Bool { kind.counts }
     }
 
@@ -31,7 +44,8 @@ enum Tally {
     /// Warm-ups do not count. Neither do bodyweight movements, which is honest
     /// rather than clever — guessing what fraction of you a push-up lifts would
     /// put an invented number into the one figure that is supposed to be
-    /// countable.
+    /// countable. Assisted machines do not count either, and for a sharper
+    /// reason: their weight would count the wrong way round.
     static func volume(_ sets: [Set]) -> Double {
         sets.reduce(0) { $0 + $1.volume }
     }
@@ -81,6 +95,13 @@ enum Tally {
     enum Record: Equatable {
         /// The heaviest weight ever moved for a rep on this lift.
         case heaviest(Double)
+        /// The least help ever needed on an assisted machine — the mirror of
+        /// `heaviest`, and the reason it needs its own case rather than a
+        /// reused one: "Heaviest ever — 100 lb" on a pull-up assist is the app
+        /// congratulating you for getting weaker.
+        case leastAssistance(Double)
+        /// Most reps ever at this much help or LESS.
+        case repsAssisted(Int, at: Double)
         /// A better estimated max, without the weight itself being a record —
         /// 185 × 9 beats 185 × 8 and beats a lifetime best e1RM.
         case estimatedMax(Double)
@@ -91,9 +112,9 @@ enum Tally {
         /// confetti; the heaviest lift is the one that matters most.
         var rank: Int {
             switch self {
-            case .heaviest: return 0
+            case .heaviest, .leastAssistance: return 0
             case .estimatedMax: return 1
-            case .reps: return 2
+            case .reps, .repsAssisted: return 2
             }
         }
 
@@ -102,6 +123,12 @@ enum Tally {
             case .heaviest(let w): return "Heaviest ever — \(Fmt.weight(w)) lb"
             case .estimatedMax(let e): return "Best estimated max — \(Fmt.weight(e.rounded())) lb"
             case .reps(let r, let w): return "Most reps at \(Fmt.weight(w)) — \(r)"
+            case .leastAssistance(let w):
+                return w == 0 ? "Unassisted — no help at all"
+                              : "Least help ever — \(Fmt.weight(w)) lb"
+            case .repsAssisted(let r, let w):
+                return w == 0 ? "Most reps unassisted — \(r)"
+                              : "Most reps at \(Fmt.weight(w)) lb of help — \(r)"
             }
         }
     }
@@ -115,8 +142,14 @@ enum Tally {
         // A warm-up cannot set a record, and warm-ups in the history cannot
         // stop one: a heavy single last week should not be beaten by the fact
         // you once warmed up heavier than you are lifting today.
-        guard candidate.counts, candidate.weight > 0, candidate.reps > 0 else { return [] }
+        //
+        // Zero is a legitimate weight on an assisted machine — it is the best
+        // one there is, the day you finally need no help — so the `> 0` guard
+        // applies only to lifts.
+        guard candidate.counts, candidate.reps > 0,
+              candidate.assisted || candidate.weight > 0 else { return [] }
         let history = workingSets(rawHistory)
+        if candidate.assisted { return assistedRecords(for: candidate, history: history) }
         var found: [Record] = []
 
         let heaviest = history.map(\.weight).max() ?? 0
@@ -132,6 +165,39 @@ enum Tally {
             .filter { $0.weight >= candidate.weight }.map(\.reps).max() ?? 0
         if candidate.reps > repsAtWeight && !history.isEmpty {
             found.append(.reps(candidate.reps, at: candidate.weight))
+        }
+
+        return found.sorted { $0.rank < $1.rank }
+    }
+
+    /// The same three questions, asked the other way up.
+    ///
+    /// No estimated one-rep max: Epley on a counterweight is arithmetic without
+    /// a meaning. It would produce a number, which is exactly the danger.
+    private static func assistedRecords(for candidate: Set, history: [Set]) -> [Record] {
+        var found: [Record] = []
+
+        // `.greatestFiniteMagnitude` so the first set ever recorded is a record,
+        // which is what the heaviest-ever branch does with its `?? 0`.
+        let least = history.map(\.weight).min() ?? .greatestFiniteMagnitude
+        if candidate.weight < least { found.append(.leastAssistance(candidate.weight)) }
+
+        // A rep record only counts at your hardest setting to date — this is
+        // STRICTER than the resisted rule, deliberately.
+        //
+        // The mirror of "most reps at this weight or above" would be "most reps
+        // at this help or less", and it is technically true and practically
+        // awful: adding help almost always buys reps, so every deload would
+        // manufacture a record and the app would cheer each step backwards.
+        // That is the exact failure this whole flag exists to stop, so the
+        // claim is only made when you are at least as unassisted as you have
+        // ever been.
+        if candidate.weight <= least {
+            let repsAtOrBelow = history
+                .filter { $0.weight <= candidate.weight }.map(\.reps).max() ?? 0
+            if candidate.reps > repsAtOrBelow && !history.isEmpty {
+                found.append(.repsAssisted(candidate.reps, at: candidate.weight))
+            }
         }
 
         return found.sorted { $0.rank < $1.rank }
@@ -191,25 +257,39 @@ enum Tally {
     ///   - lastSession: working sets from the most recent day this lift was done.
     ///   - target: the plan's rep target.
     static func nextTarget(lastSession: [Set], target: Int,
-                           step: Double = 5) -> Suggestion? {
+                           step: Double = 5, assisted: Bool = false) -> Suggestion? {
         let working = workingSets(lastSession)
-        guard let heaviest = working.map(\.weight).max(), heaviest > 0 else { return nil }
-        let atWeight = working.filter { $0.weight == heaviest }
+        // The hardest set you did. On an assisted machine that is the one with
+        // the LEAST help, not the most weight — get this backwards and the app
+        // progresses you off your easiest set.
+        let anchor = assisted ? working.map(\.weight).min() : working.map(\.weight).max()
+        guard let anchor, assisted || anchor > 0 else { return nil }
+        let atWeight = working.filter { $0.weight == anchor }
         guard !atWeight.isEmpty else { return nil }
 
-        // Every set hit the target: the weight goes up.
+        // Every set hit the target: it gets harder. Which direction that is
+        // depends on the machine — and assistance floors at zero, because
+        // negative help is not a thing you can dial in.
         if atWeight.allSatisfy({ $0.reps >= target }) {
-            return Suggestion(weight: heaviest + step, reps: target,
+            let next = assisted ? max(0, anchor - step) : anchor + step
+            if assisted && anchor == 0 {
+                // Already unassisted. There is nowhere lower to go, and telling
+                // someone to take off help they are not using is nonsense.
+                return Suggestion(weight: 0, reps: target,
+                                  because: "you're doing these unassisted — try the real thing")
+            }
+            return Suggestion(weight: next, reps: target,
                               because: "you hit every rep last time")
         }
-        // Missed badly enough that more weight would be optimism.
+        // Missed badly enough that changing it would be optimism.
         let best = atWeight.map(\.reps).max() ?? 0
         if best < target - 2 {
-            return Suggestion(weight: heaviest, reps: target,
-                              because: "last time stalled at \(best) — same weight again")
+            return Suggestion(weight: anchor, reps: target,
+                              because: "last time stalled at \(best) — same \(assisted ? "help" : "weight") again")
         }
-        return Suggestion(weight: heaviest, reps: target,
-                          because: "one more rep than last time and it goes up")
+        return Suggestion(weight: anchor, reps: target,
+                          because: assisted ? "one more rep than last time and the help comes off"
+                                            : "one more rep than last time and it goes up")
     }
 
     // MARK: - Cardio
@@ -325,5 +405,20 @@ enum Tally {
         private func pctText(_ p: Double) -> String {
             p < 10 ? String(format: "%.0f%%", p) : String(format: "%.0f%%", p)
         }
+    }
+}
+
+
+extension SetEntry {
+    /// This row as a value `Tally` can reason about.
+    ///
+    /// Exists so nothing constructs a `Tally.Set` by hand. Nine call sites did,
+    /// each spelling out weight/reps/kind, and every one of them silently
+    /// defaulted `assisted` to false — which is exactly how a pull-up assist
+    /// ends up counted as tonnage. One converter means adding a rule to the
+    /// value is a change here and nowhere else.
+    var tally: Tally.Set {
+        Tally.Set(weight: weight, reps: reps, kind: setKind,
+                  assisted: exercise?.assisted ?? false)
     }
 }

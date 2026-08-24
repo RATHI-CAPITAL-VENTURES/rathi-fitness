@@ -239,8 +239,9 @@ struct DayEditorView: View {
             }
             return parts.isEmpty ? "no target set" : parts.joined(separator: " · ")
         }
+        let unit = item.exercise?.weightUnit ?? "lb"
         return "\(item.targetSets) × \(item.targetReps) · "
-            + "\(Fmt.weight(item.targetWeight)) lb · \(item.restSeconds)s rest"
+            + "\(Fmt.weight(item.targetWeight)) \(unit) · \(item.restSeconds)s rest"
             + (item.supersetGroup > 0 ? " · superset" : "")
     }
 
@@ -631,6 +632,24 @@ struct ExerciseEditorView: View {
                     Text("A rower has no incline and a treadmill has no damper. Only the "
                          + "ones you tick appear on the logging screen — offering every "
                          + "field on every machine is how a screen becomes one you skip.")
+                }
+            }
+
+            if !exercise.isCardio {
+                Section {
+                    Toggle("The weight makes it easier", isOn: $exercise.assisted)
+                        .font(RFDesign.ui(14))
+                } header: {
+                    Text("Which way the weight runs")
+                } footer: {
+                    Text("On an assisted pull-up or dip machine the stack counterweights "
+                         + "you, so 100 lb of help is an easier set than 40 and progress "
+                         + "is the number going DOWN.\n\n"
+                         + "Turning this on flips everything that has an opinion about "
+                         + "the number: a record becomes the least help you have ever "
+                         + "needed, hitting your reps suggests taking help off rather "
+                         + "than adding it, and the assistance stops counting as tonnage "
+                         + "— otherwise the weaker you got, the better the totals looked.")
                 }
             }
 

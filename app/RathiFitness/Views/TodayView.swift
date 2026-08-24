@@ -244,7 +244,7 @@ struct TodayView: View {
     /// something to show — a zero here would be a scoreboard telling you off.
     @ViewBuilder private func moved(for day: PlannedDay) -> some View {
         let sets = todaysSets.map {
-            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+            $0.tally
         }
         if !sets.isEmpty {
             let comparison = Tally.SessionComparison(
@@ -281,7 +281,7 @@ struct TodayView: View {
             return nil
         }
         return Tally.volume(entries.map {
-            Tally.Set(weight: $0.weight, reps: $0.reps, kind: $0.setKind)
+            $0.tally
         })
     }
 
@@ -383,7 +383,8 @@ struct TodayView: View {
         if item.exercise?.isCardio == true { return cardioMeta(for: item) }
         let done = working(item)
         let warmups = performed(item).count - done.count
-        let plan = "\(item.targetSets) × \(item.targetReps) · \(Fmt.weight(item.targetWeight)) lb"
+        let unit = item.exercise?.weightUnit ?? "lb"
+        let plan = "\(item.targetSets) × \(item.targetReps) · \(Fmt.weight(item.targetWeight)) \(unit)"
         if done.isEmpty {
             return warmups > 0 ? "\(plan) · \(warmups) warm-up done" : plan
         }
