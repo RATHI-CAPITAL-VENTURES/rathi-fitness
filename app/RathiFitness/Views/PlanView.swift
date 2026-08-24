@@ -865,21 +865,10 @@ enum Weekdays {
 /// the programme sitting at home.
 struct MachineSettingsList: View {
     let exercise: Exercise
-    @State private var editing = true
 
     var body: some View {
-        VStack(spacing: RFDesign.md) {
-            MachineSettingsRow(exercise: exercise)
-                .padding(.horizontal, RFDesign.md)
-            Text("Tap to add or change where this machine is set.")
-                .font(RFDesign.ui(12.5))
-                .foregroundStyle(RFDesign.labelDim)
-            Spacer()
+        SettingsScaffold(title: "Machine settings") {
+            MachineSettingsEditor(exercise: exercise)
         }
-        .padding(.top, RFDesign.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RFDesign.ground.ignoresSafeArea())
-        .navigationTitle("Machine settings")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }

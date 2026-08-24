@@ -345,6 +345,12 @@ things — which is exactly how a notes field for this would have decayed. The
 *value* is free text, because dials are not all numbers: "2", "hole 12", "30°",
 "wide".
 
+**One editor, presented two ways.** You set the seat standing in front of the
+machine and you edit the programme sitting at home, so `MachineSettingsEditor`
+appears as a sheet from the chips on the set screen and as a pushed screen from
+the plan. It was briefly a pushed screen whose only trick was opening the
+sheet — a modal on top of a push, to change one number.
+
 ## Apple Health
 
 Body mass is read from Health once connected — the scale is the source of truth
