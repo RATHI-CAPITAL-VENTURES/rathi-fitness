@@ -220,3 +220,44 @@ final class PlanEditingTests: XCTestCase {
         }
     }
 }
+
+#if canImport(HealthKit)
+import HealthKit
+
+/// Picking the Health connection back up on launch.
+///
+/// The bug: `status` started every launch at `.notAsked`, so closing the app
+/// forgot that Health was connected. Settings offered "Connect Apple Health"
+/// again — and worse, the launch sync is gated on `isConnected`, so weigh-ins
+/// silently stopped arriving until you tapped the button. The permission was
+/// never the problem; the app simply never asked whether it had one.
+final class HealthResumeTests: XCTestCase {
+
+    func testAnAnsweredSheetMeansConnected() {
+        // `.unnecessary` = "asking would show no sheet" = every type answered.
+        // It does NOT mean "authorised" — HealthKit will not answer that for
+        // read types — and "answered" is what connected has always meant here.
+        XCTAssertEqual(HealthSync.resumed(from: .unnecessary, current: .notAsked),
+                       .connected)
+    }
+
+    func testItSurvivesARelaunch() {
+        // The whole bug in one line: a fresh launch starts at .notAsked and has
+        // to come back connected rather than asking again.
+        XCTAssertTrue(HealthSync.resumed(from: .unnecessary, current: .notAsked).isConnected)
+    }
+
+    func testNeverAskedStaysNotAsked() {
+        XCTAssertEqual(HealthSync.resumed(from: .shouldRequest, current: .notAsked),
+                       .notAsked)
+    }
+
+    /// The safe wrong answer. Tapping connect when you are already connected
+    /// shows no sheet and costs nothing; wrongly claiming to be connected would
+    /// gate the launch sync on a permission that may not exist.
+    func testAnUnknownAnswerOffersTheButton() {
+        XCTAssertEqual(HealthSync.resumed(from: .unknown, current: .notAsked),
+                       .notAsked)
+    }
+}
+#endif

@@ -400,6 +400,20 @@ means you are running that build, not that something is broken.
 The signed build carries `com.apple.developer.healthkit` and turns Health and
 iCloud sync on together. Connect it in Settings → Apple Health.
 
+**The connection survives closing the app**, which it did not at first. `status`
+began every launch at `.notAsked` and only ever became `.connected` in memory,
+so quitting forgot it: Settings offered "Connect Apple Health" again, and — the
+part you would not notice — the launch sync is gated on `isConnected`, so
+weigh-ins quietly stopped arriving until you tapped the button. The permission
+was never the problem. The app just never asked whether it had one.
+
+`HealthBridge.resume()` asks on launch, and the question matters:
+`getRequestStatusForAuthorization` answers *"would asking show a sheet"*, not
+*"am I authorised"*. HealthKit will not answer the second for read types on
+purpose, since the answer leaks what is in your Health app. `.unnecessary` means
+every type has been answered, which is exactly what "connected" has always meant
+here.
+
 ## The app icon
 
 **RIA's face goes in the middle, and that is a house rule.** Every app in the
