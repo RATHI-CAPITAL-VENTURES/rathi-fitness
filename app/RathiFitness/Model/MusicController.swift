@@ -55,6 +55,11 @@ final class MusicController: ObservableObject {
         var isPlaying: Bool
     }
 
+    /// Bumped whenever the artwork changes, so a view can key off it without
+    /// `NowPlaying` having to hold a MusicKit type and drag the import into
+    /// every file that shows a track name.
+    @Published private(set) var artworkToken: Int = 0
+
     @Published private(set) var status: Status = .unknown
     @Published private(set) var now: NowPlaying?
     /// Library playlists, newest first. Empty until `connect()`.
@@ -80,6 +85,12 @@ final class MusicController: ObservableObject {
     #endif
 
     var isPlaying: Bool { now?.isPlaying ?? false }
+
+    #if canImport(MusicKit)
+    /// The current entry's cover, for `ArtworkImage`. Nil is the normal case,
+    /// not an error: nothing queued, or a track whose art has not come down yet.
+    var artwork: Artwork? { player.queue.currentEntry?.artwork }
+    #endif
 
     // MARK: - Connecting
 
@@ -157,9 +168,12 @@ final class MusicController: ObservableObject {
             now = nil
             return
         }
-        now = NowPlaying(title: entry.title,
-                         artist: entry.subtitle,
-                         isPlaying: player.state.playbackStatus == .playing)
+        let fresh = NowPlaying(title: entry.title,
+                               artist: entry.subtitle,
+                               isPlaying: player.state.playbackStatus == .playing)
+        // The track changed, so whatever cover is on screen is the last one's.
+        if fresh.title != now?.title { artworkToken &+= 1 }
+        now = fresh
     }
     #else
     private func refreshNowPlaying() {}

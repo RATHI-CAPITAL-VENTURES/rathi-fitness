@@ -19,6 +19,7 @@ struct SettingsView: View {
     @Query private var allSets: [SetEntry]
     @Query private var allWeighIns: [WeighIn]
     @Query private var schedules: [Schedule]
+    @Query private var planDefaults: [PlanDefaults]
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
 
     private var demoCount: Int {
@@ -84,6 +85,7 @@ struct SettingsView: View {
                 }
 
                 scheduleSection
+                defaultsSection
                 soundSection
                 handsFreeSection
                 musicSection
@@ -183,6 +185,54 @@ struct SettingsView: View {
             }
         }
     }
+
+    /// What a new exercise opens on.
+    ///
+    /// Hardcoded to 3 × 10 at 90 seconds until now, which meant correcting the
+    /// same three numbers every time you added a lift. Deliberately does NOT
+    /// touch anything already in the plan — a setting that silently rewrites
+    /// your programme is a setting you stop trusting.
+    @ViewBuilder private var defaultsSection: some View {
+        let defaults = planDefaults.first
+        Section {
+            Stepper("Sets: \(defaults?.targetSets ?? 3)", value: setsBinding, in: 1...12)
+            Stepper("Reps: \(defaults?.targetReps ?? 10)", value: repsBinding, in: 1...50)
+            Picker("Rest", selection: restBinding) {
+                ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
+                    Text(Fmt.clock(s)).tag(s)
+                }
+            }
+            Picker("Cardio", selection: cardioBinding) {
+                ForEach([10, 15, 20, 25, 30, 40, 45, 60], id: \.self) { m in
+                    Text("\(m) min").tag(m * 60)
+                }
+            }
+        } header: {
+            Text("New exercises open on")
+        } footer: {
+            Text("Applies to exercises you add from now on. Nothing already in the plan "
+                 + "changes — edit those on the exercise itself.\n\n"
+                 + "It follows the programme rather than the phone, so it is the same on "
+                 + "every device you log from.")
+        }
+    }
+
+    private func defaultsRow() -> PlanDefaults { PlanDefaults.current(in: context) }
+
+    private func defaultsBinding<V>(_ keyPath: ReferenceWritableKeyPath<PlanDefaults, V>,
+                                    fallback: V) -> Binding<V> {
+        Binding(
+            get: { planDefaults.first?[keyPath: keyPath] ?? fallback },
+            set: { value in
+                defaultsRow()[keyPath: keyPath] = value
+                try? context.save()
+            })
+    }
+
+    private var setsBinding: Binding<Int> { defaultsBinding(\.targetSets, fallback: 3) }
+    private var repsBinding: Binding<Int> { defaultsBinding(\.targetReps, fallback: 10) }
+    private var restBinding: Binding<Int> { defaultsBinding(\.restSeconds, fallback: 90) }
+    private var cardioBinding: Binding<Int> { defaultsBinding(\.cardioSeconds, fallback: 20 * 60) }
 
     /// The cooldown's two channels. Both are on by default and either can be
     /// turned off — a chime in a quiet gym and a buzz in a pocket are different

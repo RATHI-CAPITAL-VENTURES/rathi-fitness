@@ -22,7 +22,8 @@ reader distrust the rest of the file.)
 | Cardio | Treadmill, bike, rower, elliptical, stairs and the rest — their own screen, with time, distance, incline, speed, resistance and heart rate. Each machine offers only the numbers its console has. |
 | Assisted machines | Pull-up/dip assist, where the weight makes it **easier**. Records, progression, tonnage and the trend arrow all run the other way. Toggle it on any exercise. |
 | Machine settings | "2 on the leg press" — kept with the exercise, shown at the top of its screen, and readable from the Mac with `gym machines`. |
-| Music | Today and the set screen — a three-button bar. Your **Apple Music library playlists**, played by this app. |
+| Music | Today and the set screen — cover art, one solid play/pause in the room's current colour, and skip. Your **Apple Music library playlists**, played by this app. |
+| Defaults | Settings → New exercises. Sets, reps, rest and cardio length a new plan slot opens on, so you stop correcting 3 × 10 every time. |
 | Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
 

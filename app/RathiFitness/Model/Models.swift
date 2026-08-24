@@ -497,6 +497,39 @@ final class Schedule {
     }
 }
 
+/// What a new exercise opens on.
+///
+/// Every new plan slot was hardcoded to 3 × 10 at 90 seconds, which is a fine
+/// guess for a stranger and wrong every single time for the person actually
+/// using it — correcting the same three numbers on every exercise you add is
+/// the app charging rent.
+///
+/// A model rather than `@AppStorage`, for the same reason `Schedule` is one:
+/// this belongs to the training plan and should follow it between devices, not
+/// sit in the defaults of whichever phone happened to set it.
+@Model
+final class PlanDefaults {
+    var targetSets: Int = 3
+    var targetReps: Int = 10
+    var restSeconds: Int = 90
+    /// Cardio opens on a single twenty-minute bout — a treadmill slot has no
+    /// use for a rep target and needs a length instead.
+    var cardioSeconds: Int = 20 * 60
+
+    init() {}
+
+    /// The one row, made on first use. Mirrors how `Schedule` is reached, and
+    /// keeps every caller from having to decide what to do when it is missing.
+    static func current(in context: ModelContext) -> PlanDefaults {
+        if let existing = try? context.fetch(FetchDescriptor<PlanDefaults>()).first {
+            return existing
+        }
+        let made = PlanDefaults()
+        context.insert(made)
+        return made
+    }
+}
+
 /// Everything about the body that isn't a lift.
 ///
 /// Body weight has its own model because it is the one measured daily and

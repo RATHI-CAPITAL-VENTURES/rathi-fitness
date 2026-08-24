@@ -227,3 +227,77 @@ final class SupersetTests: XCTestCase {
         XCTAssertEqual(group.last?.persistentModelID, items[1].persistentModelID)
     }
 }
+
+/// What a new exercise opens on.
+///
+/// Every plan slot was hardcoded to 3 × 10 at 90 seconds — a fine guess for a
+/// stranger and wrong every time for the person actually using it. The rule
+/// that matters most here is the one about NOT applying retroactively: a
+/// setting that silently rewrites your existing programme is a setting you stop
+/// trusting.
+@MainActor
+final class PlanDefaultsTests: XCTestCase {
+
+    private func store() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: Store.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        return ModelContext(container)
+    }
+
+    func testTheDefaultsStartWhereTheHardcodedValuesWere() throws {
+        let context = try store()
+        let defaults = PlanDefaults.current(in: context)
+        XCTAssertEqual(defaults.targetSets, 3)
+        XCTAssertEqual(defaults.targetReps, 10)
+        XCTAssertEqual(defaults.restSeconds, 90)
+        XCTAssertEqual(defaults.cardioSeconds, 20 * 60)
+    }
+
+    func testThereIsOnlyEverOneRow() throws {
+        let context = try store()
+        let first = PlanDefaults.current(in: context)
+        first.targetReps = 8
+        try context.save()
+
+        let second = PlanDefaults.current(in: context)
+        XCTAssertEqual(second.targetReps, 8, "a second call made a second row")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<PlanDefaults>()), 1)
+    }
+
+    func testSeedInstallsThem() throws {
+        let context = try store()
+        try Seed.runIfNeeded(context)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<PlanDefaults>()), 1)
+    }
+
+    /// The promise made in Settings, in a test: changing the default does not
+    /// touch anything already in the plan.
+    func testChangingThemLeavesTheExistingPlanAlone() throws {
+        let context = try store()
+        try Seed.runIfNeeded(context)
+        let before = try context.fetch(FetchDescriptor<PlanItem>())
+            .map { ($0.persistentModelID, $0.targetSets, $0.targetReps, $0.restSeconds) }
+        XCTAssertFalse(before.isEmpty, "the seeded plan should have items to protect")
+
+        let defaults = PlanDefaults.current(in: context)
+        defaults.targetSets = 5
+        defaults.targetReps = 3
+        defaults.restSeconds = 180
+        try context.save()
+
+        let after = try context.fetch(FetchDescriptor<PlanItem>())
+        for (id, sets, reps, rest) in before {
+            let item = try XCTUnwrap(after.first { $0.persistentModelID == id })
+            XCTAssertEqual(item.targetSets, sets)
+            XCTAssertEqual(item.targetReps, reps)
+            XCTAssertEqual(item.restSeconds, rest)
+        }
+    }
+
+    func testTheyFollowTheProgrammeRatherThanThePhone() {
+        // The reason this is a @Model and not @AppStorage, pinned so nobody
+        // "simplifies" it into UserDefaults and breaks it across devices.
+        XCTAssertTrue(Store.schema.entities.contains { $0.name == "PlanDefaults" })
+    }
+}
