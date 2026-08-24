@@ -76,6 +76,23 @@ enum Fmt {
         return (v > 0 ? "+" : "−") + weight(abs(v))
     }
 
+    /// How long ago, in the fewest characters that are still true. `2h ago`,
+    /// `3d ago`, `just now`. For status lines, where a full date is more
+    /// precision than the question deserves.
+    static func ago(_ d: Date, from now: Date = .now) -> String {
+        let seconds = Int(now.timeIntervalSince(d))
+        if seconds < 90 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        return "\(hours / 24)d ago"
+    }
+
+    static func timeOfDay(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+    }
+
     static func shortDate(_ d: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "d MMM"; return f.string(from: d)
     }

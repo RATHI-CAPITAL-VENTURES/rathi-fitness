@@ -29,144 +29,19 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    switch health.status {
-                    case .unsupported(let why):
-                        Label(why, systemImage: "heart.slash")
-                            .font(RFDesign.ui(13))
-                            .foregroundStyle(RFDesign.labelDim)
-                    case .notAsked:
-                        Button {
-                            Task { await connect() }
-                        } label: {
-                            Label("Connect Apple Health", systemImage: "heart.fill")
-                        }
-                        .disabled(working)
-                    case .denied:
-                        Label("Health said no. Settings → Privacy → Health → Fitness "
-                              + "to change it.", systemImage: "heart.slash")
-                            .font(RFDesign.ui(13))
-                            .foregroundStyle(RFDesign.labelDim)
-                    case .connected:
-                        Label("Connected", systemImage: "heart.fill")
-                            .foregroundStyle(RFDesign.ready)
-                        Button {
-                            Task { await sync() }
-                        } label: {
-                            Label(working ? "Syncing…" : "Sync now",
-                                  systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .disabled(working)
-                    }
-                } header: {
-                    Text("Apple Health")
-                } footer: {
-                    Text("Your scale writes to Health, so weigh-ins come from there rather "
-                         + "than being typed. Finished sessions go back the other way as "
-                         + "workouts, so they show in Fitness and on the watch.\n\n"
-                         + "Workouts carry a duration and no calorie estimate — a guessed "
-                         + "burn would land in the same ring as your watch's measured one.")
-                }
-
-                if health.lastSync != nil || health.lastError != nil {
-                    Section("Last sync") {
-                        if let when = health.lastSync {
-                            LabeledContent("When", value: Fmt.weekdayDate(when))
-                            LabeledContent("Weigh-ins brought in",
-                                           value: String(health.importedCount))
-                        }
-                        if let error = health.lastError {
-                            Text(error)
-                                .font(RFDesign.ui(12.5))
-                                .foregroundStyle(RFDesign.ember)
-                        }
-                    }
-                }
-
+            SettingsScaffold(title: "Settings") {
+                statusSection
+                healthSection
                 scheduleSection
                 defaultsSection
                 soundSection
                 handsFreeSection
                 musicSection
-
-                Section {
-                    if let files = exportFiles {
-                        ShareLink(items: files) {
-                            Label("Share sets and body CSV", systemImage: "square.and.arrow.up")
-                        }
-                    }
-                    Button {
-                        exportFiles = try? Export.write(from: context)
-                    } label: {
-                        Label(exportFiles == nil ? "Export to CSV" : "Rebuild the export",
-                              systemImage: "tablecells")
-                    }
-                } header: {
-                    Text("Export")
-                } footer: {
-                    Text("Every set with its type, RPE and note, plus body weight and "
-                         + "measurements. The snapshot RIA reads is the machine-readable "
-                         + "one; this is the version a spreadsheet can open — and the "
-                         + "reason leaving is possible.")
-                }
-
-                Section {
-                    if demoCount > 0 {
-                        Button("Remove \(demoCount) sample entries") {
-                            wipeResult = (try? Seed.removeDemoData(context))
-                                .map { "Removed \($0) sample entries." }
-                            snapshots.setNeedsWrite(context)
-                        }
-                    }
-                    Button("Delete all history", role: .destructive) {
-                        confirmingWipe = true
-                    }
-                    .disabled(historyCount == 0)
-                    if let wipeResult {
-                        Text(wipeResult)
-                            .font(RFDesign.ui(12.5))
-                            .foregroundStyle(RFDesign.labelDim)
-                    }
-                } header: {
-                    Text("Your data")
-                } footer: {
-                    Text("\(historyCount) logged entries. The first version of this app "
-                         + "seeded six weeks of sample sessions so the charts had a shape, "
-                         + "and those aren't yours — if this install predates the fix they "
-                         + "aren't tagged, so \"delete all history\" is the clean way out. "
-                         + "Your plan and passes are kept either way.")
-                }
-
-                Section {
-                    NavigationLink {
-                        PlanList()
-                    } label: {
-                        Label("Edit the plan", systemImage: "slider.horizontal.3")
-                    }
-                } header: {
-                    Text("Your programme")
-                } footer: {
-                    Text("Days, what is in them, targets and rest.")
-                }
-
-                Section {
-                    LabeledContent("Written", value: snapshots.lastWritten
-                        .map(Fmt.weekdayDate) ?? "not yet")
-                    if let where_ = snapshots.lastDestination {
-                        Text(where_)
-                            .font(RFDesign.ui(12))
-                            .foregroundStyle(RFDesign.labelDim)
-                    }
-                } header: {
-                    Text("The snapshot RIA reads")
-                } footer: {
-                    Text("A copy of your log written to iCloud Drive so the Mac — and RIA — "
-                         + "can read it. Gym pass codes are never included.")
-                }
+                exportSection
+                dataSection
+                programmeSection
+                snapshotSection
             }
-            .scrollContentBackground(.hidden)
-            .background(RFDesign.ground.ignoresSafeArea())
             .confirmationDialog("Delete every logged set and weigh-in?",
                                 isPresented: $confirmingWipe, titleVisibility: .visible) {
                 Button("Delete \(historyCount) entries", role: .destructive) {
@@ -178,10 +53,177 @@ struct SettingsView: View {
             } message: {
                 Text("Your plan, exercises and passes are kept. This cannot be undone.")
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    // MARK: - Right now
+    //
+    // Settings is eleven sections long and every one of them is something you
+    // set once. The question you actually open this screen with is "is Health
+    // still connected", so it is answered before anything you can change.
+
+    @ViewBuilder private var statusSection: some View {
+        SettingsSection(title: "Right now") {
+            StatusLine(label: "Apple Health", value: healthStatusValue,
+                       lit: health.status.isConnected)
+            StatusLine(label: "Music", value: music.status.isReady ? "connected" : "off",
+                       lit: music.status.isReady)
+            StatusLine(label: "Hands-free",
+                       value: remote.enabled
+                           ? RemoteControls.Gesture.triple.action.shortLabel : "off",
+                       lit: remote.enabled)
+            StatusLine(label: "Snapshot",
+                       value: snapshots.lastWritten.map(Fmt.timeOfDay) ?? "not yet",
+                       lit: snapshots.lastWritten != nil,
+                       showsDivider: demoCount > 0)
+            if demoCount > 0 {
+                StatusLine(label: "Sample data", value: "\(demoCount) entries",
+                           lit: false, showsDivider: false)
+            }
+        }
+    }
+
+    private var healthStatusValue: String {
+        switch health.status {
+        case .connected:
+            return health.lastSync.map { "synced " + Fmt.ago($0) } ?? "connected"
+        case .notAsked: return "not connected"
+        case .denied: return "declined"
+        case .unsupported: return "unavailable"
+        }
+    }
+
+    // MARK: - Sections
+
+    @ViewBuilder private var healthSection: some View {
+        SettingsSection(
+            title: "Apple Health",
+            footer: "Your scale writes to Health, so weigh-ins come from there rather than "
+                  + "being typed. Finished sessions go back the other way as workouts, so "
+                  + "they show in Fitness and on the watch. Cardio goes over as its own "
+                  + "workout of its own type, with a distance.\n\n"
+                  + "Workouts carry a duration and no calorie estimate — a guessed burn "
+                  + "would land in the same ring as your watch's measured one."
+        ) {
+            switch health.status {
+            case .unsupported(let why):
+                SettingRow(label: why, showsDivider: false) { EmptyView() }
+            case .notAsked:
+                ActionRow(label: "Connect Apple Health", symbol: "heart.fill",
+                          showsDivider: false) { Task { await connect() } }
+                    .disabled(working)
+            case .denied:
+                SettingRow(label: "Health said no",
+                           detail: "Settings → Privacy → Health → Fitness to change it.",
+                           showsDivider: false) { EmptyView() }
+            case .connected:
+                SettingRow(label: "Connected",
+                           detail: health.lastSync.map {
+                               "Last sync \(Fmt.weekdayDate($0)) · "
+                               + "\(health.importedCount) weigh-ins brought in" }) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(RFDesign.ready)
+                }
+                ActionRow(label: working ? "Syncing…" : "Sync now",
+                          symbol: "arrow.triangle.2.circlepath",
+                          showsDivider: false) { Task { await sync() } }
+                    .disabled(working)
+            }
+            if let error = health.lastError {
+                Text(error)
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.ember)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    @ViewBuilder private var exportSection: some View {
+        SettingsSection(
+            title: "Export",
+            footer: "Every set with its type, RPE, note and cardio numbers, plus body "
+                  + "weight, measurements and where each machine is set. The snapshot RIA "
+                  + "reads is the machine-readable one; this is the version a spreadsheet "
+                  + "can open — and the reason leaving is possible."
+        ) {
+            if let files = exportFiles {
+                ShareLink(items: files) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .medium)).frame(width: 18)
+                        Text("Share the three CSVs").font(RFDesign.uiMedium(15))
+                        Spacer(minLength: 8)
+                    }
+                    .foregroundStyle(RFDesign.ready)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                Divider().overlay(RFDesign.hairline)
+            }
+            ActionRow(label: exportFiles == nil ? "Export to CSV" : "Rebuild the export",
+                      symbol: "tablecells", showsDivider: false) {
+                exportFiles = try? Export.write(from: context)
+            }
+        }
+    }
+
+    @ViewBuilder private var dataSection: some View {
+        SettingsSection(
+            title: "Your data",
+            footer: "\(historyCount) logged entries. The first version of this app seeded "
+                  + "six weeks of sample sessions so the charts had a shape, and those "
+                  + "aren't yours — if this install predates the fix they aren't tagged, so "
+                  + "\"delete all history\" is the clean way out. Your plan and passes are "
+                  + "kept either way."
+        ) {
+            if demoCount > 0 {
+                ActionRow(label: "Remove \(demoCount) sample entries",
+                          symbol: "wand.and.rays") {
+                    wipeResult = (try? Seed.removeDemoData(context))
+                        .map { "Removed \($0) sample entries." }
+                    snapshots.setNeedsWrite(context)
+                }
+            }
+            ActionRow(label: "Delete all history", symbol: "trash",
+                      tint: RFDesign.ember, showsDivider: false) {
+                confirmingWipe = true
+            }
+            .disabled(historyCount == 0)
+            .opacity(historyCount == 0 ? 0.4 : 1)
+            if let wipeResult {
+                Text(wipeResult)
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.labelDim)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    @ViewBuilder private var programmeSection: some View {
+        SettingsSection(title: "Your programme",
+                        footer: "Days, what is in them, targets and rest.") {
+            DisclosureRow(label: "Edit the plan",
+                          detail: "\(days.count) workouts",
+                          showsDivider: false) { PlanList() }
+        }
+    }
+
+    @ViewBuilder private var snapshotSection: some View {
+        SettingsSection(
+            title: "The snapshot RIA reads",
+            footer: "A copy of your log written to iCloud Drive so the Mac — and RIA — can "
+                  + "read it. Gym pass codes are never included."
+        ) {
+            SettingRow(label: "Written",
+                       detail: snapshots.lastDestination,
+                       showsDivider: false) {
+                Text(snapshots.lastWritten.map(Fmt.weekdayDate) ?? "not yet")
+                    .font(RFDesign.ui(14))
+                    .foregroundStyle(RFDesign.label)
             }
         }
     }
@@ -194,26 +236,24 @@ struct SettingsView: View {
     /// your programme is a setting you stop trusting.
     @ViewBuilder private var defaultsSection: some View {
         let defaults = planDefaults.first
-        Section {
-            Stepper("Sets: \(defaults?.targetSets ?? 3)", value: setsBinding, in: 1...12)
-            Stepper("Reps: \(defaults?.targetReps ?? 10)", value: repsBinding, in: 1...50)
-            Picker("Rest", selection: restBinding) {
-                ForEach([30, 45, 60, 75, 90, 120, 150, 180, 240, 300], id: \.self) { s in
-                    Text(Fmt.clock(s)).tag(s)
-                }
-            }
-            Picker("Cardio", selection: cardioBinding) {
-                ForEach([10, 15, 20, 25, 30, 40, 45, 60], id: \.self) { m in
-                    Text("\(m) min").tag(m * 60)
-                }
-            }
-        } header: {
-            Text("New exercises open on")
-        } footer: {
-            Text("Applies to exercises you add from now on. Nothing already in the plan "
-                 + "changes — edit those on the exercise itself.\n\n"
-                 + "It follows the programme rather than the phone, so it is the same on "
-                 + "every device you log from.")
+        SettingsSection(
+            title: "New exercises open on",
+            footer: "Applies to exercises you add from now on. Nothing already in the plan "
+                  + "changes — edit those on the exercise itself.\n\n"
+                  + "It follows the programme rather than the phone, so it is the same on "
+                  + "every device you log from."
+        ) {
+            StepperRow(label: "Sets", value: defaults?.targetSets ?? 3,
+                       range: 1...12) { setsBinding.wrappedValue = $0 }
+            StepperRow(label: "Reps", value: defaults?.targetReps ?? 10,
+                       range: 1...50) { repsBinding.wrappedValue = $0 }
+            ChoiceRow(label: "Rest", value: defaults?.restSeconds ?? 90,
+                      options: [30, 45, 60, 75, 90, 120, 150, 180, 240, 300]
+                          .map { ($0, Fmt.clock($0)) }) { restBinding.wrappedValue = $0 }
+            ChoiceRow(label: "Cardio", value: defaults?.cardioSeconds ?? 20 * 60,
+                      options: [10, 15, 20, 25, 30, 40, 45, 60]
+                          .map { ($0 * 60, "\($0) min") },
+                      showsDivider: false) { cardioBinding.wrappedValue = $0 }
         }
     }
 
@@ -238,134 +278,116 @@ struct SettingsView: View {
     /// turned off — a chime in a quiet gym and a buzz in a pocket are different
     /// kinds of rude, and which one bothers you is not something an app can guess.
     @ViewBuilder private var soundSection: some View {
-        Section {
-            HStack {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundStyle(RFDesign.labelDim)
-                Slider(value: $audio.volume, in: 0...1)
-                    .tint(RFDesign.ready)
-                Button {
-                    audio.play(.restOver)
-                    Haptics.shared.play(.restOver)
-                } label: {
-                    Text("Test").font(RFDesign.ui(13, bold: true))
-                        .foregroundStyle(RFDesign.ready)
+        SettingsSection(
+            title: "The cooldown ping",
+            footer: "Three ticks in the last three seconds, then a rising two-note chime "
+                  + "and a haptic you can feel through a jacket. Both fire every time, "
+                  + "because the phone is in a pocket and the AirPods might be out — "
+                  + "either one alone is a cue you can miss.\n\n"
+                  + "A ping and nothing else. The app does not read your sets back to you: "
+                  + "a rest ending is one bit of information, and a sentence about it is "
+                  + "the app talking over your music to say what the chime already said."
+        ) {
+            SettingRow(label: "Volume", showsDivider: false) {
+                HStack(spacing: 12) {
+                    Slider(value: $audio.volume, in: 0...1)
+                        .tint(RFDesign.ready)
+                        .frame(width: 130)
+                    Button {
+                        audio.play(.restOver)
+                        Haptics.shared.play(.restOver)
+                    } label: {
+                        Text("Test")
+                            .font(RFDesign.ui(13, bold: true))
+                            .foregroundStyle(RFDesign.ready)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-        } header: {
-            Text("The cooldown ping")
-        } footer: {
-            Text("Three ticks in the last three seconds, then a rising two-note chime and "
-                 + "a haptic you can feel through a jacket. Both fire every time, because "
-                 + "the phone is in a pocket and the AirPods might be out — either one "
-                 + "alone is a cue you can miss.\n\n"
-                 + "A ping and nothing else. The app does not read your sets back to you: "
-                 + "a rest ending is one bit of information, and a sentence about it is "
-                 + "the app talking over your music to say what the chime already said. "
-                 + "The one exception is the \"say where I am\" gesture, which speaks "
-                 + "because you squeezed to ask.")
         }
     }
 
     /// The three AirPods gestures and what each one does.
     @ViewBuilder private var handsFreeSection: some View {
-        Section {
-            Toggle(isOn: $remote.enabled) {
-                Text("Hands-free").font(RFDesign.ui(15))
-            }
-            .tint(RFDesign.ready)
+        SettingsSection(
+            title: "AirPods",
+            footer: "iOS gives an app three gestures — press, double, triple — and only to "
+                  + "whichever app is currently playing audio. That is why this app plays "
+                  + "your music itself rather than remote-controlling the Music app: it is "
+                  + "the only way a squeeze reaches here at all.\n\n"
+                  + "Triple-press logs the set by default because it is the one nobody does "
+                  + "by accident. While the cooldown is already running there is no set to "
+                  + "log, so the same squeeze skips the rest instead. Gestures only do "
+                  + "workout things on a set screen; anywhere else they are music."
+        ) {
+            ToggleRow(label: "Hands-free", isOn: remote.enabled,
+                      showsDivider: remote.enabled) { remote.enabled.toggle() }
             if remote.enabled {
-                ForEach(RemoteControls.Gesture.allCases) { gesture in
-                    Picker(gesture.label, selection: gestureBinding(gesture)) {
-                        ForEach(RemoteControls.Action.allCases) { action in
-                            Text(action.label).tag(action)
-                        }
+                ForEach(Array(RemoteControls.Gesture.allCases.enumerated()), id: \.offset) { i, gesture in
+                    ChoiceRow(label: gesture.label,
+                              value: gesture.action,
+                              options: RemoteControls.Action.allCases.map { ($0, $0.label) },
+                              showsDivider: i < RemoteControls.Gesture.allCases.count - 1) {
+                        gesture.action = $0
                     }
-                    .font(RFDesign.ui(14))
                 }
             }
-        } header: {
-            Text("AirPods")
-        } footer: {
-            Text("iOS gives an app three gestures — press, double, triple — and only to "
-                 + "whichever app is currently playing audio. That is why this app plays "
-                 + "your music itself rather than remote-controlling the Music app: it is "
-                 + "the only way a squeeze reaches here at all.\n\n"
-                 + "Triple-press logs the set by default because it is the one nobody does "
-                 + "by accident. While the cooldown is already running there is no set to "
-                 + "log, so the same squeeze skips the rest instead. Gestures only do "
-                 + "workout things on a set screen; anywhere else they are music.")
         }
     }
 
     /// Music, and the one playlist a workout starts with.
     @ViewBuilder private var musicSection: some View {
-        Section {
+        SettingsSection(
+            title: "Music",
+            footer: "Your library's playlists, played by this app. The Apple Music "
+                  + "catalogue isn't searchable here on purpose — a gym app plays the list "
+                  + "you already made, and browsing is what the phone you left in the "
+                  + "locker is for."
+        ) {
             switch music.status {
             case .ready:
-                Label("Connected", systemImage: "music.note")
-                    .foregroundStyle(RFDesign.ready)
-                Toggle(isOn: $music.shuffle) {
-                    Text("Shuffle").font(RFDesign.ui(15))
-                }
-                .tint(RFDesign.ready)
-                Picker("Starts with", selection: favouriteBinding) {
-                    Text("Newest playlist").tag("")
-                    ForEach(music.playlistNames, id: \.self) { Text($0).tag($0) }
+                ToggleRow(label: "Shuffle", isOn: music.shuffle) { music.shuffle.toggle() }
+                ChoiceRow(label: "Starts with",
+                          value: music.favouritePlaylist ?? "",
+                          options: [("", "Newest playlist")]
+                              + music.playlistNames.map { ($0, $0) },
+                          showsDivider: false) {
+                    music.favouritePlaylist = $0.isEmpty ? nil : $0
                 }
             case .unknown:
-                Button {
-                    Task { await music.connect() }
-                } label: {
-                    Label("Connect Apple Music", systemImage: "music.note")
-                }
+                ActionRow(label: "Connect Apple Music", symbol: "music.note",
+                          showsDivider: false) { Task { await music.connect() } }
             case .denied, .unavailable:
-                Label(music.status.message, systemImage: "music.note.slash")
-                    .font(RFDesign.ui(13))
-                    .foregroundStyle(RFDesign.labelDim)
+                SettingRow(label: music.status.message, showsDivider: false) { EmptyView() }
             }
-        } header: {
-            Text("Music")
-        } footer: {
-            Text("Your library's playlists, played by this app. The Apple Music catalogue "
-                 + "isn't searchable here on purpose — a gym app plays the list you already "
-                 + "made, and browsing is what the phone you left in the locker is for.")
         }
-    }
-
-    private func gestureBinding(_ gesture: RemoteControls.Gesture) -> Binding<RemoteControls.Action> {
-        Binding(get: { gesture.action }, set: { gesture.action = $0 })
-    }
-
-    private var favouriteBinding: Binding<String> {
-        Binding(get: { music.favouritePlaylist ?? "" },
-                set: { music.favouritePlaylist = $0.isEmpty ? nil : $0 })
     }
 
     /// When you train, and whether the workouts follow the weekday or rotate.
     @ViewBuilder private var scheduleSection: some View {
         let schedule = schedules.first
-        Section {
-            Picker("Schedule", selection: modeBinding) {
-                ForEach(Rotation.Mode.allCases) { Text($0.label).tag($0) }
-            }
+        let mode = schedule?.config.mode ?? .weekday
+        SettingsSection(title: "When you train", footer: footerText) {
+            ChoiceRow(label: "Schedule", value: mode,
+                      options: Rotation.Mode.allCases.map { ($0, $0.label) },
+                      showsDivider: mode != .weekday) { modeBinding.wrappedValue = $0 }
 
-            if schedule?.config.mode != .weekday {
-                if schedule?.config.mode == .everyNDays {
-                    Stepper("Every \(schedule?.everyNDays ?? 2) days",
-                            value: everyNBinding, in: 1...14)
-                } else {
-                    ForEach(Weekdays.all, id: \.number) { day in
-                        Toggle(day.name, isOn: weekdayBinding(day.number))
-                            .font(RFDesign.ui(14))
+            if mode == .everyNDays {
+                StepperRow(label: "Train every", value: schedule?.everyNDays ?? 2,
+                           unit: "days", range: 1...14,
+                           showsDivider: false) { everyNBinding.wrappedValue = $0 }
+            } else if mode == .rotation {
+                ForEach(Array(Weekdays.all.enumerated()), id: \.offset) { i, day in
+                    ToggleRow(label: day.name,
+                              isOn: schedule?.config.trainingWeekdays.contains(day.number) ?? false,
+                              showsDivider: i < Weekdays.all.count - 1) {
+                        let binding = weekdayBinding(day.number)
+                        binding.wrappedValue.toggle()
                     }
                 }
             }
-        } header: {
-            Text("When you train")
-        } footer: {
-            Text(footerText)
         }
     }
 

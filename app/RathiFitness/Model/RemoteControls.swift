@@ -66,6 +66,21 @@ final class RemoteControls: ObservableObject {
 
         var id: String { rawValue }
 
+        /// For the status line at the top of Settings, where the full sentence
+        /// would not fit and does not need to.
+        var shortLabel: String {
+            switch self {
+            case .playPause: return "play/pause"
+            case .nextTrack: return "next"
+            case .previousTrack: return "previous"
+            case .logSet: return "log the set"
+            case .skipRest: return "skip rest"
+            case .extendRest: return "+30s"
+            case .announce: return "where am I"
+            case .nothing: return "nothing"
+            }
+        }
+
         var label: String {
             switch self {
             case .playPause: return "Play / pause"
