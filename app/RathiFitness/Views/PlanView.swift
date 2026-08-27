@@ -48,16 +48,20 @@ struct PlanList: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: SettingsKit.margin,
                                           bottom: 0, trailing: SettingsKit.margin))
 
-                Button {
+                // The action belongs to the `ActionRow`, not to a `Button`
+                // wrapped around it. It was the other way round, with the row's
+                // own action left empty and `.allowsHitTesting(false)` applied
+                // to stop the two buttons fighting — which worked, in the sense
+                // that neither of them fired. A label with no hit-testable
+                // content leaves the outer `Button` nothing to hit, so "Add a
+                // day" drew, highlighted, and did nothing at all.
+                ActionRow(label: "Add a day", symbol: "plus", showsDivider: false) {
                     let day = PlannedDay(name: "New day", weekday: 0, order: days.count)
                     context.insert(day)
                     save()
                     editing = day
-                } label: {
-                    ActionRow(label: "Add a day", symbol: "plus", showsDivider: false) {}
-                        .allowsHitTesting(false)
                 }
-                .buttonStyle(.plain)
+                .accessibilityIdentifier("add-day")
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: SettingsKit.margin,
