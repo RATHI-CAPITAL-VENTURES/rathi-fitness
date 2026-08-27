@@ -180,10 +180,19 @@ final class WritePathUITests: XCTestCase {
         let skip = app.buttons.containing(
             NSPredicate(format: "label BEGINSWITH 'Skip to set'")).firstMatch
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
-        skip.tap()
 
+        // Undo is only offered when the cooldown is not running, so the rest has
+        // to be skipped first — and a tap that lands mid-render does nothing,
+        // leaving a 150-second ring counting down and this test waiting for a
+        // button that will not appear for two and a half minutes. That is not a
+        // hypothetical: it passed on a laptop and failed on CI, which is slower.
+        // So ask again rather than assuming the first one took.
         let undo = app.buttons["Undo"].firstMatch
-        XCTAssertTrue(undo.waitForExistence(timeout: 5),
+        for _ in 0..<3 where !undo.exists {
+            if skip.exists { skip.tap() }
+            _ = undo.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(undo.exists,
                       "a logged set should be undoable once the cooldown is done")
         undo.tap()
 

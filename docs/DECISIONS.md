@@ -504,3 +504,30 @@ the app, not the app misbehaving:
 
 Writing those down because each one cost a full simulator run to find, and the
 next person to add a UI test here will hit at least two of them.
+
+## 2026-08-27 — A UI test that only passes on a fast machine
+
+`testUndoingASet` passed on the laptop and failed on CI, and the reason is the
+one worth remembering: **a synthesized tap that lands mid-render does nothing,
+and nothing is indistinguishable from a tap that worked.**
+
+Undo is only offered while the cooldown is not running, so the test skips the
+rest first. When that tap missed, the 150-second ring kept counting and the test
+sat waiting five seconds for a button that would not appear for two and a half
+minutes. On a laptop the tap always landed. On a slower runner it sometimes did
+not.
+
+**Chosen: ask again rather than assume the first one took.** Three attempts,
+each re-checking for the button that proves the state changed. Rejected: a
+longer timeout, which would have made this test wait 150 seconds to fail and
+turned a five-minute CI run into something nobody waits for.
+
+The general form, since this will happen again: **assert on the state you were
+trying to reach, not on the tap having been delivered.** XCUITest tells you the
+event was synthesized, which is not the same as the app having acted on it.
+
+**A related trap, which cost a run on its own.** After editing a UI test while a
+previous `xcodebuild` was still running, the next `test` invocation used a stale
+test bundle — the trace showed a helper that is plainly in the source simply not
+executing. If a test fails in a way that contradicts the code in front of you,
+build into a clean `-derivedDataPath` before believing it.
