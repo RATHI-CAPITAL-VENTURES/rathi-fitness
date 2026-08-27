@@ -14,6 +14,23 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.1.2 — 2026-08-27
+
+### Fixed
+
+- **"Add a day" in the plan editor did nothing.** The plan shipped with three
+  days and no way to get a fourth: the button drew, highlighted under the
+  finger, and never ran its code. It was a `Button` wrapped around an
+  `ActionRow` — itself a `Button` — with `.allowsHitTesting(false)` on the inner
+  one to stop the two fighting over the tap. That does not give the tap to the
+  outer button, it leaves the outer button with no hit-testable content at all,
+  so neither fired. The row now owns its own action, the way "Add an exercise"
+  always did. Nothing ever limited the plan to three days.
+
+  Silent by construction, which is why it survived: the path logs nothing, and
+  the `context.save()` beneath it is written `try?`. `PlanEditingUITests` now
+  presses the button and asserts the fourth day is really there.
+
 ## 0.1.1 — 2026-08-24
 
 ### Fixed
