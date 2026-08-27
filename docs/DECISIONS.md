@@ -505,45 +505,80 @@ the app, not the app misbehaving:
 Writing those down because each one cost a full simulator run to find, and the
 next person to add a UI test here will hit at least two of them.
 
-## 2026-08-27 — A UI test that only passed on a machine that had already said no
+## 2026-08-27 — A button you can see and cannot press
 
-`testUndoingASet` passed on the laptop and failed on CI, twice, and the first
-explanation was wrong in a way worth recording: it looked like a timing problem,
-so it got a retry loop, and it failed again with the retries plainly running.
+`testUndoingASet` failed on CI and passed locally, twice, and it took two wrong
+explanations to get to the right one. Both wrong ones are worth keeping, because
+each was plausible enough to stop the search.
 
-The real cause is not timing at all. Logging a set starts the cooldown, and
-`RestTimer.start` asks for notification permission the first time — deliberately
-there rather than at launch, so a new app does not open with a permission sheet
-for a feature you have not reached. That ask puts a **system alert over the
-app**, owned by Springboard. Every tap after it goes to the alert, not to the
-button underneath. The test tapped "Skip to set 2" three times and the cooldown
-never stopped, because the app never received any of them.
+1. **"The tap landed mid-render."** Fitted every symptom, cheap to act on, got a
+   retry loop. It failed again with the retries plainly running.
+2. **"The notification-permission alert is covering the app."** `RestTimer.start`
+   does ask on the first set, that alert is owned by Springboard, and it would
+   swallow exactly these taps. It is a real hazard and the guard against it is
+   worth keeping — but it was not this. It failed again with the ask suppressed.
 
-It passed locally because that simulator answered the prompt weeks ago. CI starts
-clean every run. And `WorkoutFlowUITests` had been logging sets on CI for
-releases without noticing, because it only ever asserts the skip button *exists*
-— `testUndoingASet` is the first test that taps anything after a set is logged.
+The actual cause: **`PrimaryButton` and `SecondaryButton` had no
+`contentShape`.** `PrimaryButton(filled: false)` fills its background with
+`Color.clear`, and under `.buttonStyle(.plain)` a button's hit area is the
+opaque part of its label. So the tappable region was the text glyphs and a
+one-point stroke — a 54-point bar you can see and mostly cannot press.
 
-**Chosen: do not ask while a test is driving.** `Store.isUITest` already exists
-for exactly this ("this run is being driven"), the permission is not what any
-test is checking, and shipping behaviour is unchanged. Rejected: an
-`addUIInterruptionMonitor`, which fires only after the next interaction and is
-unreliable across OS versions — a fix whose own failure mode is the flake it is
-meant to remove.
+It affects "Skip to set N", "+30s", "Undo" and the resting "Done", which is to
+say every control you reach for mid-set with a bar in your other hand.
+`log-set` was never affected because `filled: true` paints an opaque background,
+which is its own hit area. Every other tappable thing in this app already sets
+one — `ActionRowLabel`, `SettingRow`, `stepButton` — these two never did.
 
-**Two general lessons, both of which cost a CI run here.**
+Reproduced on iPhone 16 / iOS 18 and not on iPhone 17 Pro / iOS 26. Since CI
+tests iOS 18 and the laptop had been testing iOS 26, it looked like flake.
 
-1. **A test that only fails on CI is telling you about state your machine has and
-   the runner does not** — an answered permission, a cached login, a file left by
-   an earlier run. Reach for that before reaching for timing.
-2. **Do not let a plausible explanation close an investigation.** "The tap landed
-   mid-render" fitted every symptom, was cheap to act on, and was wrong. The
-   thing that settled it was reading the trace and noticing the button being
-   tapped repeatedly without the state ever changing — which is not slowness,
-   it is the taps going somewhere else.
+**Chosen: `.contentShape(RoundedRectangle(...))` on both.** The same shape the
+button draws, so the thing you can press is the thing you can see.
+
+**What to take from it.**
+
+- **A test that fails only on CI is telling you about state or a version your
+  machine does not have.** The fastest route was not more theorising, it was
+  `xcodebuild -destination` pointed at the device CI actually uses. That
+  reproduced it in one run after two CI cycles of guessing.
+- **Do not let a plausible explanation close an investigation.** Twice here a
+  good story arrived before the evidence did. What settled it was dumping every
+  button on screen at the moment of failure and seeing "Skip to set 2" still
+  there — the cooldown had never stopped, so the action had never run.
+- **An invisible background is an invisible hit area.** If a control is drawn
+  with `Color.clear` or only a stroke, it needs a `contentShape` or it is
+  decoration.
 
 **A related trap, found the same afternoon.** After editing a UI test while a
 previous `xcodebuild` was still running, the next `test` invocation used a stale
 test bundle — the trace showed a helper that is plainly in the source simply not
 executing. If a test fails in a way that contradicts the code in front of you,
 build into a clean `-derivedDataPath` before believing it.
+
+## 2026-08-27 — Test on the OS your users have, not the one you have
+
+Two bugs in this milestone reproduced on iPhone 16 / iOS 18 and not on
+iPhone 17 Pro / iOS 26. Both had been shipped. Both were invisible to a laptop
+running the newest runtime, which is what "it passes locally" had meant all
+week.
+
+1. **The hit-area bug** — `PrimaryButton`, `SecondaryButton` and the set chips
+   painted `Color.clear` with no `contentShape`, so they were tappable only on
+   their glyphs. iOS 26 is more forgiving about this than iOS 18.
+2. **The dial that did not appear** — `MachineSettingsEditor` read
+   `exercise.settings`, and on iOS 18 a relationship read does not republish when
+   the inverse side is inserted, so a dial you added stayed invisible until you
+   left the screen. `SetView` and `CardioSetView` have always used `@Query` and
+   filtered; this was the one screen still traversing.
+
+The deployment target is iOS 17, CI tests iOS 18, and the phone in the room runs
+whatever it runs. **The newest simulator is the least representative one
+available.** When a test disagrees between CI and the laptop, point
+`-destination` at the device CI uses before theorising — it reproduced both of
+these in one run each, after several cycles of plausible wrong answers.
+
+The second one also says something narrower and worth keeping: **if two screens
+read the same data two different ways, the odd one out is where to look.** The
+query-and-filter pattern in `SetView` was not a style choice; it was this bug,
+already solved once, in a place nobody thought to copy.

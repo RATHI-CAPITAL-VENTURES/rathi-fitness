@@ -86,6 +86,35 @@ cmd_dead_controls() {
     rc=1
   fi
 
+  # 4. A control you can see and cannot press. Under `.buttonStyle(.plain)` a
+  #    button's hit area is the OPAQUE part of its label, so a background painted
+  #    `Color.clear` — an outline-style button, an unselected chip — is tappable
+  #    only on its glyphs and its one-point stroke unless a `contentShape` says
+  #    otherwise. `PrimaryButton`, `SecondaryButton`, the three set chips and the
+  #    cardio note chip all shipped that way: "Skip to set N" drew a 54-point bar
+  #    and answered to almost none of it.
+  #
+  #    File-scoped rather than per-view, because a `contentShape` two lines below
+  #    the fill is the fix and a grep cannot pair them reliably. Narrow enough to
+  #    be honest: `Color.clear` is rare here and always deliberate.
+  local invisible
+  for f in $(grep -rlE '\.fill\([^)]*Color\.clear|Color\.clear[^)]*\)$' "$views" 2>/dev/null || true); do
+    grep -qE '\.fill\(|\.stroke\(' "$f" || continue
+    grep -qE 'Color\.clear' "$f" || continue
+    # `listRowBackground(Color.clear)` is not a hit area; it is a List being told
+    # to stop drawing its own row fill.
+    grep -E 'Color\.clear' "$f" | grep -qvE 'listRowBackground|//' || continue
+    grep -q 'contentShape(' "$f" || invisible="$invisible$f\n"
+  done
+  if [ -n "$invisible" ]; then
+    echo "::error::a control is painted Color.clear with no contentShape:"
+    printf "%b" "$invisible" | sed 's/^/    /'
+    echo "  Under .buttonStyle(.plain) the hit area is the OPAQUE part of the label,"
+    echo "  so a clear fill is a button you can see and cannot press. Add"
+    echo "  .contentShape(RoundedRectangle(cornerRadius: ...)) matching what it draws."
+    rc=1
+  fi
+
   [ "$rc" -eq 0 ] && echo "✓ no control draws without acting."
   return $rc
 }

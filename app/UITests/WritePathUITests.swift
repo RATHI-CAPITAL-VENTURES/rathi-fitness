@@ -186,6 +186,11 @@ final class WritePathUITests: XCTestCase {
         // This is the first test that taps ANYTHING after logging a set, which
         // is why it is the one that found the notification-permission alert —
         // see `RestTimer.requestPermissionOnce`.
+        // This assertion is why `PrimaryButton` has a `contentShape`. Unfilled,
+        // its background is `Color.clear`, so the hit area was the glyphs and a
+        // one-point stroke — "Skip to set N" drew a 54-point bar and answered to
+        // almost none of it. Reproduced on iOS 18, not on iOS 26, which is why
+        // it read as a flaky test for two CI runs before it read as a bug.
         let undo = app.buttons["Undo"].firstMatch
         XCTAssertTrue(undo.waitForExistence(timeout: 5),
                       "a logged set should be undoable once the cooldown is done")
@@ -290,6 +295,10 @@ final class WritePathUITests: XCTestCase {
                       "the dial menu should list the seat")
         seat.tap()
 
+        // On iOS 18 this was the assertion that caught the dial never appearing:
+        // the editor walked `exercise.settings`, and a relationship read does not
+        // reliably republish when the inverse side is inserted. It is a `@Query`
+        // now, like every other screen that shows a row you just wrote.
         let remove = app.buttons["Remove Seat"].firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5),
                       "the dial should have been added")

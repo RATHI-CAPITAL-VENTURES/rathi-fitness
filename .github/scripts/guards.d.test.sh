@@ -179,6 +179,38 @@ SB=$(sandbox); printf '// .allowsHitTesting(false) was here and was wrong\n' \
   > "$SB/app/RathiFitness/Views/Bad.swift"
 check "the banned form in a comment is not a use" 0 "" dead-controls
 
+# The real PrimaryButton, as it shipped: a 54-point bar you can see and mostly
+# cannot press.
+SB=$(sandbox); cat > "$SB/app/RathiFitness/Views/Bad.swift" <<'SWIFT'
+Button(action: action) {
+    Text(title)
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .background {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(filled ? tint : Color.clear)
+        }
+}
+.buttonStyle(.plain)
+SWIFT
+check "a clear fill with no contentShape is caught" 1 "Color.clear with no contentShape" dead-controls
+
+SB=$(sandbox); cat > "$SB/app/RathiFitness/Views/Bad.swift" <<'SWIFT'
+Button(action: action) {
+    Text(title)
+        .background {
+            RoundedRectangle(cornerRadius: 16).fill(filled ? tint : Color.clear)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+}
+SWIFT
+check "the fixed shape passes" 0 "no control draws without acting" dead-controls
+
+# A List being told to stop drawing its own row fill is not a hit area.
+SB=$(sandbox); printf 'Text("x").listRowBackground(Color.clear)\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "listRowBackground is not a false positive" 0 "" dead-controls
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -203,6 +203,9 @@ struct CardioSetView: View {
                                         lineWidth: 1)
                         }
                 }
+                // No note is the normal case, and no note means `Color.clear`,
+                // which means almost nothing to press. See docs/DECISIONS.md.
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }
