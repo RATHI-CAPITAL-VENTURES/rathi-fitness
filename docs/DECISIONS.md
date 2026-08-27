@@ -463,3 +463,44 @@ commit in one line. Reading the code first gets you the right fix for a slightly
 wrong reason — it looked like a control that had never worked, when it was a
 control that had worked and been broken by a refactor. The second story is the
 one that tells you to write this guard.
+
+## 2026-08-27 — Press every control that writes something
+
+`Views/` had 18 `context.insert`/`delete` sites and the UI suite reached about
+four. "Add a day" was dead in every release through v0.1.1 for exactly one
+reason — nothing had ever pressed it — and that reason applied equally to the
+other fourteen. There was no argument that they were fine, only that nobody had
+looked.
+
+**Chosen: cover the set rather than sample it.** It is finite and enumerable,
+which is the same test this repo applies to wrapping an API's fields: if you can
+list what you are leaving out, you have already done the hard part of including
+it. `WritePathUITests` presses each control and then asserts the row exists,
+because "the sheet closed" and "the data was written" are different claims and
+only the second one is what the user is relying on.
+
+Rejected: a smoke test that enumerates `app.buttons` and taps everything. It
+would have caught this bug, and it would be unreadable when it failed, would
+fire destructive actions in an order nobody chose, and would go permanently
+amber the first time a tap landed on a confirmation dialog. A named test per
+write path costs more to write once and pays every time one breaks.
+
+**The negative result is the interesting half: nothing else was dead.** Four of
+the twelve failed on the first run and all four were the test misunderstanding
+the app, not the app misbehaving:
+
+- a `ChoiceRow` is a `SettingRow` with a `Menu` in its trailing slot, and the
+  Menu's accessible label is the **current value**, not the row's label. Looking
+  for "Schedule" finds the static text beside the control.
+- swipe-to-delete has to land on the cell; swiping the `staticText` inside it
+  does nothing.
+- the dial is "Seat" — `MachineSettingKind.seat.label`. "Seat height" is
+  `seatDepth`'s neighbour and does not exist.
+- **a single cardio bout dismisses the screen.** `log()` ends `else if
+  isFinished { dismiss() }` on purpose: intervals rest, one twenty-minute bout
+  does not, and a cooldown after the only thing you came to do would strand you
+  beside a treadmill for ninety seconds. So cardio's undo is reached by going
+  back in, and the test says so rather than asserting the set screen's shape.
+
+Writing those down because each one cost a full simulator run to find, and the
+next person to add a UI test here will hit at least two of them.

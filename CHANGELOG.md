@@ -14,6 +14,41 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.2.2 — 2026-08-27
+
+### Added
+
+- **`WritePathUITests` — every control that writes something, pressed by a
+  finger.** There were 18 `context.insert`/`delete` sites in `Views/` and the
+  suite reached about four of them; "Add a day" was dead in every release
+  through v0.1.1 precisely because nothing had ever pressed it, and any of the
+  other fourteen could have been in the same state. The set is finite, so it is
+  covered rather than sampled. Each test presses the real control and then
+  asserts the row is really there — "the sheet closed" and "the data was
+  written" are different claims.
+
+- Nudging a cardio metric is now announced. `SettingsKit.StepperRow` has always
+  named its ± pair for VoiceOver; `CardioSetView`'s identical control never did,
+  so both read as "button". A real gap, found by a test that could not press
+  them either.
+
+### Found, and not a bug
+
+The sweep turned up **no other dead controls**. Four of the twelve tests failed
+on the first run and every one was the test being wrong about the app, which is
+worth recording as a negative result rather than quietly fixing:
+
+- a `ChoiceRow`'s tappable element is its `Menu`, whose label is the *current
+  value* — the row's own label sits beside it and matches nothing
+- swipe-to-delete lands on the cell, not the text inside it
+- the machine dial is called "Seat", not "Seat height"
+- a single cardio bout **dismisses the screen** (`log()` ends
+  `else if isFinished { dismiss() }`), so undo is reached by going back in — a
+  deliberate choice, so a cooldown does not strand you beside a treadmill
+- a `DisclosureRow`'s tappable element is the label inside it, not a button
+- the dials are three levels deep (plan → day → exercise → dials), so one step
+  back from them is the exercise
+
 ## 0.2.1 — 2026-08-27
 
 ### Added

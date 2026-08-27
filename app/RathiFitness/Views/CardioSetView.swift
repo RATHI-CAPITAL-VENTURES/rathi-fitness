@@ -167,7 +167,7 @@ struct CardioSetView: View {
                         .font(RFDesign.ui(14))
                         .foregroundStyle(RFDesign.label)
                     Spacer(minLength: 8)
-                    stepButton("minus") { nudge(metric, -1) }
+                    stepButton("minus", of: metric.label) { nudge(metric, -1) }
                     Button { editing = metric } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(Fmt.metric(values[metric] ?? 0, metric))
@@ -180,7 +180,7 @@ struct CardioSetView: View {
                         .frame(minWidth: 74)
                     }
                     .buttonStyle(.plain)
-                    stepButton("plus") { nudge(metric, 1) }
+                    stepButton("plus", of: metric.label) { nudge(metric, 1) }
                 }
                 .padding(.vertical, 9)
                 if i < fields.count - 1 { Divider().overlay(RFDesign.hairline) }
@@ -207,7 +207,12 @@ struct CardioSetView: View {
         .buttonStyle(.plain)
     }
 
-    private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+    /// `of:` is the dial being nudged. Without it these are two unlabelled
+    /// glyphs — `SettingsKit.StepperRow` has always named its own pair and this
+    /// one, which is the same control drawn again, never did. VoiceOver read
+    /// both as "button", and so did the test that wanted to press one.
+    private func stepButton(_ symbol: String, of label: String,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .medium))
@@ -217,6 +222,7 @@ struct CardioSetView: View {
                 .overlay(Circle().stroke(RFDesign.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(symbol == "minus" ? "Decrease \(label)" : "Increase \(label)")
     }
 
     private var actions: some View {
