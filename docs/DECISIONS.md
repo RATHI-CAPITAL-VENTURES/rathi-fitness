@@ -463,3 +463,137 @@ commit in one line. Reading the code first gets you the right fix for a slightly
 wrong reason — it looked like a control that had never worked, when it was a
 control that had worked and been broken by a refactor. The second story is the
 one that tells you to write this guard.
+
+## 2026-08-27 — Press every control that writes something
+
+`Views/` had 18 `context.insert`/`delete` sites and the UI suite reached about
+four. "Add a day" was dead in every release through v0.1.1 for exactly one
+reason — nothing had ever pressed it — and that reason applied equally to the
+other fourteen. There was no argument that they were fine, only that nobody had
+looked.
+
+**Chosen: cover the set rather than sample it.** It is finite and enumerable,
+which is the same test this repo applies to wrapping an API's fields: if you can
+list what you are leaving out, you have already done the hard part of including
+it. `WritePathUITests` presses each control and then asserts the row exists,
+because "the sheet closed" and "the data was written" are different claims and
+only the second one is what the user is relying on.
+
+Rejected: a smoke test that enumerates `app.buttons` and taps everything. It
+would have caught this bug, and it would be unreadable when it failed, would
+fire destructive actions in an order nobody chose, and would go permanently
+amber the first time a tap landed on a confirmation dialog. A named test per
+write path costs more to write once and pays every time one breaks.
+
+**The negative result is the interesting half: nothing else was dead.** Four of
+the twelve failed on the first run and all four were the test misunderstanding
+the app, not the app misbehaving:
+
+- a `ChoiceRow` is a `SettingRow` with a `Menu` in its trailing slot, and the
+  Menu's accessible label is the **current value**, not the row's label. Looking
+  for "Schedule" finds the static text beside the control.
+- swipe-to-delete has to land on the cell; swiping the `staticText` inside it
+  does nothing.
+- the dial is "Seat" — `MachineSettingKind.seat.label`. "Seat height" is
+  `seatDepth`'s neighbour and does not exist.
+- **a single cardio bout dismisses the screen.** `log()` ends `else if
+  isFinished { dismiss() }` on purpose: intervals rest, one twenty-minute bout
+  does not, and a cooldown after the only thing you came to do would strand you
+  beside a treadmill for ninety seconds. So cardio's undo is reached by going
+  back in, and the test says so rather than asserting the set screen's shape.
+
+Writing those down because each one cost a full simulator run to find, and the
+next person to add a UI test here will hit at least two of them.
+
+## 2026-08-27 — A button you can see and cannot press
+
+`testUndoingASet` failed on CI and passed locally, twice, and it took two wrong
+explanations to get to the right one. Both wrong ones are worth keeping, because
+each was plausible enough to stop the search.
+
+1. **"The tap landed mid-render."** Fitted every symptom, cheap to act on, got a
+   retry loop. It failed again with the retries plainly running.
+2. **"The notification-permission alert is covering the app."** `RestTimer.start`
+   does ask on the first set, that alert is owned by Springboard, and it would
+   swallow exactly these taps. It is a real hazard and the guard against it is
+   worth keeping — but it was not this. It failed again with the ask suppressed.
+
+The actual cause: **`PrimaryButton` and `SecondaryButton` had no
+`contentShape`.** `PrimaryButton(filled: false)` fills its background with
+`Color.clear`, and under `.buttonStyle(.plain)` a button's hit area is the
+opaque part of its label. So the tappable region was the text glyphs and a
+one-point stroke — a 54-point bar you can see and mostly cannot press.
+
+It affects "Skip to set N", "+30s", "Undo" and the resting "Done", which is to
+say every control you reach for mid-set with a bar in your other hand.
+`log-set` was never affected because `filled: true` paints an opaque background,
+which is its own hit area. Every other tappable thing in this app already sets
+one — `ActionRowLabel`, `SettingRow`, `stepButton` — these two never did.
+
+Reproduced on iPhone 16 / iOS 18 and not on iPhone 17 Pro / iOS 26. Since CI
+tests iOS 18 and the laptop had been testing iOS 26, it looked like flake.
+
+**Chosen: `.contentShape(RoundedRectangle(...))` on both.** The same shape the
+button draws, so the thing you can press is the thing you can see.
+
+**What to take from it.**
+
+- **A test that fails only on CI is telling you about state or a version your
+  machine does not have.** The fastest route was not more theorising, it was
+  `xcodebuild -destination` pointed at the device CI actually uses. That
+  reproduced it in one run after two CI cycles of guessing.
+- **Do not let a plausible explanation close an investigation.** Twice here a
+  good story arrived before the evidence did. What settled it was dumping every
+  button on screen at the moment of failure and seeing "Skip to set 2" still
+  there — the cooldown had never stopped, so the action had never run.
+- **An invisible background is an invisible hit area.** If a control is drawn
+  with `Color.clear` or only a stroke, it needs a `contentShape` or it is
+  decoration.
+
+**A related trap, found the same afternoon.** After editing a UI test while a
+previous `xcodebuild` was still running, the next `test` invocation used a stale
+test bundle — the trace showed a helper that is plainly in the source simply not
+executing. If a test fails in a way that contradicts the code in front of you,
+build into a clean `-derivedDataPath` before believing it.
+
+## 2026-08-27 — Test on the OS your users have, not the one you have
+
+Two bugs in this milestone reproduced on iPhone 16 / iOS 18 and not on
+iPhone 17 Pro / iOS 26. Both had been shipped. Both were invisible to a laptop
+running the newest runtime, which is what "it passes locally" had meant all
+week.
+
+1. **The hit-area bug** — `PrimaryButton`, `SecondaryButton` and the set chips
+   painted `Color.clear` with no `contentShape`, so they were tappable only on
+   their glyphs. iOS 26 is more forgiving about this than iOS 18.
+2. **The dial that did not appear** — `MachineSettingsEditor` read
+   `exercise.settings`, and on iOS 18 a relationship read does not republish when
+   the inverse side is inserted, so a dial you added stayed invisible until you
+   left the screen. `SetView` and `CardioSetView` have always used `@Query` and
+   filtered; this was the one screen still traversing.
+
+The deployment target is iOS 17, CI tests iOS 18, and the phone in the room runs
+whatever it runs. **The newest simulator is the least representative one
+available.** When a test disagrees between CI and the laptop, point
+`-destination` at the device CI uses before theorising — it reproduced both of
+these in one run each, after several cycles of plausible wrong answers.
+
+The second one also says something narrower and worth keeping: **if two screens
+read the same data two different ways, the odd one out is where to look.** The
+query-and-filter pattern in `SetView` was not a style choice; it was this bug,
+already solved once, in a place nobody thought to copy.
+
+## 2026-08-27 — `make guards` is weaker than CI, in one specific way
+
+The `dead-controls` guard passed locally and died on CI with
+`invisible: unbound variable`. Both run the same script with the same
+`set -euo pipefail`. The difference is the interpreter: CI is ubuntu with bash 5,
+macOS ships **bash 3.2**, and 3.2 does not enforce `set -u` on a variable
+declared with a bare `local` and never assigned. Bash 4.4 changed that.
+
+So `local invisible` then `[ -n "$invisible" ]` is silently fine here and fatal
+there. **Initialise locals you accumulate into** — `local invisible=""` — and
+know that `make guards` going green is a weaker claim than CI going green. There
+is no modern bash on this machine to test against, so this is a note rather than
+a tool; it is written down in the `Makefile` target too, which is where someone
+will be standing when it bites.

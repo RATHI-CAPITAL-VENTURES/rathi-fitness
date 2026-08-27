@@ -190,6 +190,13 @@ struct PrimaryButton: View {
                                 .stroke(filled ? Color.clear : tint.opacity(0.7), lineWidth: 1)
                         }
                 }
+                // Without this the button is only as tappable as it is OPAQUE.
+                // `filled: false` fills with `Color.clear`, so the hit area was
+                // the glyphs and a one-pixel stroke — a 54-point bar you can see
+                // and mostly cannot press. It is the unfilled variant that
+                // "Skip to set N" and "Done" use, which is to say the button you
+                // reach for with a bar in your other hand.
+                .contentShape(RoundedRectangle(cornerRadius: RFDesign.md))
         }
         .buttonStyle(.plain)
     }
@@ -208,6 +215,9 @@ struct SecondaryButton: View {
                     RoundedRectangle(cornerRadius: RFDesign.md)
                         .stroke(RFDesign.hairline, lineWidth: 1)
                 }
+                // Never filled at all, so the same applies with nothing to
+                // soften it: "Undo" and "+30s" were an outline around dead space.
+                .contentShape(RoundedRectangle(cornerRadius: RFDesign.md))
         }
         .buttonStyle(.plain)
     }
