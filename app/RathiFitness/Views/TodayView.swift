@@ -144,7 +144,7 @@ struct TodayView: View {
             .sheet(isPresented: $weighingIn) {
                 WeighInSheet { pounds in
                     context.insert(WeighIn(pounds: pounds))
-                    try? context.save()
+                    context.saveOrReport("saving a weigh-in")
                     snapshots.setNeedsWrite(context)
                     // Back out to Health, so it does not disagree with us about
                     // a number you typed here.

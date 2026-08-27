@@ -87,7 +87,7 @@ struct TrendsView: View {
             .sheet(isPresented: $measuring) {
                 MeasureSheet { kind, inches in
                     context.insert(BodyMetric(kind: kind, inches: inches))
-                    try? context.save()
+                    context.saveOrReport("saving a measurement")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

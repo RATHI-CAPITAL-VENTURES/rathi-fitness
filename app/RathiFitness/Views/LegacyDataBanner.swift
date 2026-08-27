@@ -47,7 +47,9 @@ struct LegacyDataBanner: View {
 
                 HStack(spacing: 9) {
                     Button {
-                        _ = try? Seed.deleteAllHistory(context)
+                        reportingFailure("clearing the sample data") {
+                            try Seed.deleteAllHistory(context)
+                        }
                         acknowledged = true
                         snapshots.setNeedsWrite(context)
                     } label: {

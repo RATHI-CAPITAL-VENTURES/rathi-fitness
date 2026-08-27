@@ -113,6 +113,32 @@ SB=$(sandbox); printf '{"images":[{"filename":"icon-1024.png"}]}\n' \
   > "$SB/app/RathiFitness/Assets.xcassets/AppIcon.appiconset/Contents.json"
 check "files present but unreferenced is caught" 1 "has to name them" icon-ladder
 
+# ------------------------------------------------------------------ silent-saves
+echo "silent-saves"
+SB=$(sandbox)
+check "a tree with no silent saves passes" 0 "no save fails quietly" silent-saves
+
+SB=$(sandbox); printf 'func save() {\n  try? context.save()\n}\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "a swallowed save is caught" 1 "swallowing its own failure" silent-saves
+
+SB=$(sandbox); printf 'context.saveOrReport("adding a day")\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "the replacement passes" 0 "no save fails quietly" silent-saves
+
+# Saving.swift has to be able to name the form it bans.
+SB=$(sandbox); printf '/// Every write used to be `try? context.save()` — no more.\n' \
+  > "$SB/app/RathiFitness/Model/Saving.swift"
+check "the banned form in a doc comment is not a save" 0 "" silent-saves
+
+SB=$(sandbox); printf 'let n = try? Seed.deleteAllHistory(context)\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "a swallowed wipe is caught" 1 "data operation is swallowing" silent-saves
+
+SB=$(sandbox); printf 'try? engine?.start()\ntry? await Task.sleep(for: .seconds(1))\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "best-effort try? is left alone" 0 "no save fails quietly" silent-saves
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
