@@ -58,7 +58,7 @@ struct PlanList: View {
                 ActionRow(label: "Add a day", symbol: "plus", showsDivider: false) {
                     let day = PlannedDay(name: "New day", weekday: 0, order: days.count)
                     context.insert(day)
-                    save()
+                    save("adding a day")
                     editing = day
                 }
                 .accessibilityIdentifier("add-day")
@@ -127,18 +127,20 @@ struct PlanList: View {
 
     private func deleteDays(_ offsets: IndexSet) {
         for index in offsets { context.delete(days[index]) }
-        save()
+        save("removing a day")
     }
 
     private func moveDays(_ source: IndexSet, _ destination: Int) {
         var reordered = days
         reordered.move(fromOffsets: source, toOffset: destination)
         for (i, day) in reordered.enumerated() { day.order = i }
-        save()
+        save("reordering the plan")
     }
 
-    private func save() {
-        try? context.save()
+    /// `what` names the thing being lost if the write is refused, so the helper
+    /// takes it rather than reporting every failure as "saving".
+    private func save(_ what: String) {
+        context.saveOrReport(what)
         snapshots.setNeedsWrite(context)
     }
 }
@@ -248,10 +250,10 @@ struct DayEditorView: View {
                                restSeconds: defaults.restSeconds)
                 item.day = day
                 context.insert(item)
-                save()
+                save("adding an exercise")
             }
         }
-        .onDisappear(perform: save)
+        .onDisappear { save("closing the day") }
     }
 
     private func itemRow(_ item: PlanItem) -> some View {
@@ -300,23 +302,23 @@ struct DayEditorView: View {
     private func deleteItems(_ offsets: IndexSet) {
         let items = day.orderedItems
         for index in offsets { context.delete(items[index]) }
-        renumber()
+        renumber("removing an exercise")
     }
 
     private func moveItems(_ source: IndexSet, _ destination: Int) {
         var items = day.orderedItems
         items.move(fromOffsets: source, toOffset: destination)
         for (i, item) in items.enumerated() { item.order = i }
-        save()
+        save("reordering the exercises")
     }
 
-    private func renumber() {
+    private func renumber(_ what: String) {
         for (i, item) in day.orderedItems.enumerated() { item.order = i }
-        save()
+        save(what)
     }
 
-    private func save() {
-        try? context.save()
+    private func save(_ what: String) {
+        context.saveOrReport(what)
         snapshots.setNeedsWrite(context)
     }
 }
@@ -358,7 +360,7 @@ struct PlanItemEditorView: View {
         .navigationTitle(item.exercise?.name ?? "Exercise")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
-            try? context.save()
+            context.saveOrReport("changing the targets")
             snapshots.setNeedsWrite(context)
         }
     }
@@ -591,7 +593,7 @@ struct PlanItemEditorView: View {
                         next.supersetGroup = 0
                     }
                 }
-                try? context.save()
+                context.saveOrReport("linking a superset")
                 snapshots.setNeedsWrite(context)
             })
     }
@@ -655,7 +657,7 @@ struct ExercisePickerView: View {
                             let exercise = Exercise(name: name)
                             Catalogue.enrich(exercise)   // in case it matches after all
                             context.insert(exercise)
-                            try? context.save()
+                            context.saveOrReport("creating an exercise")
                             onPick(exercise)
                             dismiss()
                         } label: {
@@ -687,7 +689,7 @@ struct ExercisePickerView: View {
                             Button {
                                 let exercise = Catalogue.exercise(from: entry)
                                 context.insert(exercise)
-                                try? context.save()
+                                context.saveOrReport("adding an exercise")
                                 onPick(exercise)
                                 dismiss()
                             } label: {
@@ -844,7 +846,7 @@ struct ExerciseEditorView: View {
         .onDisappear {
             // The slug is what the CLI and RIA refer to, so it follows the name.
             exercise.slug = Exercise.slugify(exercise.name)
-            try? context.save()
+            context.saveOrReport("editing an exercise")
             snapshots.setNeedsWrite(context)
         }
     }

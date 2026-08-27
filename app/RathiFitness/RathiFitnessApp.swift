@@ -13,6 +13,10 @@ struct RathiFitnessApp: App {
     /// reason these two are constructed here rather than declared inline.
     @StateObject private var remote: RemoteControls
     @StateObject private var audio = AudioHub.shared
+    /// The one that speaks up when a write does not land. `Saves.shared` rather
+    /// than a fresh instance, because the reporter a `Binding` setter reaches
+    /// for by default has to be the same one this view is observing.
+    @StateObject private var saves = Saves.shared
 
     init() {
         let music = MusicController()
@@ -29,11 +33,14 @@ struct RathiFitnessApp: App {
                 .environmentObject(music)
                 .environmentObject(remote)
                 .environmentObject(audio)
+                .environmentObject(saves)
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
                 .task {
                     let context = container.mainContext
-                    try? Seed.runIfNeeded(context)
+                    reportingFailure("setting up your plan") {
+                        try Seed.runIfNeeded(context)
+                    }
                     // A fresh install has nothing to warn about, so the legacy
                     // banner is answered before it can ever be shown.
                     if (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0,
@@ -45,7 +52,9 @@ struct RathiFitnessApp: App {
                     // first launch has no history, on purpose.
                     if ProcessInfo.processInfo.arguments.contains("-RFDemoHistory"),
                        (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0 {
-                        try? Seed.loadDemoHistory(context)
+                        reportingFailure("loading the sample data") {
+                            try Seed.loadDemoHistory(context)
+                        }
                     }
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and
@@ -76,6 +85,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var rest: RestTimer
+    @EnvironmentObject private var saves: Saves
 
     var body: some View {
         TabView {
@@ -87,6 +97,11 @@ struct RootView: View {
                 .tabItem { Label("Pass", systemImage: "qrcode") }
         }
         .background(RoomBackground(hue: roomHue, energy: roomEnergy))
+        // Over every tab, not on one screen: the save it is reporting could
+        // have come from any of them, and the tab you are looking at when it
+        // fails is not necessarily the tab you were on when you caused it.
+        .overlay(alignment: .top) { SaveFailureBanner() }
+        .animation(.easeOut(duration: 0.2), value: saves.failure)
         .onChange(of: rest.isResting) { _, _ in }
     }
 

@@ -166,7 +166,7 @@ struct MachineSettingsEditor: View {
     private func add(_ kind: MachineSettingKind) {
         let setting = MachineSetting(kind: kind, value: "", exercise: exercise)
         context.insert(setting)
-        try? context.save()
+        context.saveOrReport("adding a machine setting")
         // Straight into the field: adding a dial and then having to aim at it
         // is two taps for one intention.
         focused = setting.persistentModelID
@@ -184,7 +184,7 @@ struct MachineSettingsEditor: View {
         where setting.value.trimmingCharacters(in: .whitespaces).isEmpty {
             context.delete(setting)
         }
-        try? context.save()
+        context.saveOrReport("saving the machine settings")
         snapshots.setNeedsWrite(context)
     }
 }
