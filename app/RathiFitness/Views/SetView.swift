@@ -334,6 +334,12 @@ struct SetView: View {
                             .stroke(filled ? Color.clear : RFDesign.hairline, lineWidth: 1)
                     }
             }
+            // Unfilled is the DEFAULT state for all three of these — working
+            // set, no RPE, no note — and unfilled means `Color.clear`, which
+            // under `.buttonStyle(.plain)` means the chip is tappable only where
+            // it is opaque: the glyphs and a one-point stroke. Same defect as
+            // `PrimaryButton` had; see docs/DECISIONS.md.
+            .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {

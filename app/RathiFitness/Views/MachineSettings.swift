@@ -70,10 +70,27 @@ struct MachineSettingsEditor: View {
     @EnvironmentObject private var snapshots: SnapshotService
     @FocusState private var focused: PersistentIdentifier?
 
+    /// Queried, not walked from `exercise.machineSettings`.
+    ///
+    /// A relationship read does not reliably republish when the inverse side is
+    /// inserted: on iOS 18 a dial added here did not appear until you left the
+    /// screen and came back, while on iOS 26 it appeared at once. `SetView` and
+    /// `CardioSetView` already query-and-filter for exactly this reason; this
+    /// screen was the one place still traversing, and it was the one place with
+    /// the bug.
+    @Query private var allSettings: [MachineSetting]
+
+    /// This exercise's dials, in the order `MachineSettingKind` declares.
+    private var settings: [MachineSetting] {
+        allSettings
+            .filter { $0.exercise?.persistentModelID == exercise.persistentModelID }
+            .sorted { ($0.setting.order, $0.setting.label) < ($1.setting.order, $1.setting.label) }
+    }
+
     /// Dials not already recorded. `other` stays available because a machine
     /// can have two odd ones.
     private var available: [MachineSettingKind] {
-        let used = Set(exercise.settings.map(\.setting))
+        let used = Set(settings.map(\.setting))
         return MachineSettingKind.allCases.filter { !used.contains($0) || $0 == .other }
     }
 
@@ -87,14 +104,14 @@ struct MachineSettingsEditor: View {
                       + "It rides along to the Mac in the snapshot, so `gym machines` can "
                       + "tell you where the pin goes before you leave the house."
             ) {
-                if exercise.settings.isEmpty {
+                if settings.isEmpty {
                     Text("Nothing recorded yet. Add the first dial below.")
                         .font(RFDesign.ui(13.5))
                         .foregroundStyle(RFDesign.labelDim)
                         .padding(.vertical, 13)
                 } else {
-                    ForEach(Array(exercise.settings.enumerated()), id: \.element.id) { i, setting in
-                        row(setting, showsDivider: i < exercise.settings.count - 1)
+                    ForEach(Array(settings.enumerated()), id: \.element.id) { i, setting in
+                        row(setting, showsDivider: i < settings.count - 1)
                     }
                 }
             }
@@ -180,7 +197,7 @@ struct MachineSettingsEditor: View {
     private func save() {
         // A blank dial is one you started adding and thought better of; keeping
         // it would put an empty chip on the set screen forever.
-        for setting in exercise.settings
+        for setting in settings
         where setting.value.trimmingCharacters(in: .whitespaces).isEmpty {
             context.delete(setting)
         }

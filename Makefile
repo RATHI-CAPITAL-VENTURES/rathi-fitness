@@ -10,7 +10,10 @@ SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 
 .PHONY: guards guards-test changelog-archive test project
 
-## Run every guard against this branch, the way CI does.
+## Run every guard against this branch. CLOSE to the way CI does, not identical:
+## CI runs ubuntu with bash 5, macOS ships bash 3.2, and 3.2 does NOT enforce
+## `set -u` on a `local` that was declared without a value. A guard that dies on
+## CI with "unbound variable" passes here in silence. Initialise your locals.
 guards:
 	BASE_SHA=$$(git merge-base origin/main HEAD) HEAD_SHA=$$(git rev-parse HEAD) \
 		bash .github/scripts/guards.sh all

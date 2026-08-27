@@ -119,6 +119,15 @@ final class RestTimer: ObservableObject {
 
     private func requestPermissionOnce() {
         guard !askedForPermission else { return }
+        // Not while a test is driving. The ask puts a SYSTEM alert over the app
+        // — owned by Springboard, not by us — and every tap after it goes to the
+        // alert instead of the button underneath. A fresh simulator hits this on
+        // the first set logged, which is why `testUndoingASet` passed on a
+        // laptop whose simulator answered the prompt weeks ago and failed on CI,
+        // which starts clean every run. `Store.isUITest` is already the switch
+        // for "this run is being driven"; the permission itself is not what any
+        // test is checking.
+        guard !Store.isUITest else { return }
         askedForPermission = true
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
