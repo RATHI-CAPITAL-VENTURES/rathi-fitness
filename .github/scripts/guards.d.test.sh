@@ -139,6 +139,46 @@ SB=$(sandbox); printf 'try? engine?.start()\ntry? await Task.sleep(for: .seconds
   > "$SB/app/RathiFitness/Views/Bad.swift"
 check "best-effort try? is left alone" 0 "no save fails quietly" silent-saves
 
+# ------------------------------------------------------------------ dead-controls
+echo "dead-controls"
+SB=$(sandbox)
+check "clean views pass" 0 "no control draws without acting" dead-controls
+
+# The real thing, verbatim from the commit that shipped it.
+SB=$(sandbox); cat > "$SB/app/RathiFitness/Views/Bad.swift" <<'SWIFT'
+Button {
+    let day = PlannedDay(name: "New day", weekday: 0, order: days.count)
+    context.insert(day)
+} label: {
+    ActionRow(label: "Add a day", symbol: "plus", showsDivider: false) {}
+        .allowsHitTesting(false)
+}
+SWIFT
+check "the dead Add-a-day button is caught" 1 "allowsHitTesting" dead-controls
+
+SB=$(sandbox); printf 'Button {\n  go()\n} label: {\n  ToggleRow(label: "x", isOn: y) { z() }\n}\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "an interactive row as a label is caught" 1 "another control's label" dead-controls
+
+SB=$(sandbox); printf 'ActionRow(label: "Do it", showsDivider: false) {}\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "an empty action is caught" 1 "empty action" dead-controls
+
+# The whole point of splitting ActionRow: this is the correct shape and must
+# pass, or the guard bans a problem without leaving anyone a way out.
+SB=$(sandbox); printf 'Button {\n  go()\n} label: {\n  ActionRowLabel(label: "Add a day", symbol: "plus")\n}\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "the appearance-only row as a label passes" 0 "no control draws without acting" dead-controls
+
+# SettingRow is appearance-only too — DisclosureRow really does use it this way.
+SB=$(sandbox); printf 'NavigationLink {\n  d\n} label: {\n  SettingRow(label: "x") { y }\n}\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "DisclosureRow's own shape is not a false positive" 0 "" dead-controls
+
+SB=$(sandbox); printf '// .allowsHitTesting(false) was here and was wrong\n' \
+  > "$SB/app/RathiFitness/Views/Bad.swift"
+check "the banned form in a comment is not a use" 0 "" dead-controls
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
