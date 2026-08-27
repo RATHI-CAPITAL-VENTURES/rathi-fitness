@@ -57,6 +57,37 @@ final class PlanEditingUITests: XCTestCase {
                       "the fourth day should be in the plan after backing out")
     }
 
+    /// The `ActionRow` split (v0.2.1) moved the button out of the row and the
+    /// row's appearance into `ActionRowLabel`. Pressing a real one is the only
+    /// way to know the row is still a control — which is precisely the check
+    /// nobody had when the same type went dead the first time.
+    func testAddingAnExerciseToTheNewDay() throws {
+        openThePlan()
+
+        let addDay = app.descendants(matching: .any)
+            .matching(identifier: "add-day").firstMatch
+        XCTAssertTrue(addDay.waitForExistence(timeout: 5))
+        addDay.tap()
+        XCTAssertTrue(app.navigationBars["New day"].waitForExistence(timeout: 5))
+
+        // "Add an exercise" is an ActionRow, the same type "Add a day" is.
+        let addExercise = app.buttons["Add an exercise"].firstMatch
+        XCTAssertTrue(addExercise.waitForExistence(timeout: 5),
+                      "the day editor should offer to add an exercise")
+        addExercise.tap()
+
+        XCTAssertTrue(app.navigationBars["Add an exercise"].waitForExistence(timeout: 5),
+                      "the exercise picker should open")
+        let bench = app.staticTexts["Bench Press"].firstMatch
+        XCTAssertTrue(bench.waitForExistence(timeout: 5))
+        bench.tap()
+
+        // Back on the day, the slot is really there — not just a sheet that
+        // opened and closed.
+        XCTAssertTrue(app.staticTexts["Bench Press"].waitForExistence(timeout: 5),
+                      "the exercise should be in the day after picking it")
+    }
+
     /// A day added while the plan is a rotation takes the next position in the
     /// cycle rather than a weekday, and the editor must say so.
     func testTheFourthDayTakesTheNextPositionInTheRotation() throws {

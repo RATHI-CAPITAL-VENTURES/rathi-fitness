@@ -14,6 +14,39 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.2.1 — 2026-08-27
+
+### Added
+
+- **`guards.d/dead-controls.sh`** — the build now fails on the three shapes that
+  produced a button which drew and did nothing: `.allowsHitTesting(false)` in a
+  view, an interactive row (`ActionRow`, `ToggleRow`, `ChoiceRow`, `StepperRow`,
+  `TogglePill`, `DisclosureRow`) used as another control's label, and an empty
+  action closure. Its self-tests run the real broken `PlanView` from `f16e454`
+  through it, so the guard is pinned against the bug it was written for rather
+  than a synthetic one.
+
+- **`ActionRowLabel`** — an action row's appearance with no button around it,
+  for a row that has to sit inside something already interactive. A guard that
+  bans a shape without offering the alternative gets an exempt label the first
+  time somebody is in a hurry, so the alternative ships with it.
+
+### Changed
+
+- `ActionRow` is now that label wrapped in a `Button`. Identical to draw; the
+  point is that the two halves can be used apart.
+
+### Why
+
+"Add a day" was dead in every release through v0.1.1, and it was a *visual*
+refactor that killed it — `f16e454` swapped a passive `Label` for an `ActionRow`
+without touching the action above it. The action is unchanged and correct in
+that diff, and the row renders perfectly, so neither review nor a screenshot
+could catch it. Only a finger could.
+
+`docs/DECISIONS.md` records the reviewing question that would have: not "is the
+action still right" but "did anything passive become interactive".
+
 ## 0.2.0 — 2026-08-27
 
 ### Added

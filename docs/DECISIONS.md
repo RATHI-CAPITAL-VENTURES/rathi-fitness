@@ -423,3 +423,43 @@ is written by XcodeGen and gitignored. A new test file added without re-running
 `** TEST SUCCEEDED **` having executed zero tests. A vacuous pass is worse than
 a red build: it is a red build that lies. Run `xcodegen generate` after adding
 any file.
+
+## 2026-08-27 — A visual refactor can break behaviour without touching it
+
+`f16e454` rebuilt Settings and the plan editor out of `SettingsKit` because
+they were the only two screens that did not look like the app. It was the right
+call and the guard that keeps it (`house-style`) still stands. It also killed
+"Add a day", and the way it did that is worth writing down because the diff
+looked clean.
+
+The change was one word. `Label("Add a day", systemImage: "plus")` became
+`ActionRow(label: "Add a day", symbol: "plus")`. The action above it — insert
+the day, save, open the editor — was not touched, and is still there, still
+correct. What changed was that the label stopped being a label: `ActionRow` is
+a `Button`. A working one-control row became two controls competing for the
+tap, `.allowsHitTesting(false)` went on to settle it, and both went dead.
+
+**The reviewing question for a visual refactor is not "is the action still
+right".** It visibly is; that is the trap. It is **"did anything passive become
+interactive, or the reverse?"** A swap between a presentation type and a control
+type changes the contract of everything around it, and nothing about the diff
+says so.
+
+**Chosen: make the correct shape available, then ban the wrong one.**
+`ActionRowLabel` is the appearance with no button around it, for when a row has
+to live inside something already interactive. `guards.d/dead-controls.sh` fails
+the build on the three shapes that produced this — `.allowsHitTesting(false)` in
+a view, an interactive row used as another control's label, and an empty action
+closure — and its self-tests include the real broken `PlanView` from `f16e454`
+plus the correct `ActionRowLabel` shape, so the guard is pinned both ways.
+
+Rejected: banning `.allowsHitTesting(false)` alone. It is the mechanism, not the
+cause, and a guard that forbids something without leaving a way to do the
+legitimate thing gets an exempt label the first time somebody is in a hurry.
+
+**And: when a control misbehaves, read its history before its code.**
+`git log -S'Add a day' -- app/RathiFitness/Views/PlanView.swift` names the
+commit in one line. Reading the code first gets you the right fix for a slightly
+wrong reason — it looked like a control that had never worked, when it was a
+control that had worked and been broken by a refactor. The second story is the
+one that tells you to write this guard.

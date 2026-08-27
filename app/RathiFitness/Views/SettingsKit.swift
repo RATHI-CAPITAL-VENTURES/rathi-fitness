@@ -214,6 +214,51 @@ struct DisclosureRow<Destination: View>: View {
 }
 
 /// A row that does something, rather than going somewhere.
+/// An action row's appearance, with no button around it.
+///
+/// Exists so that a row which has to sit inside something already interactive
+/// — a `Button`, a `NavigationLink`, a `List` row that handles its own tap —
+/// has a correct thing to reach for.
+///
+/// Without it there was no correct thing. `ActionRow` is a `Button`, so using
+/// one as another `Button`'s label nests two of them, and the obvious way out
+/// is `.allowsHitTesting(false)` on the inner one. That does not hand the tap
+/// outward: it strips the outer control of the only hit-testable content it
+/// had, and both go dead. That shipped as "Add a day" in the plan editor and
+/// was live in every release through v0.1.1 — see
+/// `docs/retros/2026-08-27-silent-saves.md`. `guards.d/dead-controls.sh` now
+/// fails the build on the nesting; this is what to do instead.
+struct ActionRowLabel: View {
+    var label: String
+    var detail: String?
+    var symbol: String?
+    var tint: Color = RFDesign.ready
+    var showsDivider = true
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 18)
+            }
+            Text(label).font(RFDesign.uiMedium(15))
+            Spacer(minLength: 8)
+            if let detail {
+                Text(detail)
+                    .font(RFDesign.ui(13))
+                    .foregroundStyle(RFDesign.labelDim)
+            }
+        }
+        .foregroundStyle(tint)
+        .padding(.vertical, 13)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            if showsDivider { Divider().overlay(RFDesign.hairline) }
+        }
+    }
+}
+
 struct ActionRow: View {
     var label: String
     var detail: String?
@@ -224,28 +269,10 @@ struct ActionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 18)
-                }
-                Text(label).font(RFDesign.uiMedium(15))
-                Spacer(minLength: 8)
-                if let detail {
-                    Text(detail)
-                        .font(RFDesign.ui(13))
-                        .foregroundStyle(RFDesign.labelDim)
-                }
-            }
-            .foregroundStyle(tint)
-            .padding(.vertical, 13)
-            .contentShape(Rectangle())
+            ActionRowLabel(label: label, detail: detail, symbol: symbol,
+                           tint: tint, showsDivider: showsDivider)
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottom) {
-            if showsDivider { Divider().overlay(RFDesign.hairline) }
-        }
     }
 }
 
