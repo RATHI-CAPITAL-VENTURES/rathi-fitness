@@ -505,28 +505,44 @@ the app, not the app misbehaving:
 Writing those down because each one cost a full simulator run to find, and the
 next person to add a UI test here will hit at least two of them.
 
-## 2026-08-27 — A UI test that only passes on a fast machine
+## 2026-08-27 — A UI test that only passed on a machine that had already said no
 
-`testUndoingASet` passed on the laptop and failed on CI, and the reason is the
-one worth remembering: **a synthesized tap that lands mid-render does nothing,
-and nothing is indistinguishable from a tap that worked.**
+`testUndoingASet` passed on the laptop and failed on CI, twice, and the first
+explanation was wrong in a way worth recording: it looked like a timing problem,
+so it got a retry loop, and it failed again with the retries plainly running.
 
-Undo is only offered while the cooldown is not running, so the test skips the
-rest first. When that tap missed, the 150-second ring kept counting and the test
-sat waiting five seconds for a button that would not appear for two and a half
-minutes. On a laptop the tap always landed. On a slower runner it sometimes did
-not.
+The real cause is not timing at all. Logging a set starts the cooldown, and
+`RestTimer.start` asks for notification permission the first time — deliberately
+there rather than at launch, so a new app does not open with a permission sheet
+for a feature you have not reached. That ask puts a **system alert over the
+app**, owned by Springboard. Every tap after it goes to the alert, not to the
+button underneath. The test tapped "Skip to set 2" three times and the cooldown
+never stopped, because the app never received any of them.
 
-**Chosen: ask again rather than assume the first one took.** Three attempts,
-each re-checking for the button that proves the state changed. Rejected: a
-longer timeout, which would have made this test wait 150 seconds to fail and
-turned a five-minute CI run into something nobody waits for.
+It passed locally because that simulator answered the prompt weeks ago. CI starts
+clean every run. And `WorkoutFlowUITests` had been logging sets on CI for
+releases without noticing, because it only ever asserts the skip button *exists*
+— `testUndoingASet` is the first test that taps anything after a set is logged.
 
-The general form, since this will happen again: **assert on the state you were
-trying to reach, not on the tap having been delivered.** XCUITest tells you the
-event was synthesized, which is not the same as the app having acted on it.
+**Chosen: do not ask while a test is driving.** `Store.isUITest` already exists
+for exactly this ("this run is being driven"), the permission is not what any
+test is checking, and shipping behaviour is unchanged. Rejected: an
+`addUIInterruptionMonitor`, which fires only after the next interaction and is
+unreliable across OS versions — a fix whose own failure mode is the flake it is
+meant to remove.
 
-**A related trap, which cost a run on its own.** After editing a UI test while a
+**Two general lessons, both of which cost a CI run here.**
+
+1. **A test that only fails on CI is telling you about state your machine has and
+   the runner does not** — an answered permission, a cached login, a file left by
+   an earlier run. Reach for that before reaching for timing.
+2. **Do not let a plausible explanation close an investigation.** "The tap landed
+   mid-render" fitted every symptom, was cheap to act on, and was wrong. The
+   thing that settled it was reading the trace and noticing the button being
+   tapped repeatedly without the state ever changing — which is not slowness,
+   it is the taps going somewhere else.
+
+**A related trap, found the same afternoon.** After editing a UI test while a
 previous `xcodebuild` was still running, the next `test` invocation used a stale
 test bundle — the trace showed a helper that is plainly in the source simply not
 executing. If a test fails in a way that contradicts the code in front of you,

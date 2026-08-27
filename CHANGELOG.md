@@ -32,6 +32,17 @@ A **MINOR bump is a milestone** and must ship a retro under
   so both read as "button". A real gap, found by a test that could not press
   them either.
 
+### Fixed
+
+- **The notification-permission ask no longer lands on top of a UI test.**
+  Logging a set starts the cooldown, and `RestTimer.start` asks for notification
+  permission the first time — which puts a *system* alert over the app, and
+  every tap after it goes to the alert rather than the button underneath. It
+  never showed up before because no test had ever tapped anything after logging
+  a set, and it never showed up locally because that simulator answered the
+  prompt weeks ago. Skipped under `RF_UITEST`, the switch `Store` already uses.
+  Shipping behaviour is unchanged.
+
 ### Found, and not a bug
 
 The sweep turned up **no other dead controls**. Four of the twelve tests failed
