@@ -349,3 +349,29 @@ and reimplementing drag-to-reorder to win a typeface is a bad trade. Both are
 stripped of background, row fills, separators and insets, so what remains is the
 app's own row at the app's own margin — the type is house, the gesture is
 UIKit's, and neither is pretending otherwise.
+
+## 2026-08-27 — A button whose label cannot be hit
+
+"Add a day" in the plan editor drew correctly, highlighted under the finger,
+and did nothing. Not a limit on the number of days — there is none, in the
+model or the schedule — but a `Button` whose entire label had been made
+untappable.
+
+The shape was a `Button` wrapping an `ActionRow`, which is itself a `Button`.
+Two buttons in one row is a fight over the tap, and the fix applied at the time
+was `.allowsHitTesting(false)` on the inner one. That does not hand the tap to
+the outer button; it removes the only hit-testable content the outer button
+has, so the outer button has nothing to hit either. Both were silenced.
+
+**Chosen: the row owns its action.** `ActionRow` already takes a closure, and
+"Add an exercise" one screen down had always used it that way. The nesting
+bought nothing. Rejected: `.contentShape(Rectangle())` on the outer button to
+give it a hit region of its own, which would have worked and would have left
+two buttons stacked for no reason.
+
+**Why nobody saw it.** There was no test that pressed it, and there is nothing
+to see when it fails — the path logs nothing, and the `context.save()` under it
+is written `try?`, so a real save failure would have been just as quiet. The
+regression test in `app/UITests/PlanEditingUITests.swift` presses the button and
+asserts a fourth day exists afterwards, because "it draws" and "it works" were
+different facts here and only one of them was being checked.

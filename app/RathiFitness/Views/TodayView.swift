@@ -135,6 +135,8 @@ struct TodayView: View {
                         Image(systemName: "calendar")
                             .foregroundStyle(RFDesign.label)
                     }
+                    .accessibilityLabel("Plan")
+                    .accessibilityIdentifier("plan-menu")
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
