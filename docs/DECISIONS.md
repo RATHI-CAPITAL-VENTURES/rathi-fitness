@@ -582,3 +582,18 @@ The second one also says something narrower and worth keeping: **if two screens
 read the same data two different ways, the odd one out is where to look.** The
 query-and-filter pattern in `SetView` was not a style choice; it was this bug,
 already solved once, in a place nobody thought to copy.
+
+## 2026-08-27 — `make guards` is weaker than CI, in one specific way
+
+The `dead-controls` guard passed locally and died on CI with
+`invisible: unbound variable`. Both run the same script with the same
+`set -euo pipefail`. The difference is the interpreter: CI is ubuntu with bash 5,
+macOS ships **bash 3.2**, and 3.2 does not enforce `set -u` on a variable
+declared with a bare `local` and never assigned. Bash 4.4 changed that.
+
+So `local invisible` then `[ -n "$invisible" ]` is silently fine here and fatal
+there. **Initialise locals you accumulate into** — `local invisible=""` — and
+know that `make guards` going green is a weaker claim than CI going green. There
+is no modern bash on this machine to test against, so this is a note rather than
+a tool; it is written down in the `Makefile` target too, which is where someone
+will be standing when it bites.

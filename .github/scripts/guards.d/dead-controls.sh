@@ -97,7 +97,9 @@ cmd_dead_controls() {
   #    File-scoped rather than per-view, because a `contentShape` two lines below
   #    the fill is the fix and a grep cannot pair them reliably. Narrow enough to
   #    be honest: `Color.clear` is rare here and always deliberate.
-  local invisible
+  # Initialised, because CI runs these under `set -u` and a bare `local` does
+  # not count as assigned — the guard died on its own accumulator.
+  local invisible=""
   for f in $(grep -rlE '\.fill\([^)]*Color\.clear|Color\.clear[^)]*\)$' "$views" 2>/dev/null || true); do
     grep -qE '\.fill\(|\.stroke\(' "$f" || continue
     grep -qE 'Color\.clear' "$f" || continue
