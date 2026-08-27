@@ -85,7 +85,7 @@ struct PassView: View {
             .sheet(item: $editing) { pass in
                 PassEditor(pass: pass) { save($0) } onDelete: {
                     context.delete(pass)
-                    try? context.save()
+                    context.saveOrReport("deleting a pass")
                     snapshots.setNeedsWrite(context)
                 }
             }
@@ -150,7 +150,7 @@ struct PassView: View {
                 other.isPrimary = false
             }
         }
-        try? context.save()
+        context.saveOrReport("saving a pass")
         snapshots.setNeedsWrite(context)
     }
 }

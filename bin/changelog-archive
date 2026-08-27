@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Move every closed minor series out of CHANGELOG.md and into docs/changelog/.
+
+`CHANGELOG.md` is for the series you are shipping. Once 0.2 opens, the whole of
+0.1 is history — still worth keeping, no longer worth scrolling past to reach
+what changed this week. The `changelog-archive` guard fails the build when more
+than one series is left in the file.
+
+That guard has named `make changelog-archive` since the day the guards landed,
+and until now the command did not exist in this repo — so the only way to
+satisfy it was to cut and paste the text by hand and hope the shape was right.
+A guard whose remedy is not runnable is a guard that gets labelled around, which
+is how the escape hatches stop meaning anything.
+
+Idempotent: run it as often as you like. Appends to an existing archive file
+rather than overwriting it, so a series archived in two goes does not lose its
+first half.
+"""
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CHANGELOG = ROOT / "CHANGELOG.md"
+ARCHIVE_DIR = ROOT / "docs" / "changelog"
+
+# `## 1.2.3 — 2026-01-01`. The series is the major.minor.
+ENTRY = re.compile(r"^## (\d+)\.(\d+)\.(\d+)\b")
+
+
+def main() -> int:
+    text = CHANGELOG.read_text()
+    lines = text.splitlines(keepends=True)
+
+    # The preamble is everything before the first release header; it explains
+    # the format and belongs to the live file, never to an archive.
+    starts = [i for i, line in enumerate(lines) if ENTRY.match(line)]
+    if not starts:
+        print("no release entries in CHANGELOG.md — nothing to archive.")
+        return 0
+
+    preamble = lines[: starts[0]]
+    bounds = starts + [len(lines)]
+    entries = []
+    for i, start in enumerate(starts):
+        match = ENTRY.match(lines[start])
+        assert match is not None
+        series = f"{match.group(1)}.{match.group(2)}"
+        entries.append((series, "".join(lines[start : bounds[i + 1]])))
+
+    newest = entries[0][0]
+    keep = [body for series, body in entries if series == newest]
+    archived: dict[str, list[str]] = {}
+    for series, body in entries:
+        if series != newest:
+            archived.setdefault(series, []).append(body)
+
+    if not archived:
+        print(f"CHANGELOG.md already holds only the {newest} series.")
+        return 0
+
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    for series, bodies in archived.items():
+        path = ARCHIVE_DIR / f"{series}.md"
+        chunk = "".join(bodies).rstrip() + "\n"
+        if path.exists():
+            existing = path.read_text().rstrip() + "\n\n"
+            path.write_text(existing + chunk)
+        else:
+            path.write_text(f"# Changelog — {series}\n\nArchived from "
+                            f"`CHANGELOG.md` when the {newest} series opened.\n\n"
+                            + chunk)
+        print(f"archived {series} ({len(bodies)} release(s)) -> "
+              f"{path.relative_to(ROOT)}")
+
+    # A pointer, so the live file still says where the rest went. Rewritten each
+    # run rather than appended, or it would stack up one line per archive.
+    pointer = (
+        "\n## Earlier\n\n"
+        + "".join(
+            f"- [{series}](./docs/changelog/{series}.md)\n"
+            for series in sorted(
+                {p.stem for p in ARCHIVE_DIR.glob("*.md")},
+                key=lambda s: [int(n) for n in s.split(".")],
+                reverse=True,
+            )
+        )
+    )
+    body = "".join(preamble).rstrip() + "\n\n" + "".join(keep).rstrip() + "\n" + pointer
+    CHANGELOG.write_text(body)
+    print(f"CHANGELOG.md now holds the {newest} series only.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

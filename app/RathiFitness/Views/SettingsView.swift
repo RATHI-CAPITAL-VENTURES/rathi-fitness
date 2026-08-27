@@ -45,7 +45,9 @@ struct SettingsView: View {
             .confirmationDialog("Delete every logged set and weigh-in?",
                                 isPresented: $confirmingWipe, titleVisibility: .visible) {
                 Button("Delete \(historyCount) entries", role: .destructive) {
-                    wipeResult = (try? Seed.deleteAllHistory(context))
+                    wipeResult = reportingFailure("deleting your history") {
+                        try Seed.deleteAllHistory(context)
+                    }
                         .map { "Deleted \($0) entries. Starting clean." }
                     snapshots.setNeedsWrite(context)
                 }
@@ -169,7 +171,9 @@ struct SettingsView: View {
             }
             ActionRow(label: exportFiles == nil ? "Export to CSV" : "Rebuild the export",
                       symbol: "tablecells", showsDivider: false) {
-                exportFiles = try? Export.write(from: context)
+                exportFiles = reportingFailure("exporting your data") {
+                    try Export.write(from: context)
+                }
             }
         }
     }
@@ -186,7 +190,9 @@ struct SettingsView: View {
             if demoCount > 0 {
                 ActionRow(label: "Remove \(demoCount) sample entries",
                           symbol: "wand.and.rays") {
-                    wipeResult = (try? Seed.removeDemoData(context))
+                    wipeResult = reportingFailure("removing the sample data") {
+                        try Seed.removeDemoData(context)
+                    }
                         .map { "Removed \($0) sample entries." }
                     snapshots.setNeedsWrite(context)
                 }
@@ -268,7 +274,7 @@ struct SettingsView: View {
             get: { planDefaults.first?[keyPath: keyPath] ?? fallback },
             set: { value in
                 defaultsRow()[keyPath: keyPath] = value
-                try? context.save()
+                context.saveOrReport("changing your defaults")
             })
     }
 
@@ -424,7 +430,7 @@ struct SettingsView: View {
                 var config = schedule.config
                 config.mode = mode
                 schedule.config = config
-                try? context.save()
+                context.saveOrReport("changing your schedule")
                 snapshots.setNeedsWrite(context)
             })
     }
@@ -434,7 +440,7 @@ struct SettingsView: View {
             get: { schedules.first?.everyNDays ?? 2 },
             set: { value in
                 schedules.first?.everyNDays = value
-                try? context.save()
+                context.saveOrReport("changing how often you train")
                 snapshots.setNeedsWrite(context)
             })
     }
@@ -448,7 +454,7 @@ struct SettingsView: View {
                 if on { config.trainingWeekdays.insert(number) }
                 else { config.trainingWeekdays.remove(number) }
                 schedule.config = config
-                try? context.save()
+                context.saveOrReport("changing your training days")
                 snapshots.setNeedsWrite(context)
             })
     }

@@ -364,7 +364,7 @@ struct CardioSetView: View {
             averageHeartRate: Int(values[.heartRate] ?? 0))
         context.insert(entry)
         note = ""
-        try? context.save()
+        context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
 
         // Intervals rest; a single twenty-minute bout does not. Starting a
@@ -399,7 +399,7 @@ struct CardioSetView: View {
         record = nil
         guard let last = todays.last else { return }
         context.delete(last)
-        try? context.save()
+        context.saveOrReport("undoing a set")
         snapshots.setNeedsWrite(context)
     }
 

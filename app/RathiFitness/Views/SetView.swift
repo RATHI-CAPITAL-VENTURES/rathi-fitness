@@ -494,7 +494,7 @@ struct SetView: View {
         context.insert(entry)
         note = ""              // notes are per set, not sticky
         if kind == .warmup { kind = .working }   // warm-ups come first, once
-        try? context.save()
+        context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.
@@ -505,7 +505,7 @@ struct SetView: View {
         record = nil
         guard let last = todays.last else { return }
         context.delete(last)
-        try? context.save()
+        context.saveOrReport("undoing a set")
         snapshots.setNeedsWrite(context)
     }
 }

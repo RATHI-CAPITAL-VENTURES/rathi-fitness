@@ -375,3 +375,51 @@ is written `try?`, so a real save failure would have been just as quiet. The
 regression test in `app/UITests/PlanEditingUITests.swift` presses the button and
 asserts a fourth day exists afterwards, because "it draws" and "it works" were
 different facts here and only one of them was being checked.
+
+## 2026-08-27 — `try?` on a save is a decision nobody made
+
+Twenty-one writes went through `try? context.save()`. None of them was a
+judgement that the user did not need to know; the first one set the shape and
+the other twenty copied it. If SwiftData ever refused a write, the set you just
+logged was gone and the screen carried on as though it were not.
+
+It came up sideways. "Add a day" was doing nothing, and the obvious next move
+was to stream the phone's logs while it was pressed — at which point there was
+nothing to stream. No log line on the path, no thrown error, no banner. The
+cause turned out to be a dead button rather than a failed save, but the
+investigation had no instrument either way, and an absent instrument does not
+announce itself. You find out the thermometer is missing at the moment you reach
+for it.
+
+**Chosen: one mechanism, twenty-one phrases.** `Model/Saving.swift` decides what
+a failed write does — log at `.fault`, keep it for the banner, return `false`.
+Call sites say `context.saveOrReport("adding a day")` and nothing else. The
+string completes "save failed while ___", because the user already knows a save
+failed; what they need is which one. `SavingTests` reads every call site back
+out of the source and fails on a phrase that has decayed to "saving".
+
+**Rejected: `assertionFailure` in DEBUG.** Tempting, and it would catch a
+regression in CI. But the UI tests run a Debug build against a real store, so a
+single unlucky save turns a behavioural failure into a crash, and the crash is
+what gets investigated. Logging loudly costs nothing and does not change control
+flow.
+
+**Rejected: an alert.** Modal, and it would land on top of whatever screen
+happened to be showing rather than the one that caused it. The banner follows
+the precedent `LegacyDataBanner` already set for "the app has to come and find
+you", and sits over every tab because the write could have come from any of
+them.
+
+**Deliberately not covered:** `try?` on the haptic engine, `AVAudioSession`,
+MusicKit and every `Task.sleep`. Those are best-effort by nature — a haptic that
+does not fire costs nothing and has no recovery — and none is a lost workout.
+The rule is narrower than "never use `try?`": nothing that writes your training
+data may fail quietly. `guards.d/silent-saves.sh` enforces exactly that, and its
+self-tests include a case asserting the best-effort ones still pass.
+
+**A note on generated projects, learned expensively.** `app/RathiFitness.xcodeproj`
+is written by XcodeGen and gitignored. A new test file added without re-running
+`xcodegen generate` is not in the target, and the suite then reports
+`** TEST SUCCEEDED **` having executed zero tests. A vacuous pass is worse than
+a red build: it is a red build that lies. Run `xcodegen generate` after adding
+any file.

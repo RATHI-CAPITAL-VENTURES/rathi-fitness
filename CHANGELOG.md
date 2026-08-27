@@ -14,72 +14,43 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.1.2 — 2026-08-27
-
-### Fixed
-
-- **"Add a day" in the plan editor did nothing.** The plan shipped with three
-  days and no way to get a fourth: the button drew, highlighted under the
-  finger, and never ran its code. It was a `Button` wrapped around an
-  `ActionRow` — itself a `Button` — with `.allowsHitTesting(false)` on the inner
-  one to stop the two fighting over the tap. That does not give the tap to the
-  outer button, it leaves the outer button with no hit-testable content at all,
-  so neither fired. The row now owns its own action, the way "Add an exercise"
-  always did. Nothing ever limited the plan to three days.
-
-  Silent by construction, which is why it survived: the path logs nothing, and
-  the `context.save()` beneath it is written `try?`. `PlanEditingUITests` now
-  presses the button and asserts the fourth day is really there.
-
-## 0.1.1 — 2026-08-24
-
-### Fixed
-
-- **Health had to be reconnected every time the app closed.** `status` started
-  each launch at `.notAsked` and only ever became `.connected` in memory, so
-  quitting forgot it. Settings offered "Connect Apple Health" again, and the
-  launch sync — gated on `isConnected` — silently stopped importing weigh-ins
-  until you tapped the button. The permission was fine the whole time; nothing
-  ever asked whether it existed.
-
-  `HealthBridge.resume()` now asks on launch and when Settings opens. It uses
-  `getRequestStatusForAuthorization`, which answers "would asking show a sheet"
-  rather than "am I authorised" — HealthKit refuses the latter for read types on
-  purpose, because the answer would leak what is in your Health app.
-
-## 0.1.0 — 2026-08-24
-
-The first pass, and everything since. Recorded as one entry because the repo
-predates this changelog — from here each change gets its own.
+## 0.2.0 — 2026-08-27
 
 ### Added
 
-- **The app.** Four screens — Today, Trends, Pass and the set screen — in
-  SwiftUI on SwiftData + CloudKit, with the cooldown ring, plate math, records
-  and tonnage.
-- **Rotating programmes.** Fixed training days with cycling workouts; position
-  in the rotation is derived from the sessions you logged, never stored.
-- **Set kinds, RPE, supersets and muscles.** A warm-up stopped counting toward
-  volume and records.
-- **Cardio.** Treadmill, bike, rower and the rest, with time, distance,
-  incline, speed, resistance and heart rate — each machine offering only the
-  numbers its own console has. Measured in minutes, never converted to tonnage.
-- **Machine settings.** "2 on the leg press", kept with the exercise and
-  readable from the Mac with `gym machines`.
-- **Assisted machines.** Where the weight makes it easier, every judgement
-  about the number runs the other way.
-- **The cooldown ping.** Authored haptics and synthesised tones, both channels
-  every time.
-- **Music and hands-free.** Apple Music played by the app, so AirPods gestures
-  reach it — triple-press logs the set.
-- **Apple Health.** Weigh-ins in, workouts out, cardio as its own activity type.
-- **The snapshot** (schema 4) and the `gym` CLI that reads it on the Mac.
-- **Swipe left on Today** for past sessions, read-only.
+- **A write that doesn't land now says so.** `Model/Saving.swift` is the one
+  place that decides what a failed save does: a `.fault` to the unified log
+  (subsystem `com.rathi.fitness`, category `saves`), a banner over every tab
+  telling you which change is gone, and a `false` for any caller with something
+  better to do. `SaveFailureBanner` is the user-facing half.
+
+- **`guards.d/silent-saves.sh`** — the build fails if `try? context.save()` or
+  `try? Seed.*` comes back. Structural, like the other project guards, and
+  narrow: `try?` on the haptic engine, the audio session or a `Task.sleep` is
+  correct and is left alone. Six self-test cases in `guards.d.test.sh`.
 
 ### Changed
 
-- Settings, the plan editor and the machine settings editor are drawn from
-  `Views/SettingsKit.swift` rather than a stock `Form` — they were the only
-  screens that did not look like the app.
-- The icon carries RIA's face, from the shared kit in the RIA repo, and ships
-  the full iOS size ladder.
+- **All 21 silent saves are named.** `try? context.save()` became
+  `context.saveOrReport("adding a day")`, where the phrase completes the
+  sentence "save failed while ___" — so the banner says which change you lost
+  rather than that "saving" failed. `SavingTests` reads every call site back out
+  of the source and fails the build on a phrase that degrades to "saving".
+
+  `try? Seed.deleteAllHistory`, `try? Seed.runIfNeeded`, `try? Seed.loadDemoHistory`,
+  `try? Seed.removeDemoData` and `try? Export.write` had the same hole one level
+  up and go through `reportingFailure("…") { … }`.
+
+### Why
+
+Reported as "I tried to add a day 4 but it wouldn't let me". The cause was a
+dead button (fixed in 0.1.2) — but the natural next step, streaming the phone's
+logs while it was pressed, turned out to be impossible: there was nothing on
+that path to stream, and a genuine save failure would have been just as quiet.
+The button was one bug; having no instrument to find it was another.
+
+See [`docs/retros/2026-08-27-silent-saves.md`](./docs/retros/2026-08-27-silent-saves.md).
+
+## Earlier
+
+- [0.1](./docs/changelog/0.1.md)
