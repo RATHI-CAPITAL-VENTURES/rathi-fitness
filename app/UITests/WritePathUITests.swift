@@ -211,8 +211,13 @@ final class WritePathUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 10))
         add.tap()
 
+        // Ten seconds, not five: this waits on a SHEET being presented, which is
+        // an animation on a busy machine rather than a state change in the app.
+        // It failed once at five while two full suites shared a laptop, and
+        // passed alone immediately after — a longer wait is the honest fix,
+        // where a retry would have been papering over a state that never came.
         let field = app.textFields["176.4"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText("181.2")
         app.buttons["Save"].firstMatch.tap()
@@ -229,9 +234,9 @@ final class WritePathUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 10))
         add.tap()
 
-        XCTAssertTrue(app.navigationBars["Measurement"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Measurement"].waitForExistence(timeout: 10))
         let field = app.textFields["32.5"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText("33.5")
         app.buttons["Save"].firstMatch.tap()
