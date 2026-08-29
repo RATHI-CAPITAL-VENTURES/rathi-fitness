@@ -61,9 +61,16 @@ enum Rotation {
 
     /// Which workout is up on `date`, as an index into the rotation.
     ///
-    /// - Parameter sessionDates: every date you have logged a set on. Duplicates
-    ///   and ordering do not matter; they are reduced to distinct days here so a
-    ///   caller cannot get it subtly wrong.
+    /// - Parameter sessionDates: the start of every **workout** you have
+    ///   logged — `Session.startedAt`, not every set's date.
+    ///
+    /// This counted distinct *days* until sessions existed, because a day was
+    /// the only thing there was to count. That was right for its own reason —
+    /// logging extra sets on a Tuesday must not skip Wednesday's workout — and
+    /// wrong for two-a-days: lifting twice on Tuesday advanced the rotation
+    /// once, so Wednesday offered the workout you had already done. Counting
+    /// sessions keeps the first property (extra sets join a session, they do not
+    /// make one) and fixes the second.
     ///
     /// Sessions **on** `date` do not advance it: mid-workout you are still doing
     /// today's workout, not tomorrow's.
@@ -71,8 +78,8 @@ enum Rotation {
                       calendar: Calendar = .current) -> Int? {
         guard dayCount > 0 else { return nil }
         let today = calendar.startOfDay(for: date)
-        let completedBefore = Set(sessionDates.map { calendar.startOfDay(for: $0) })
-            .filter { $0 < today }
+        let completedBefore = sessionDates
+            .filter { calendar.startOfDay(for: $0) < today }
             .count
         return completedBefore % dayCount
     }

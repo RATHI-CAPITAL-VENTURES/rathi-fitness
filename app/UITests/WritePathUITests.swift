@@ -417,6 +417,82 @@ final class WritePathUITests: XCTestCase {
                       "undoing should put it back to nothing logged")
     }
 
+    // MARK: - two-a-days
+
+    /// Lift in the morning, do a different workout in the evening. Before
+    /// sessions existed the app could not express that at all: the second
+    /// workout opened with the first one's checklist already ticked wherever the
+    /// two shared an exercise, and set numbering carried straight on.
+    func testASecondWorkoutInADayStartsFresh() {
+        // Morning: log a set of the workout that is up.
+        let bench = app.descendants(matching: .any)
+            .matching(identifier: "row-bench-press").firstMatch
+        XCTAssertTrue(bench.waitForExistence(timeout: 10))
+        bench.tap()
+        let log = app.descendants(matching: .any).matching(identifier: "log-set").firstMatch
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        log.tap()
+        XCTAssertTrue(app.buttons.containing(
+            NSPredicate(format: "label BEGINSWITH 'Skip to set'")).firstMatch
+            .waitForExistence(timeout: 5), "a set should have been logged")
+        back()
+        XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 5))
+
+        // Evening: switch to a different workout from the calendar menu.
+        app.descendants(matching: .any).matching(identifier: "plan-menu").firstMatch.tap()
+        app.buttons["Legs"].tap()
+        XCTAssertTrue(app.staticTexts["Back Squat"].waitForExistence(timeout: 10),
+                      "picking another workout should open it")
+
+        // Logging here opens a SECOND session — the header says which one.
+        let squat = app.descendants(matching: .any)
+            .matching(identifier: "row-back-squat").firstMatch
+        XCTAssertTrue(squat.waitForExistence(timeout: 5))
+        squat.tap()
+        let logSquat = app.descendants(matching: .any)
+            .matching(identifier: "log-set").firstMatch
+        XCTAssertTrue(logSquat.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Log set 1"].firstMatch.exists,
+                      "a different workout starts at set 1, not at set 2")
+        logSquat.tap()
+        back()
+
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "workout 2")).firstMatch
+            .waitForExistence(timeout: 5),
+            "Today should say this is the second workout of the day")
+        shoot("two-a-day")
+    }
+
+    /// The escape hatch for the same workout twice: finish one, and the next set
+    /// starts another.
+    func testFinishingAWorkoutIsOfferedOnceOneIsOpen() {
+        let menu = app.descendants(matching: .any).matching(identifier: "plan-menu").firstMatch
+        menu.tap()
+        XCTAssertFalse(app.buttons.containing(
+            NSPredicate(format: "label BEGINSWITH 'Finish'")).firstMatch.exists,
+            "nothing to finish before anything is logged")
+        // Close the menu without choosing anything.
+        app.tap()
+
+        let bench = app.descendants(matching: .any)
+            .matching(identifier: "row-bench-press").firstMatch
+        XCTAssertTrue(bench.waitForExistence(timeout: 10))
+        bench.tap()
+        let log = app.descendants(matching: .any).matching(identifier: "log-set").firstMatch
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        log.tap()
+        back()
+
+        menu.tap()
+        let finish = app.buttons.containing(
+            NSPredicate(format: "label BEGINSWITH 'Finish'")).firstMatch
+        XCTAssertTrue(finish.waitForExistence(timeout: 5),
+                      "an open workout should offer to be finished")
+        finish.tap()
+        shoot("finish-workout")
+    }
+
     // MARK: - the schedule
 
     /// `SettingsView:428` — switching to a rotation, which is the change that

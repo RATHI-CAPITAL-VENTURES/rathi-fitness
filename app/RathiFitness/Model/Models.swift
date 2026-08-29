@@ -203,6 +203,62 @@ final class PlannedDay {
     var orderedItems: [PlanItem] { (items ?? []).sorted { $0.order < $1.order } }
 }
 
+/// One workout, as performed. The thing a day used to stand in for.
+///
+/// There was no such type until now: a session was *inferred* by grouping
+/// `SetEntry.date` on `startOfDay`, in around thirty places. That works exactly
+/// as long as you train once a day, and silently merges everything the moment
+/// you do not — two-a-days reached Apple Health as a single twelve-hour
+/// workout, the rotation advanced once instead of twice, and an evening bench
+/// continued the morning's set numbering.
+///
+/// **Opened deterministically, not by a time gap.** A session opens on the
+/// first set logged against a given `PlannedDay`, and opening one closes any
+/// other that is still open. A gap heuristic was rejected: it is wrong in both
+/// directions on exactly the days that matter — a long workout with a break in
+/// it splits, and a lift straight into cardio merges. See `docs/DECISIONS.md`.
+///
+/// **What this deliberately does NOT separate:** the same workout done twice in
+/// one day. Sessions are keyed by the planned day, so a second run at Push A
+/// joins the first unless you finish the first explicitly — which is what the
+/// "Finish workout" action on Today is for. Keying on time instead would bring
+/// back the heuristic; leaving the user a way to say "that one's done" does not.
+@Model
+final class Session {
+    var startedAt: Date = Date.now
+    /// `nil` while it is still going. Set from the last set logged, so the
+    /// span sent to Apple Health is the workout rather than the calendar day.
+    var endedAt: Date?
+    /// The workout's name **at the time**, kept as text as well as a
+    /// relationship. Renaming "Push A" next month must not rewrite what you did
+    /// last month, and deleting the planned day must not erase it either.
+    var dayName: String = ""
+    var plannedDay: PlannedDay?
+
+    /// `.nullify`, not `.cascade`: removing a session must never take the sets
+    /// with it. The sets are what actually happened; the session is how they
+    /// are grouped.
+    @Relationship(deleteRule: .nullify, inverse: \SetEntry.session)
+    var sets: [SetEntry]? = []
+
+    init(startedAt: Date = .now, dayName: String = "", plannedDay: PlannedDay? = nil) {
+        self.startedAt = startedAt
+        self.dayName = dayName
+        self.plannedDay = plannedDay
+    }
+
+    var isOpen: Bool { endedAt == nil }
+
+    /// Sets in the order they were performed.
+    var orderedSets: [SetEntry] { (sets ?? []).sorted { $0.date < $1.date } }
+
+    /// What it is called when there is nothing to call it. History backfilled
+    /// from before sessions existed can land here.
+    static let unnamed = "Workout"
+
+    var title: String { dayName.isEmpty ? Self.unnamed : dayName }
+}
+
 /// One set, as performed. The only record of what actually happened.
 @Model
 final class SetEntry {
@@ -242,6 +298,10 @@ final class SetEntry {
     /// either of them on a chart labelled with your name.
     var source: String = Source.user.rawValue
     var exercise: Exercise?
+    /// The workout this set belongs to. Optional because CloudKit requires it
+    /// and because history written before sessions existed has none until the
+    /// backfill reaches it — see `SessionBackfill`.
+    var session: Session?
 
     init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int,
          date: Date = .now, kind: SetKind = .working, rpe: Double = 0,

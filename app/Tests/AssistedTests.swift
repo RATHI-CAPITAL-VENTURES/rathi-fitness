@@ -230,6 +230,6 @@ final class AssistedSnapshotTests: XCTestCase {
         // A reader on schema 3 seeing `working_weight: 70` on this row would
         // congratulate him for getting weaker. Refusing is the correct response,
         // and `cli/gym` refuses anything it does not know.
-        XCTAssertEqual(Snapshot.currentSchema, 4)
+        XCTAssertEqual(Snapshot.currentSchema, 5)
     }
 }

@@ -22,6 +22,7 @@ struct CardioSetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var rest: RestTimer
+    @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
@@ -35,9 +36,20 @@ struct CardioSetView: View {
 
     private var calendar: Calendar { .current }
     private var mine: [SetEntry] { allSets.filter { $0.exercise?.slug == exercise.slug } }
+    /// This workout's bouts, not today's — see `SetView.todays`.
     private var todays: [SetEntry] {
-        mine.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+        guard let session = currentSession else { return [] }
+        return mine
+            .filter { $0.session?.persistentModelID == session.persistentModelID }
             .sorted { $0.setIndex < $1.setIndex }
+    }
+
+    private var currentSession: Session? {
+        sessions.first {
+            $0.isOpen
+                && calendar.isDate($0.startedAt, inSameDayAs: .now)
+                && $0.plannedDay?.persistentModelID == item.day?.persistentModelID
+        }
     }
     /// Cardio is usually one bout; intervals are the reason `targetSets` still
     /// means something here.
@@ -371,6 +383,7 @@ struct CardioSetView: View {
             incline: values[.incline] ?? 0,
             resistance: values[.resistance] ?? 0,
             averageHeartRate: Int(values[.heartRate] ?? 0))
+        entry.session = Sessions.current(for: item.day, in: context)
         context.insert(entry)
         note = ""
         context.saveOrReport("logging a set")

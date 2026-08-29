@@ -41,6 +41,16 @@ struct RathiFitnessApp: App {
                     reportingFailure("setting up your plan") {
                         try Seed.runIfNeeded(context)
                     }
+                    // Every set written before sessions existed needs one to
+                    // belong to, and anything left open by a kill on a previous
+                    // day has to be closed before it collects today's sets.
+                    // Both are idempotent, so this is a launch step and not a
+                    // one-shot flag that can be lost.
+                    Sessions.closeStale(in: context)
+                    reportingFailure("grouping your history into workouts") {
+                        try Sessions.backfill(in: context)
+                    }
+                    context.saveOrReport("grouping your history into workouts")
                     // A fresh install has nothing to warn about, so the legacy
                     // banner is answered before it can ever be shown.
                     if (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0,

@@ -14,6 +14,7 @@ struct SetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var rest: RestTimer
+    @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
@@ -31,9 +32,26 @@ struct SetView: View {
     private var calendar: Calendar { .current }
 
     private var mine: [SetEntry] { allSets.filter { $0.exercise?.slug == exercise.slug } }
+    /// This workout's sets, not today's.
+    ///
+    /// Day-scoped, an evening bench continued the morning's numbering: set 5 of
+    /// 4, pips overflowing, and a record judged against a bout that finished
+    /// eight hours earlier. Scoped to the open session, a second workout starts
+    /// at set 1 the way it actually did.
     private var todays: [SetEntry] {
-        mine.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+        guard let session = currentSession else { return [] }
+        return mine
+            .filter { $0.session?.persistentModelID == session.persistentModelID }
             .sorted { $0.setIndex < $1.setIndex }
+    }
+
+    /// The workout in progress for this plan item's day, if one is open.
+    private var currentSession: Session? {
+        sessions.first {
+            $0.isOpen
+                && calendar.isDate($0.startedAt, inSameDayAs: .now)
+                && $0.plannedDay?.persistentModelID == item.day?.persistentModelID
+        }
     }
     /// Sequential, so a warm-up is set 1 and the numbering matches what you did.
     private var nextSet: Int { todays.count + 1 }
@@ -497,6 +515,10 @@ struct SetView: View {
 
         let entry = SetEntry(exercise: exercise, weight: weight, reps: reps,
                              setIndex: nextSet, kind: kind, rpe: rpe, note: note)
+        // Opened here, on the first set, rather than when the screen appears —
+        // walking into a workout and walking out again without lifting should
+        // not leave an empty session in your history.
+        entry.session = Sessions.current(for: item.day, in: context)
         context.insert(entry)
         note = ""              // notes are per set, not sticky
         if kind == .warmup { kind = .working }   // warm-ups come first, once

@@ -7,7 +7,7 @@ enum Store {
 
     static let schema = Schema([
         Exercise.self, PlanItem.self, PlannedDay.self,
-        SetEntry.self, WeighIn.self, GymPass.self, BodyMetric.self,
+        SetEntry.self, Session.self, WeighIn.self, GymPass.self, BodyMetric.self,
         Schedule.self, MachineSetting.self, PlanDefaults.self,
     ])
 

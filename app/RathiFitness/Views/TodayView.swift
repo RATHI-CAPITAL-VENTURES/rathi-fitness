@@ -12,6 +12,7 @@ struct TodayView: View {
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
     @Query(sort: \WeighIn.date, order: .reverse) private var weighIns: [WeighIn]
     @Query private var schedules: [Schedule]
+    @Query(sort: \Session.startedAt) private var sessions: [Session]
 
     @State private var weighingIn = false
     @State private var overrideDay: PlannedDay?
@@ -26,8 +27,12 @@ struct TodayView: View {
     private var calendar: Calendar { .current }
     private var config: Rotation.Config { schedules.first?.config ?? Rotation.Config() }
 
-    /// Every date a set was logged on — the input the rotation counts.
-    private var sessionDates: [Date] { allSets.map(\.date) }
+    /// The start of every workout — the input the rotation counts.
+    ///
+    /// Was every set's date, deduped by day inside `Rotation.index`. Sessions
+    /// make the count honest: two workouts on Tuesday advance the rotation
+    /// twice, and twenty sets in one of them still advance it once.
+    private var sessionDates: [Date] { sessions.map(\.startedAt) }
 
     private var lastSession: Date? {
         allSets.filter { !calendar.isDate($0.date, inSameDayAs: .now) }
@@ -74,8 +79,38 @@ struct TodayView: View {
         guard let i = args.firstIndex(of: "-RFDay"), i + 1 < args.count else { return nil }
         return days.first { $0.name == args[i + 1] }
     }
+    /// The sets that belong to the workout on screen.
+    ///
+    /// Day-scoped, the evening half of a two-a-day opened with the morning's
+    /// checklist already ticked — every exercise you had shared between the two
+    /// showed done before you started. Scoped to the open session, the second
+    /// workout opens empty, which is what it is.
+    ///
+    /// Falls back to the day when nothing is open yet, so a rest-day glance at
+    /// what you did still shows it.
     private var todaysSets: [SetEntry] {
-        allSets.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+        if let session = openSession {
+            return allSets.filter {
+                $0.session?.persistentModelID == session.persistentModelID
+            }
+        }
+        return allSets.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+    }
+
+    /// The workout in progress for the day on screen, if there is one.
+    private var openSession: Session? {
+        guard let day = today else { return nil }
+        return sessions.first {
+            $0.isOpen
+                && calendar.isDate($0.startedAt, inSameDayAs: .now)
+                && $0.plannedDay?.persistentModelID == day.persistentModelID
+        }
+    }
+
+    /// Every workout finished today. Two on a two-a-day; the reason Today can
+    /// say "second workout" rather than pretending the first did not happen.
+    private var todaysSessions: [Session] {
+        sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: .now) }
     }
 
     /// The days with something logged on them, newest first. Capped because
@@ -124,6 +159,23 @@ struct TodayView: View {
                         }
                         if overrideDay != nil {
                             Button("Back to today") { overrideDay = nil }
+                        }
+                        if let session = openSession {
+                            Divider()
+                            // The escape hatch that lets the same workout happen
+                            // twice in a day. Sessions are keyed by planned day,
+                            // so a second run at Push A would otherwise join the
+                            // first; saying "that one's done" is what separates
+                            // them, and it is a truthful thing to say rather
+                            // than a setting invented for the edge case.
+                            Button {
+                                Sessions.close(session, in: context)
+                                context.saveOrReport("finishing a workout")
+                                snapshots.setNeedsWrite(context)
+                            } label: {
+                                Label("Finish \(session.title)",
+                                      systemImage: "checkmark.circle")
+                            }
                         }
                         Divider()
                         Button {
@@ -219,6 +271,12 @@ struct TodayView: View {
     }
 
     private var headerEyebrow: String {
+        // A second workout says so before anything else. Without it the only
+        // difference between "today" and "today again" is a checklist that has
+        // mysteriously emptied itself.
+        if let nth = workoutNumberToday, nth > 1 {
+            return "\(Fmt.weekdayDate(.now)) · workout \(nth)"
+        }
         if overrideDay != nil || launchArgumentDay != nil { return "Doing out of order" }
         guard config.mode != .weekday, days.count > 1,
               let index = Rotation.index(on: .now, sessionDates: sessionDates,
@@ -227,6 +285,22 @@ struct TodayView: View {
         // "Thu 21 Aug · 3 of 4" — where you are in the cycle, which is the thing
         // a rotation makes hard to hold in your head.
         return "\(Fmt.weekdayDate(.now)) · \(index + 1) of \(days.count)"
+    }
+
+    /// Which workout of the day the one on screen is, counting from 1.
+    ///
+    /// `nil` when nothing has been logged today — before the first set there is
+    /// no workout to number, and "workout 1" on an empty screen is noise.
+    private var workoutNumberToday: Int? {
+        guard !todaysSessions.isEmpty else { return nil }
+        if let open = openSession,
+           let index = todaysSessions.firstIndex(where: {
+               $0.persistentModelID == open.persistentModelID
+           }) {
+            return index + 1
+        }
+        // Nothing open: the next one you start would be the next number.
+        return todaysSessions.count + 1
     }
 
     private func subtitle(for day: PlannedDay) -> String {

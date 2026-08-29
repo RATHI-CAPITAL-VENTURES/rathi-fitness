@@ -39,7 +39,7 @@ struct Snapshot: Codable {
     /// tonnage, and a reader that averages it in is reporting a fiction.
     /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
     /// where the seat goes.
-    static let currentSchema = 4
+    static let currentSchema = 5
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -243,6 +243,15 @@ struct Snapshot: Codable {
     struct Session: Codable {
         var date: String
         var day: String?
+        /// When the workout began and ended, `HH:mm`. Two workouts on one date
+        /// share a `date` and are told apart by these — the reason schema 5
+        /// exists. Absent on a workout still in progress.
+        var startedAt: String?
+        var endedAt: String?
+        /// Which workout of that day this was, counting from 1. `1` on the
+        /// overwhelming majority of days; the field is always present so a
+        /// reader never has to infer it from ordering.
+        var ordinal: Int = 1
         var exercises: Int
         /// Working sets. Warm-ups are counted separately.
         var sets: Int
@@ -273,6 +282,8 @@ enum SnapshotBuilder {
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         let days = try context.fetch(FetchDescriptor<PlannedDay>())
         let passes = try context.fetch(FetchDescriptor<GymPass>())
+        let sessionRecords = try context.fetch(
+            FetchDescriptor<Session>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)]))
         let allSets = try context.fetch(
             FetchDescriptor<SetEntry>(sortBy: [SortDescriptor(\.date, order: .forward)]))
 
@@ -288,7 +299,9 @@ enum SnapshotBuilder {
             passes: passes
                 .sorted { ($0.isPrimary ? 0 : 1, $0.name) < ($1.isPrimary ? 0 : 1, $1.name) }
                 .map(passSummary),
-            sessions: sessions(allSets, days: days, cal: cal))
+            sessions: sessions(sessionRecords,
+                               orphans: allSets.filter { $0.session == nil },
+                               cal: cal))
     }
 
     // MARK: pieces
@@ -519,11 +532,44 @@ enum SnapshotBuilder {
         return "•••• " + String(digits.suffix(4))
     }
 
-    private static func sessions(_ sets: [SetEntry], days: [PlannedDay],
+    /// One row per **workout**, not per day.
+    ///
+    /// Grouped by `Fmt.day` until schema 5, with the name guessed from the
+    /// weekday — which was wrong twice over on a two-a-day: the two workouts
+    /// merged into one row, and the row was labelled with whichever planned day
+    /// happened to sit on that weekday. Sessions carry their own name, recorded
+    /// when they were performed.
+    private static func sessions(_ records: [Session], orphans: [SetEntry],
                                  cal: Calendar) -> [Snapshot.Session] {
-        Dictionary(grouping: sets) { Fmt.day($0.date) }
-            .map { date, entries -> Snapshot.Session in
-                let weekday = entries.first.map { cal.component(.weekday, from: $0.date) }
+        // A set with no session still happened.
+        //
+        // The launch backfill gives every historical set a workout, but it is
+        // not the only writer: CloudKit can deliver rows from a device still on
+        // an older build, and those arrive with `session == nil`. Dropping them
+        // would lose a day of training from the Mac's view silently, which is
+        // the failure mode this app keeps having to design against. They are
+        // grouped by day — the assumption the old code made — and carry no
+        // `day` name, because inventing one is what the guessing used to do.
+        var groups: [(date: String, started: Date, ended: Date?,
+                      name: String?, sets: [SetEntry])] = records.map {
+            (Fmt.day($0.startedAt), $0.startedAt, $0.endedAt,
+             $0.dayName.isEmpty ? nil : $0.dayName, $0.orderedSets)
+        }
+        for (date, sets) in Dictionary(grouping: orphans, by: { Fmt.day($0.date) }) {
+            let ordered = sets.sorted { $0.date < $1.date }
+            guard let first = ordered.first, let last = ordered.last else { continue }
+            groups.append((date, first.date, last.date, nil, ordered))
+        }
+
+        let byDay = Dictionary(grouping: groups) { $0.date }
+        return groups
+            .map { group -> Snapshot.Session in
+                let date = group.date
+                let entries = group.sets
+                let ordinal = (byDay[date] ?? [])
+                    .sorted { $0.started < $1.started }
+                    .firstIndex { $0.started == group.started }
+                    .map { $0 + 1 } ?? 1
                 let byExercise = Dictionary(grouping: entries) { $0.exercise?.slug ?? "?" }
                 let top = byExercise
                     .compactMap { _, e -> (String, Double)? in
@@ -546,7 +592,10 @@ enum SnapshotBuilder {
                 let working = entries.filter { $0.setKind.counts }
                 return .init(
                     date: date,
-                    day: days.first { $0.weekday == weekday }?.name,
+                    day: group.name,
+                    startedAt: Fmt.timeOfDay(group.started),
+                    endedAt: group.ended.map(Fmt.timeOfDay),
+                    ordinal: ordinal,
                     exercises: byExercise.count,
                     sets: working.count,
                     warmupSets: entries.count - working.count,
@@ -559,7 +608,9 @@ enum SnapshotBuilder {
                     })),
                     cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }))
             }
-            .sorted { $0.date > $1.date }
+            .sorted {
+                $0.date == $1.date ? $0.ordinal > $1.ordinal : $0.date > $1.date
+            }
     }
 }
 
