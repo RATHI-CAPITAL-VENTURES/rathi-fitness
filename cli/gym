@@ -202,6 +202,11 @@ def assisted_change(v) -> str:
     return f"−{num(abs(v))} help" if v < 0 else f"+{num(v)} help"
 
 
+def plural(n, word: str) -> str:
+    """`1 workout`, `3 workouts`. The volume table said "1 sessions"."""
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
 def tonnage(pounds: float) -> str:
     """Total load moved. Tons past 20k, because six digits of pounds stops
     meaning anything you can picture."""
@@ -483,7 +488,7 @@ def cmd_volume(args, data) -> None:
     lines = []
     for w in weeks:
         lines.append(f"  week of {w['week_of']}   {tonnage(w['volume']):>11}   "
-                     f"{w['sessions']} sessions · {w['sets']} sets")
+                     f"{plural(w['sessions'], 'workout')} · {w['sets']} sets")
     if len(values) > 1:
         lines += ["", f"  {sparkline(values)}  oldest → newest"]
     total = sum(values)
