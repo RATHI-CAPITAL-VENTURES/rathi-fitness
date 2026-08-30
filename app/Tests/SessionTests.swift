@@ -202,6 +202,106 @@ final class SessionTests: XCTestCase {
                        "a wrong label is worse than no label")
     }
 
+    // MARK: what the snapshot says is up
+
+    /// `Snapshot.today` picked the planned day whose `weekday` matched, which is
+    /// only right in `.weekday` mode. On a rotation the phone uses
+    /// `Rotation.index` and the pairing drifts on purpose — so `gym today` on
+    /// the Mac disagreed with the phone in your pocket, and had since rotations
+    /// shipped.
+    func testTheSnapshotFollowsTheRotationRatherThanTheWeekday() throws {
+        let context = context()
+        let schedule = Schedule()
+        var config = schedule.config
+        config.mode = .rotation
+        config.trainingWeekdays = [1, 2, 3, 4, 5, 6, 7]
+        schedule.config = config
+        context.insert(schedule)
+
+        let names = ["Pull A", "Push A", "Legs"]
+        for (i, name) in names.enumerated() {
+            let planned = day(name, order: i, in: context)
+            let exercise = lift("Lift \(i)", in: context)
+            let item = PlanItem(order: 0, exercise: exercise, targetSets: 3,
+                                targetReps: 8, targetWeight: 100)
+            item.day = planned
+            context.insert(item)
+        }
+        // Two workouts already done, so the rotation has reached the third.
+        for start in [at(2026, 8, 27, 7), at(2026, 8, 28, 7)] {
+            context.insert(Session(startedAt: start, dayName: "done"))
+        }
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(2026, 8, 29, 9))
+        XCTAssertEqual(snapshot.today?.day, "Legs",
+                       "the Mac must answer what the phone answers")
+    }
+
+    /// And a workout actually in progress beats the rotation's guess — which is
+    /// also how the second half of a two-a-day reads correctly.
+    func testAnOpenWorkoutIsWhatTheSnapshotReports() throws {
+        let context = context()
+        for (i, name) in ["Pull A", "Push A"].enumerated() {
+            let planned = day(name, order: i, in: context)
+            let exercise = lift("Lift \(i)", in: context)
+            let item = PlanItem(order: 0, exercise: exercise, targetSets: 3,
+                                targetReps: 8, targetWeight: 100)
+            item.day = planned
+            context.insert(item)
+        }
+        let plannedDays = try context.fetch(FetchDescriptor<PlannedDay>())
+        let push = try XCTUnwrap(plannedDays.first { $0.name == "Push A" })
+        _ = Sessions.current(for: push, in: context, now: at(2026, 8, 29, 18))
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(2026, 8, 29, 19))
+        XCTAssertEqual(snapshot.today?.day, "Push A",
+                       "what you are doing beats what the cycle predicted")
+    }
+
+    /// Two workouts on one date are two rows, told apart by the clock and the
+    /// ordinal. A reader keying on `date` alone would merge them back.
+    func testTwoWorkoutsOnOneDateAreTwoSnapshotRows() throws {
+        let context = context()
+        let bench = lift("Bench Press", in: context)
+        for (i, start) in [at(2026, 8, 28, 7), at(2026, 8, 28, 18)].enumerated() {
+            let session = Session(startedAt: start, dayName: i == 0 ? "Push A" : "Legs")
+            session.endedAt = start.addingTimeInterval(3600)
+            context.insert(session)
+            let entry = SetEntry(exercise: bench, weight: 185, reps: 8,
+                                 setIndex: 1, date: start)
+            entry.session = session
+            context.insert(entry)
+        }
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(2026, 8, 29, 9))
+        let rows = snapshot.sessions.filter { $0.date == Fmt.day(at(2026, 8, 28)) }
+        XCTAssertEqual(rows.count, 2, "a two-a-day is two rows, not one")
+        XCTAssertEqual(Set(rows.map(\.ordinal)), [1, 2])
+        XCTAssertEqual(Set(rows.compactMap(\.day)), ["Push A", "Legs"])
+        XCTAssertNotEqual(rows[0].startedAt, rows[1].startedAt,
+                          "the clock is what tells them apart")
+    }
+
+    /// A set that never got a session still has to reach the Mac. CloudKit
+    /// delivers rows from devices on older builds.
+    func testASetWithNoSessionStillReachesTheSnapshot() throws {
+        let context = context()
+        let bench = lift("Bench Press", in: context)
+        context.insert(SetEntry(exercise: bench, weight: 185, reps: 8,
+                                setIndex: 1, date: at(2026, 8, 26, 7)))
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(2026, 8, 27, 9))
+        let row = try XCTUnwrap(snapshot.sessions.first {
+            $0.date == Fmt.day(at(2026, 8, 26))
+        })
+        XCTAssertEqual(row.sets, 1)
+        XCTAssertNil(row.day, "unnamed beats a guessed name")
+    }
+
     // MARK: the name is a record, not a pointer
 
     func testRenamingAWorkoutDoesNotRewriteHistory() throws {

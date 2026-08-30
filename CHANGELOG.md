@@ -14,6 +14,44 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.3.1 — 2026-08-30
+
+Clears every follow-up v0.3.0's retro left `blocked:`. All three were readable
+as "I'd rather do it later", which is the one thing `blocked:` is not for.
+
+### Fixed
+
+- **`gym today` on the Mac disagreed with the phone in your pocket.**
+  `Snapshot.today` picked the planned day whose `weekday` matched, which is only
+  right in `.weekday` mode; on a rotation the phone uses `Rotation.index` and the
+  pairing drifts on purpose. It had been wrong since rotations shipped. It also
+  indexed into an **unsorted** `PlannedDay` fetch, so the first rotation-aware
+  version was still wrong — caught by a test rather than by reading. A workout in
+  progress now beats the cycle's guess, which is also how the second half of a
+  two-a-day reads correctly.
+
+- **A two-a-day was one point on every Trends chart**, taking the heavier of the
+  two workouts and hiding the other. Both charts already said "one point per
+  session" in their own comments and grouped by `startOfDay`, because a day was
+  all there was to group by.
+
+- **The swipe-back pager showed a day, not a workout** — two workouts' exercises
+  run together on one page with their volumes added. `PastDayView` takes a
+  `Session` now, which also deleted the code that guessed the workout's name from
+  its exercises: it is recorded when you do it.
+
+- **The launch backfill ran before the demo-history loader**, so sample data got
+  no sessions — and a set with no session is invisible to the pager and to
+  Trends. It now runs after everything that writes sets at launch, with a note
+  saying why the order matters.
+
+- **`cli/gym`'s own tests were left on schema 4** by the v0.3.0 bump. CI caught
+  it; I had changed `cli/gym` without running them. The fixture is schema 5 and
+  now carries a real two-a-day.
+
+- **"1 sessions"** in the volume table, which has read that way since the command
+  shipped.
+
 ## 0.3.0 — 2026-08-29
 
 ### Added

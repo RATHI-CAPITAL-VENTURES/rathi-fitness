@@ -646,3 +646,35 @@ CloudKit delivers rows from devices still on an older build. Orphans are grouped
 by day and included, with no `day` name rather than a guessed one. Three
 existing tests caught this, because seeding sets directly is exactly the shape
 the old build writes.
+
+## 2026-08-30 — `blocked:` is not a size argument
+
+v0.3.0's retro closed three gaps as `blocked:` — Trends grouping by day, the
+past-days pager, and `Snapshot.today`'s weekday resolver — with reasons that all
+came down to *this change is already big enough*. The `followups` gate accepted
+them, because the format was right. The work was done two days later anyway.
+
+`CLAUDE.md` is explicit that this is the case `blocked:` does not cover: it is
+for a gap that genuinely cannot be closed here — an Apple entitlement, a System
+Settings toggle, a signal that does not exist yet. "I could do this, and I'd
+rather do it later" is the thing the two-status contract exists to stop, and a
+well-formatted reason is exactly how it gets past a gate that can only read the
+format.
+
+**The estimates were wrong in the direction that makes it worse.** Trends needed
+one shared function — `workoutKey` — not the `Tally` rewrite the row predicted.
+`PastDayView` got *shorter*, because taking a session deleted the code that
+guessed a workout's name by scoring its exercises against every planned day.
+Only the snapshot resolver was as involved as claimed.
+
+**And deferring it hid a bug.** The rotation-aware `Snapshot.today` indexed into
+an **unsorted** `PlannedDay` fetch while `TodayView` reads its days through
+`@Query(sort: \PlannedDay.order)`. So the first version of the fix still
+answered differently from the phone — a second disagreement hiding underneath
+the first, found by a test written the same afternoon. Another two weeks and it
+would have been found by `gym today` naming the wrong workout.
+
+**The rule, restated for the next time:** if the only thing stopping you is that
+the diff is getting long, the honest move is a second PR this week, not a
+`blocked:` row. Write `blocked:` when you can name the thing outside your control
+that stops you.

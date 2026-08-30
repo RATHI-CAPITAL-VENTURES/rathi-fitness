@@ -113,20 +113,26 @@ struct TodayView: View {
         sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: .now) }
     }
 
-    /// The days with something logged on them, newest first. Capped because
-    /// this builds a page each and nobody swipes back three months.
-    private var pastDays: [Date] {
-        let days = Set(allSets.map { calendar.startOfDay(for: $0.date) })
-            .filter { !calendar.isDate($0, inSameDayAs: .now) }
-        return Array(days.sorted(by: >).prefix(60))
+    /// The workouts you have already done, newest first.
+    ///
+    /// Was one page per *day*, so a two-a-day collapsed into a single page with
+    /// both workouts' exercises run together. Capped because this builds a page
+    /// each and nobody swipes back three months.
+    private var pastDays: [Session] {
+        sessions
+            .filter { !calendar.isDate($0.startedAt, inSameDayAs: .now) }
+            .sorted { $0.startedAt > $1.startedAt }
+            .prefix(60)
+            .map { $0 }
     }
 
     var body: some View {
         NavigationStack {
             TabView(selection: $page) {
                 todayPage.tag(0)
-                ForEach(Array(pastDays.enumerated()), id: \.element) { index, day in
-                    PastDayView(date: day).tag(index + 1)
+                ForEach(Array(pastDays.enumerated()),
+                        id: \.element.persistentModelID) { index, past in
+                    PastDayView(session: past).tag(index + 1)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
@@ -238,7 +244,7 @@ struct TodayView: View {
         if !swipeHintSeen, !pastDays.isEmpty {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold))
-                Text("Swipe for \(pastDays.count == 1 ? "your last session" : "past sessions")")
+                Text("Swipe for \(pastDays.count == 1 ? "your last workout" : "past workouts")")
             }
             .rfEyebrow()
             .frame(maxWidth: .infinity)

@@ -282,6 +282,7 @@ enum SnapshotBuilder {
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         let days = try context.fetch(FetchDescriptor<PlannedDay>())
         let passes = try context.fetch(FetchDescriptor<GymPass>())
+        let schedules = try context.fetch(FetchDescriptor<Schedule>())
         let sessionRecords = try context.fetch(
             FetchDescriptor<Session>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)]))
         let allSets = try context.fetch(
@@ -291,7 +292,8 @@ enum SnapshotBuilder {
             generatedAt: Fmt.iso(now),
             appVersion: appVersion,
             bodyWeight: bodyWeight(weighIns, now: now, cal: cal),
-            today: today(days: days, sets: allSets, now: now, cal: cal),
+            today: today(days: days, sets: allSets, sessions: sessionRecords,
+                         schedule: schedules.first, now: now, cal: cal),
             exercises: exercises
                 .map { summary($0, sets: allSets, now: now, cal: cal) }
                 .sorted { $0.name < $1.name },
@@ -329,11 +331,57 @@ enum SnapshotBuilder {
                      history: history)
     }
 
+    /// What is up today, resolved the way the phone resolves it.
+    ///
+    /// This picked the planned day whose `weekday` matched, which is only right
+    /// in `.weekday` mode. On a rotation the phone uses `Rotation.index` and the
+    /// pairing drifts deliberately — so the app and the Mac gave different
+    /// answers to "what am I doing today", and had since rotations shipped.
+    /// `gym today` was confidently wrong within a fortnight of switching mode.
+    ///
+    /// The workout **in progress** wins over the rotation's guess: if a session
+    /// is open, that is what you are doing, whatever the cycle says. It is also
+    /// how a two-a-day reads correctly — the second workout is the current one.
     private static func today(days: [PlannedDay], sets: [SetEntry],
+                              sessions: [Session], schedule: Schedule?,
                               now: Date, cal: Calendar) -> Snapshot.Today? {
-        let weekday = cal.component(.weekday, from: now)
-        guard let day = days.first(where: { $0.weekday == weekday }) else { return nil }
-        let todaysSets = sets.filter { cal.isDate($0.date, inSameDayAs: now) }
+        let todaysSessions = sessions
+            .filter { cal.isDate($0.startedAt, inSameDayAs: now) }
+            .sorted { $0.startedAt < $1.startedAt }
+
+        let day: PlannedDay?
+        if let open = todaysSessions.last(where: \.isOpen), let planned = open.plannedDay {
+            day = planned
+        } else {
+            let config = schedule?.config ?? Rotation.Config()
+            switch config.mode {
+            case .weekday:
+                let weekday = cal.component(.weekday, from: now)
+                day = days.first { $0.weekday == weekday }
+            case .rotation, .everyNDays:
+                // Sorted by `order`, because that IS the cycle. The fetch above
+                // is unsorted and `TodayView` reads its days through
+                // `@Query(sort: \PlannedDay.order)` — indexing into the raw
+                // fetch here gave a different workout from the phone, which is
+                // the exact class of disagreement this change exists to end.
+                let cycle = days.sorted { $0.order < $1.order }
+                let index = Rotation.index(on: now,
+                                           sessionDates: sessions.map(\.startedAt),
+                                           dayCount: cycle.count, calendar: cal)
+                day = index.flatMap { cycle.indices.contains($0) ? cycle[$0] : cycle.first }
+            }
+        }
+        guard let day else { return nil }
+
+        // The sets that belong to the workout being described, not to the
+        // calendar day — otherwise the second workout of a two-a-day is
+        // reported as already half done.
+        let todaysSets: [SetEntry]
+        if let open = todaysSessions.last(where: \.isOpen) {
+            todaysSets = open.orderedSets
+        } else {
+            todaysSets = sets.filter { cal.isDate($0.date, inSameDayAs: now) }
+        }
 
         var items: [Snapshot.Today.Item] = []
         var done = 0
