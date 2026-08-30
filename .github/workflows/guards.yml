@@ -7,6 +7,13 @@ name: guards
 # `edited` is in the trigger list on purpose: the PR-title guard fails on a
 # title, and a title is fixed by editing it. Without `edited` the only way to
 # clear that red is a pointless empty push.
+#
+# So DO NOT "Re-run failed jobs" to clear a pr-title failure. A re-run replays
+# the ORIGINAL event payload, `github.event.pull_request.title` included, so it
+# fails again on the title you already fixed — and leaves two `guards` results
+# on the PR, one green from the edit and one red from the re-run, which reads as
+# a flaky guard rather than as a stale replay. Edit the title and let the
+# `edited` trigger do it.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
