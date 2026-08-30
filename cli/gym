@@ -37,7 +37,7 @@ from pathlib import Path
 # which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
 # numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
 # See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 4
+SCHEMA_SUPPORTED = 5
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -200,6 +200,11 @@ def assisted_change(v) -> str:
     if not v:
         return "—"
     return f"−{num(abs(v))} help" if v < 0 else f"+{num(v)} help"
+
+
+def plural(n, word: str) -> str:
+    """`1 workout`, `3 workouts`. The volume table said "1 sessions"."""
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def tonnage(pounds: float) -> str:
@@ -443,7 +448,15 @@ def cmd_sessions(args, data) -> None:
     rows = data.get("sessions", [])[: args.limit]
     lines = []
     for s in rows:
-        head = f"  {s['date']}  {s.get('day') or 'workout':<8}"
+        # Schema 5: two workouts can share a date. The ordinal and the clock
+        # time are what tell them apart — without them a two-a-day reads as the
+        # same workout listed twice.
+        stamp = s["date"]
+        if (s.get("ordinal") or 1) > 1 or s.get("started_at"):
+            when = s.get("started_at") or ""
+            nth = f"#{s['ordinal']}" if (s.get("ordinal") or 1) > 1 else ""
+            stamp = f"{s['date']} {when}{nth}".rstrip()
+        head = f"  {stamp:<17}{s.get('day') or 'workout':<8}"
         body = f"{s['exercises']} exercises · {s['sets']} sets · {tonnage(s['volume'])} moved"
         if s.get("cardio_minutes"):
             body += f" · {clock(s['cardio_minutes'] * 60)} cardio"
@@ -475,7 +488,7 @@ def cmd_volume(args, data) -> None:
     lines = []
     for w in weeks:
         lines.append(f"  week of {w['week_of']}   {tonnage(w['volume']):>11}   "
-                     f"{w['sessions']} sessions · {w['sets']} sets")
+                     f"{plural(w['sessions'], 'workout')} · {w['sets']} sets")
     if len(values) > 1:
         lines += ["", f"  {sparkline(values)}  oldest → newest"]
     total = sum(values)

@@ -10,22 +10,27 @@ import SwiftData
 /// screen you were looking at said Tuesday. So a past day is a *summary*: what
 /// you did, what it added up to, and no way to add to it.
 ///
-/// Which day it was is worked out from the exercises, not from the weekday. The
-/// programme rotates (see `Rotation`), so "Push A is Tuesday" is wrong within a
-/// fortnight; matching the logged lifts against each planned day's contents is
-/// right however the cycle has drifted.
+/// **One workout, not one day.** It took a `Date` and swept up everything logged
+/// on it, which meant a two-a-day appeared as a single page with both workouts'
+/// exercises run together and their volumes added. It takes the session now, so
+/// the swipe-back goes through workouts in the order you did them.
+///
+/// What it was called is no longer guessed. The old version scored the logged
+/// lifts against each planned day's contents — right, given no better
+/// information, and wrong whenever you improvised or two workouts shared a
+/// lift. The session recorded its name when you did it.
 struct PastDayView: View {
-    let date: Date
+    let session: Session
 
-    @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
     @Query(sort: \WeighIn.date, order: .reverse) private var weighIns: [WeighIn]
-    @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
 
     private var calendar: Calendar { .current }
 
-    private var entries: [SetEntry] {
-        allSets.filter { calendar.isDate($0.date, inSameDayAs: date) }
-    }
+    /// The day this workout happened on. Still needed for the weigh-in and for
+    /// "3 days ago", both of which really are day-scoped.
+    private var date: Date { session.startedAt }
+
+    private var entries: [SetEntry] { session.orderedSets }
 
     /// Grouped by exercise, in the order you did them.
     private var byExercise: [(exercise: Exercise, sets: [SetEntry])] {
@@ -43,17 +48,11 @@ struct PastDayView: View {
         }
     }
 
-    /// The planned day whose contents best match what was actually logged.
-    /// Nil when nothing lines up — an improvised session is not "Push A".
+    /// What the workout was called, as recorded. `nil` for one backfilled from
+    /// history that matched no planned day — still better than a wrong label.
     private var dayName: String? {
-        let done = Set(entries.compactMap { $0.exercise?.slug })
-        guard !done.isEmpty else { return nil }
-        let scored = days.map { day -> (String, Int) in
-            let planned = Set(day.orderedItems.compactMap { $0.exercise?.slug })
-            return (day.name, planned.intersection(done).count)
-        }
-        guard let best = scored.max(by: { $0.1 < $1.1 }), best.1 > 0 else { return nil }
-        return best.0
+        session.dayName.isEmpty || session.dayName == Session.unnamed
+            ? nil : session.dayName
     }
 
     private var volume: Double { Tally.volume(entries.map(\.tally)) }

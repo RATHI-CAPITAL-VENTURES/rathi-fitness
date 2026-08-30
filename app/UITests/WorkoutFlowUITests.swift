@@ -69,6 +69,25 @@ final class WorkoutFlowUITests: XCTestCase {
         shoot("04-today-after-a-set")
     }
 
+    /// The swipe-back pager is keyed on WORKOUTS now, not dates. Demo history is
+    /// written without sessions — exactly like history from a build before they
+    /// existed — so this also exercises the launch backfill: if that did not
+    /// run, there would be nothing to swipe to at all.
+    func testPastWorkoutsAreReachableBySwiping() throws {
+        XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 20))
+
+        app.swipeLeft()
+        let ago = app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "ago")).firstMatch
+        XCTAssertTrue(ago.waitForExistence(timeout: 10),
+                      "swiping left should reach a workout you already did")
+        // A backfilled workout is named from what was in it, so the page is not
+        // a nameless "Workout".
+        XCTAssertFalse(app.staticTexts["Logged as you went"].exists,
+                       "demo history matches the plan, so it should be named")
+        shoot("10-past-workout")
+    }
+
     /// A real first launch: a plan, and no claims about your past.
     func testAFreshInstallHasNoInventedHistory() throws {
         let clean = XCUIApplication()

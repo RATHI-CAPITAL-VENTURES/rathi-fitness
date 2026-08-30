@@ -89,8 +89,15 @@ enum Fmt {
         return "\(hours / 24)d ago"
     }
 
+    /// 24-hour time. Now also the field that tells two workouts on one date
+    /// apart in the snapshot, so the locale is pinned: `HH` alone is not enough
+    /// on a device set to 12-hour time, and "7:30 AM" reaching a parser that
+    /// expects `HH:mm` is a contract break nobody would think to test for.
     static func timeOfDay(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        return f.string(from: d)
     }
 
     static func shortDate(_ d: Date) -> String {

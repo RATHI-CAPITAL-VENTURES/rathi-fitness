@@ -41,6 +41,9 @@ struct RathiFitnessApp: App {
                     reportingFailure("setting up your plan") {
                         try Seed.runIfNeeded(context)
                     }
+                    // Anything left open by a kill on a previous day is closed
+                    // before it can collect today's sets.
+                    Sessions.closeStale(in: context)
                     // A fresh install has nothing to warn about, so the legacy
                     // banner is answered before it can ever be shown.
                     if (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0,
@@ -56,6 +59,19 @@ struct RathiFitnessApp: App {
                             try Seed.loadDemoHistory(context)
                         }
                     }
+                    // AFTER everything that can write sets, not before.
+                    //
+                    // It ran straight after the seed at first, which meant the
+                    // demo history loaded below got no sessions at all — and a
+                    // set with no session is invisible to the swipe-back pager
+                    // and to Trends. The same ordering trap applies to any
+                    // future writer that runs at launch: give it a session, or
+                    // put it above this line. Idempotent, so it is a launch step
+                    // rather than a one-shot flag that can be lost.
+                    reportingFailure("grouping your history into workouts") {
+                        try Sessions.backfill(in: context)
+                    }
+                    context.saveOrReport("grouping your history into workouts")
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and
                     // this sync never runs — the permission is fine, nobody

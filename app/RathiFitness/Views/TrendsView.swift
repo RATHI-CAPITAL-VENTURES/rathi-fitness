@@ -4,6 +4,21 @@ import Charts
 
 /// Body weight and working weight on one screen, because they answer one
 /// question: am I getting stronger, or just heavier.
+
+/// The workout a set belongs to, as a sortable key.
+///
+/// Both charts below have always said "one point per session" in their own
+/// comments and then grouped by `startOfDay`, because a day was the only thing
+/// there was to group by. A two-a-day therefore showed as one point, taking the
+/// heavier of the two workouts and hiding the other entirely.
+///
+/// Falls back to the day for a set with no session — CloudKit can deliver rows
+/// from a device on an older build, and dropping them from a chart would be a
+/// quieter version of the same bug.
+private func workoutKey(_ entry: SetEntry) -> Date {
+    entry.session?.startedAt ?? Calendar.current.startOfDay(for: entry.date)
+}
+
 struct TrendsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \WeighIn.date) private var weighIns: [WeighIn]
@@ -171,9 +186,9 @@ struct TrendsView: View {
                 .filter { entry in cutoff.map { entry.date >= $0 } ?? true }
             // One point per session: the top set. A point per set makes a
             // scribble that hides the thing you came to see.
-            let byDay = Dictionary(grouping: mine) { Calendar.current.startOfDay(for: $0.date) }
-            return byDay.keys.sorted().map {
-                Point(date: $0, value: byDay[$0]?.map(\.weight).max() ?? 0)
+            let byWorkout = Dictionary(grouping: mine, by: workoutKey)
+            return byWorkout.keys.sorted().map {
+                Point(date: $0, value: byWorkout[$0]?.map(\.weight).max() ?? 0)
             }
         }
     }
@@ -549,13 +564,13 @@ struct TrendsView: View {
             guard !ex.isCardio else { return nil }
             let mine = allSets.filter { $0.exercise?.slug == ex.slug }
             guard !mine.isEmpty else { return nil }
-            let byDay = Dictionary(grouping: mine) { Calendar.current.startOfDay(for: $0.date) }
-            let days = byDay.keys.sorted()
-            let tops = days.map { byDay[$0]?.map(\.weight).max() ?? 0 }
+            let byWorkout = Dictionary(grouping: mine, by: workoutKey)
+            let workouts = byWorkout.keys.sorted()
+            let tops = workouts.map { byWorkout[$0]?.map(\.weight).max() ?? 0 }
             guard let current = tops.last else { return nil }
             // Compare with the last session at or before the cutoff — "30 days
             // ago" is not a day you necessarily trained.
-            let baseIndex = days.lastIndex { $0 <= cutoff }
+            let baseIndex = workouts.lastIndex { $0 <= cutoff }
             let change = baseIndex.map { current - tops[$0] }
             return Row(slug: ex.slug, name: ex.name, current: current,
                        change: change, spark: Array(tops.suffix(8)),

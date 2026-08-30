@@ -216,12 +216,14 @@ final class HealthBridge: ObservableObject {
         #if canImport(HealthKit) && !RF_LOCAL_ONLY
         guard status.isConnected else { return }
         do {
-            let sets = try context.fetch(FetchDescriptor<SetEntry>())
+            let sessions = try context.fetch(FetchDescriptor<Session>())
+            let byStart = Dictionary(sessions.map { ($0.startedAt, $0) },
+                                     uniquingKeysWith: { a, _ in a })
             let ready = HealthSync.sessionsReadyToExport(
-                setDates: sets.map(\.date), alreadyExported: exportedDays)
-            let calendar = Calendar.current
+                sessionStarts: sessions.map(\.startedAt), alreadyExported: exportedDays)
             for day in ready {
-                let entries = sets.filter { calendar.isDate($0.date, inSameDayAs: day) }
+                guard let session = byStart[day] else { continue }
+                let entries = session.orderedSets
                 // Cardio bouts go over one at a time, each as its own workout of
                 // its own type. A thirty-minute run filed as strength training
                 // gets no distance, no pace and the wrong icon in Fitness, and
