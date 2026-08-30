@@ -65,19 +65,34 @@ enum HealthSync {
         return WorkoutBounds(start: first, end: end)
     }
 
-    /// Sessions old enough to be finished, and not already sent.
+    /// Workouts old enough to be finished, and not already sent.
     ///
     /// Only whole past days: writing today's workout while he is still in the
     /// gym would either be wrong or need updating, and HealthKit workouts are
     /// awkward to amend. Tomorrow it goes over complete.
-    static func sessionsReadyToExport(setDates: [Date],
+    ///
+    /// **Keyed on the workout's start, not on the day.** It used to take the
+    /// min→max of every lifting set on a date, so a 7am lift and a 7pm lift
+    /// reached Apple Health as one twelve-hour workout — with a pace and a
+    /// calorie figure computed across the eleven hours you were at work. Two
+    /// workouts now go over as two.
+    static func sessionsReadyToExport(sessionStarts: [Date],
                                       alreadyExported: Set<Date>,
                                       now: Date = .now,
                                       calendar: Calendar = .current) -> [Date] {
         let today = calendar.startOfDay(for: now)
-        let days = Set(setDates.map { calendar.startOfDay(for: $0) })
-        return days
-            .filter { $0 < today && !alreadyExported.contains($0) }
+        return sessionStarts
+            .filter { start in
+                guard calendar.startOfDay(for: start) < today else { return false }
+                // `alreadyExported` holds whatever was marked at the time, and
+                // before sessions existed that was the START OF A DAY. Matching
+                // only on the session start would treat every historical
+                // workout as never sent and write a duplicate of it into Apple
+                // Health — a migration that quietly doubles a year of training.
+                // A day already sent covers the sessions inside it.
+                return !alreadyExported.contains(start)
+                    && !alreadyExported.contains(calendar.startOfDay(for: start))
+            }
             .sorted()
     }
 

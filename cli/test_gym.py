@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 4,
+    "schema": 5,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -108,13 +108,21 @@ FIXTURE = {
          "member_id_masked": "•••• 4917", "state": "2 uses left",
          "expires": "2026-09-04", "expired": False, "primary": True, "has_code": True},
     ],
+    # Schema 5: an entry is one WORKOUT, so two can share a date. 2026-08-19 is
+    # a two-a-day, which is the shape a reader keying on `date` alone gets wrong.
     "sessions": [
-        {"date": "2026-08-19", "day": "Push A", "exercises": 6, "sets": 20,
+        {"date": "2026-08-19", "day": "Legs", "started_at": "18:40",
+         "ended_at": "19:25", "ordinal": 2, "exercises": 4, "sets": 12,
+         "volume": 21400, "warmup_sets": 0, "top_lifts": ["Back Squat 245"]},
+        {"date": "2026-08-19", "day": "Push A", "started_at": "07:05",
+         "ended_at": "08:10", "ordinal": 1, "exercises": 6, "sets": 20,
          "volume": 12830, "warmup_sets": 2, "top_lifts": ["Bench Press 185"],
          "cardio_minutes": 25.0, "cardio_distance": 2.1},
-        {"date": "2026-08-17", "day": "Pull A", "exercises": 5, "sets": 16,
+        {"date": "2026-08-17", "day": "Pull A", "started_at": "07:12",
+         "ended_at": "08:20", "ordinal": 1, "exercises": 5, "sets": 16,
          "volume": 15810, "warmup_sets": 0, "top_lifts": ["Deadlift 315"]},
-        {"date": "2026-08-12", "day": "Legs", "exercises": 5, "sets": 17,
+        {"date": "2026-08-12", "day": "Legs", "started_at": "07:00",
+         "ended_at": "08:05", "ordinal": 1, "exercises": 5, "sets": 17,
          "volume": 34960, "warmup_sets": 0, "top_lifts": ["Leg Press 360"]},
     ],
 }
@@ -282,6 +290,23 @@ class Commands(unittest.TestCase):
         self.assertIn("Push A", out)
         self.assertIn("Bench Press 185", out)
 
+    def test_two_workouts_on_one_date_are_told_apart(self):
+        """The reason schema 5 exists.
+
+        Both entries carry `2026-08-19`. A reader that shows only the date
+        prints the same line twice and a reader that keys on it drops one; the
+        clock time and the ordinal are what make them two workouts.
+        """
+        with fixture():
+            _, out = run("sessions")
+        lines = [l for l in out.splitlines() if "2026-08-19" in l]
+        self.assertEqual(len(lines), 2, "both workouts should be listed")
+        self.assertIn("07:05", out)
+        self.assertIn("18:40", out)
+        self.assertIn("#2", out, "the second workout of a day says so")
+        # And the two are still distinguishable by what was in them.
+        self.assertIn("Back Squat 245", out)
+
     def test_json_flag_is_machine_readable(self):
         with fixture():
             _, out = run("--json", "lifts")
@@ -334,18 +359,22 @@ class Volume(unittest.TestCase):
         # 19 and 17 Aug are the same week (Mon 17th); the 12th is the week before.
         self.assertIn("week of 2026-08-17", out)
         self.assertIn("week of 2026-08-10", out)
-        self.assertIn("2 sessions", out)
+        # Three: the 17th, and BOTH workouts on the 19th. Two entries sharing a
+        # date is the schema 5 shape, and counting them as one is the bug.
+        self.assertIn("3 workouts", out)
+        # And the week with one says "workout", not "1 workouts".
+        self.assertIn("1 workout ", out)
 
     def test_volume_totals_the_window(self):
         with fixture():
             _, out = run("volume")
-        self.assertIn(gym.tonnage(12830 + 15810 + 34960), out)
+        self.assertIn(gym.tonnage(12830 + 21400 + 15810 + 34960), out)
 
     def test_volume_json_is_machine_readable(self):
         with fixture():
             _, out = run("--json", "volume")
         weeks = json.loads(out)
-        self.assertEqual(weeks[-1]["volume"], 12830 + 15810)
+        self.assertEqual(weeks[-1]["volume"], 12830 + 21400 + 15810)
 
     def test_volume_with_nothing_logged(self):
         data = json.loads(json.dumps(FIXTURE))
@@ -540,7 +569,7 @@ class SchemaGate(unittest.TestCase):
 
     def test_the_supported_schema_is_the_one_the_app_writes(self):
         # Bumping one without the other is how the CLI goes blind for a week.
-        self.assertEqual(gym.SCHEMA_SUPPORTED, 4)
+        self.assertEqual(gym.SCHEMA_SUPPORTED, 5)
 
 
 class Assisted(unittest.TestCase):

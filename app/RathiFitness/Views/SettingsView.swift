@@ -407,9 +407,6 @@ struct SettingsView: View {
             return "Each workout belongs to a weekday, and that is the one you get. "
                  + "Right for a fixed weekly split."
         case .rotation, .everyNDays:
-            let next = Rotation.index(on: .now,
-                                      sessionDates: [], dayCount: max(days.count, 1))
-            _ = next
             return "You train \(Rotation.describe(config)), and your "
                  + "\(days.count) workouts cycle in the order they appear in the plan. "
                  + "Three sessions a week through four workouts means the pairing drifts "

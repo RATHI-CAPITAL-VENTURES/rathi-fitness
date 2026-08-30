@@ -119,7 +119,7 @@ final class SnapshotTests: XCTestCase {
         // The CLI refuses a version it does not know, so bumping the app's
         // schema without bumping `SCHEMA_SUPPORTED` in `cli/gym` makes RIA go
         // blind until someone notices. Failing here is the reminder.
-        XCTAssertEqual(Snapshot.currentSchema, 4)
+        XCTAssertEqual(Snapshot.currentSchema, 5)
         // The CLI reads these exact keys. Renaming one is a schema bump.
         for key in ["generated_at", "body_weight", "exercises", "plan", "passes", "sessions"] {
             XCTAssertNotNil(object[key], "missing top-level key \(key)")

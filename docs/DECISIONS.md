@@ -597,3 +597,84 @@ know that `make guards` going green is a weaker claim than CI going green. There
 is no modern bash on this machine to test against, so this is a note rather than
 a tool; it is written down in the `Makefile` target too, which is where someone
 will be standing when it bites.
+
+## 2026-08-29 — A day was the session, in twenty-eight places
+
+"What if I wanted to do two sessions in the same day?" had no answer, because
+the app had no sessions. A workout was *inferred* by grouping `SetEntry.date` on
+`startOfDay`, and that inference lived in 28 expressions across 9 files. Nothing
+declared the invariant; it was simply true everywhere, which is the shape of an
+assumption that cannot be reviewed. You find it by asking a question it cannot
+answer.
+
+Four user-visible bugs, one root cause: two-a-days reached Apple Health as a
+single twelve-hour workout, the rotation advanced once so the next day offered
+the workout you had just done, the evening lift continued the morning's set
+numbering, and the second workout opened with the first one's checklist ticked.
+
+**Chosen: a real `Session`, opened by which workout you picked.** A session
+opens on the first set logged against a given planned day, and opening one
+closes any other.
+
+**Rejected: a time gap** ("more than three hours apart is a new workout"). It is
+cheap, needs no migration, and works on existing history — and it is wrong in
+both directions on exactly the days it would be used. A long workout with a
+break in it splits in two; a lift running straight into cardio merges into one.
+A rule that reads the user's actual choice of workout cannot be wrong about it.
+
+**Rejected: a counter on `SetEntry`** — a `bout: Int` incremented by a button.
+Cheaper again, and it is the thing this repo has already learned not to do: a
+workaround for a missing entity becomes the permanent shape of the data, because
+nobody re-migrates it later.
+
+**What it deliberately does not separate:** the same workout twice in one day.
+Sessions are keyed by the planned day, so a second run at Push A joins the first.
+The way out is the **Finish** action on Today, which is a truthful thing for a
+person to say rather than a setting invented for an edge case. Keying on time
+instead would bring the heuristic back through the side door.
+
+**The migration that would have doubled a year of training.** Health export
+records what has already been sent, and everything sent before today was marked
+by the *start of a day*. Keying the new check on the session start alone would
+have made every historical workout look unsent and written a duplicate of each
+one into Apple Health. A day already marked now covers the sessions inside it,
+and there is a test named after the failure.
+
+**A set with no session still happened.** The snapshot builder iterated sessions
+and silently dropped anything unattached — which is not hypothetical, because
+CloudKit delivers rows from devices still on an older build. Orphans are grouped
+by day and included, with no `day` name rather than a guessed one. Three
+existing tests caught this, because seeding sets directly is exactly the shape
+the old build writes.
+
+## 2026-08-30 — `blocked:` is not a size argument
+
+v0.3.0's retro closed three gaps as `blocked:` — Trends grouping by day, the
+past-days pager, and `Snapshot.today`'s weekday resolver — with reasons that all
+came down to *this change is already big enough*. The `followups` gate accepted
+them, because the format was right. The work was done two days later anyway.
+
+`CLAUDE.md` is explicit that this is the case `blocked:` does not cover: it is
+for a gap that genuinely cannot be closed here — an Apple entitlement, a System
+Settings toggle, a signal that does not exist yet. "I could do this, and I'd
+rather do it later" is the thing the two-status contract exists to stop, and a
+well-formatted reason is exactly how it gets past a gate that can only read the
+format.
+
+**The estimates were wrong in the direction that makes it worse.** Trends needed
+one shared function — `workoutKey` — not the `Tally` rewrite the row predicted.
+`PastDayView` got *shorter*, because taking a session deleted the code that
+guessed a workout's name by scoring its exercises against every planned day.
+Only the snapshot resolver was as involved as claimed.
+
+**And deferring it hid a bug.** The rotation-aware `Snapshot.today` indexed into
+an **unsorted** `PlannedDay` fetch while `TodayView` reads its days through
+`@Query(sort: \PlannedDay.order)`. So the first version of the fix still
+answered differently from the phone — a second disagreement hiding underneath
+the first, found by a test written the same afternoon. Another two weeks and it
+would have been found by `gym today` naming the wrong workout.
+
+**The rule, restated for the next time:** if the only thing stopping you is that
+the diff is getting long, the honest move is a second PR this week, not a
+`blocked:` row. Write `blocked:` when you can name the thing outside your control
+that stops you.

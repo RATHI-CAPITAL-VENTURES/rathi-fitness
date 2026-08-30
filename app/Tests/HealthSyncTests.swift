@@ -80,17 +80,39 @@ final class HealthSyncTests: XCTestCase {
     func testTodayIsNotExportedWhileYouMightStillBeInTheGym() {
         let now = day(2026, 8, 20, 18)
         let ready = HealthSync.sessionsReadyToExport(
-            setDates: [day(2026, 8, 19), day(2026, 8, 20, 17)],
+            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 20, 17)],
             alreadyExported: [], now: now)
-        XCTAssertEqual(ready, [cal.startOfDay(for: day(2026, 8, 19))])
+        XCTAssertEqual(ready, [day(2026, 8, 19, 7)])
     }
 
-    func testAlreadyExportedDaysAreNotSentTwice() {
+    /// The whole point of schema 5, at the Health end: a morning lift and an
+    /// evening lift are two workouts, not one twelve-hour one.
+    func testTwoWorkoutsInADayGoOverAsTwo() {
+        let ready = HealthSync.sessionsReadyToExport(
+            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 19, 19)],
+            alreadyExported: [], now: day(2026, 8, 20, 9))
+        XCTAssertEqual(ready, [day(2026, 8, 19, 7), day(2026, 8, 19, 19)])
+    }
+
+    func testAlreadyExportedWorkoutsAreNotSentTwice() {
+        let already: Set<Date> = [day(2026, 8, 19, 7)]
+        let ready = HealthSync.sessionsReadyToExport(
+            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 17, 7)],
+            alreadyExported: already, now: day(2026, 8, 20, 18))
+        XCTAssertEqual(ready, [day(2026, 8, 17, 7)])
+    }
+
+    /// The upgrade path. Everything exported before sessions existed was marked
+    /// by the START OF ITS DAY, so a workout inside one of those days has
+    /// already gone over — matching only on its own start would write a
+    /// duplicate of every historical workout into Apple Health.
+    func testADayExportedBeforeSessionsExistedIsNotSentAgain() {
         let already: Set<Date> = [cal.startOfDay(for: day(2026, 8, 19))]
         let ready = HealthSync.sessionsReadyToExport(
-            setDates: [day(2026, 8, 19), day(2026, 8, 17)],
+            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 19, 19)],
             alreadyExported: already, now: day(2026, 8, 20, 18))
-        XCTAssertEqual(ready, [cal.startOfDay(for: day(2026, 8, 17))])
+        XCTAssertTrue(ready.isEmpty,
+                      "a day already sent covers the workouts inside it")
     }
 
     // MARK: units
