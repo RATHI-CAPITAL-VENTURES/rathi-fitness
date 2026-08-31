@@ -27,6 +27,7 @@ reader distrust the rest of the file.)
 | Defaults | Settings → New exercises. Sets, reps, rest and cardio length a new plan slot opens on, so you stop correcting 3 × 10 every time. |
 | Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
+| Showing up | Today, under the workout — twelve weeks as twelve marks, and the share of **planned** workouts you actually did. Deliberately not a streak: nothing resets, and a rest day is the plan, not a miss. |
 
 ## Shape
 

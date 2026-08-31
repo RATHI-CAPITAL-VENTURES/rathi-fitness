@@ -243,3 +243,99 @@ struct EmptyNote: View {
         .background(RFDesign.surface, in: RoundedRectangle(cornerRadius: RFDesign.radiusSmall))
     }
 }
+
+/// Twelve weeks of showing up, as twelve marks.
+///
+/// The deliberate non-streak. There is no counter to reset, so there is no
+/// zero to fall to and no moment where one missed week makes the honest move
+/// look like quitting — see the reasoning on `Tally.consistency`.
+///
+/// Reading it: a full mark is a week you met the plan, a half-height mark is a
+/// week you trained but came up short, and an empty one is a week you did not.
+/// The current week is outlined rather than filled, because it has not
+/// happened yet and drawing it as a miss would be a lie told every Monday.
+struct ConsistencyBand: View {
+    var consistency: Tally.Consistency
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Showing up").rfEyebrow()
+                Spacer()
+                Text(rangeLabel).rfEyebrow()
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(headline)
+                    .font(RFDesign.figure(34, relativeTo: .title))
+                    .foregroundStyle(RFDesign.ready)
+                if let caption {
+                    Text(caption)
+                        .font(RFDesign.ui(12.5))
+                        .foregroundStyle(RFDesign.labelDim)
+                }
+            }
+
+            HStack(spacing: 4) {
+                ForEach(consistency.weeks) { week in
+                    Mark(week: week)
+                }
+            }
+            .frame(height: 18)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Weekly consistency")
+            .accessibilityValue(accessibilityValue)
+        }
+    }
+
+    /// The percentage, or the honest alternative before a week has finished.
+    private var headline: String {
+        guard let adherence = consistency.adherence else { return "—" }
+        return "\(Int((adherence * 100).rounded()))%"
+    }
+
+    private var caption: String? {
+        guard consistency.adherence != nil else {
+            return "first week under way"
+        }
+        return "\(consistency.credited) of \(consistency.planned) planned workouts"
+    }
+
+    private var rangeLabel: String {
+        let weeks = consistency.weeks.count
+        return weeks == 1 ? "this week" : "last \(weeks) weeks"
+    }
+
+    private var accessibilityValue: String {
+        let met = consistency.weeks.filter(\.met).count
+        return "\(met) of \(consistency.weeks.count) weeks met the plan"
+    }
+
+    /// One week. Height carries how much of the plan you did, so a short week
+    /// reads as short rather than as a different colour — the app already
+    /// spends colour on the cooldown and cannot afford a second meaning.
+    private struct Mark: View {
+        let week: Tally.Week
+
+        var body: some View {
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.07))
+                    if week.inProgress {
+                        RoundedRectangle(cornerRadius: 2)
+                            .strokeBorder(RFDesign.ready.opacity(0.45), lineWidth: 1)
+                    } else if week.done > 0 {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(RFDesign.ready.opacity(week.met ? 1 : 0.42))
+                            // A week you trained but came up short still shows
+                            // something. Floor at a third so one session out of
+                            // three is visible rather than a hairline.
+                            .frame(height: max(geo.size.height * week.fraction,
+                                               geo.size.height / 3))
+                    }
+                }
+            }
+        }
+    }
+}
