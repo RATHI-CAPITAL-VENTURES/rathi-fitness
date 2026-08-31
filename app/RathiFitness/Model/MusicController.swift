@@ -166,11 +166,17 @@ final class MusicController: ObservableObject {
         guard status.isReady else { return }
         guard let entry = player.queue.currentEntry else {
             now = nil
+            AudioHub.shared.ownMusicIsPlaying = false
             return
         }
         let fresh = NowPlaying(title: entry.title,
                                artist: entry.subtitle,
                                isPlaying: player.state.playbackStatus == .playing)
+        // `AudioHub` cannot duck this: `ApplicationMusicPlayer` renders through
+        // the app's own session, and `.duckOthers` ducks other apps. Telling it
+        // the music is on is what lets a cue be rendered loud enough to be
+        // heard over it.
+        AudioHub.shared.ownMusicIsPlaying = fresh.isPlaying
         // The track changed, so whatever cover is on screen is the last one's.
         if fresh.title != now?.title { artworkToken &+= 1 }
         now = fresh

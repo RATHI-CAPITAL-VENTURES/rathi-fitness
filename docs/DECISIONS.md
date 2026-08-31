@@ -678,3 +678,51 @@ would have been found by `gym today` naming the wrong workout.
 the diff is getting long, the honest move is a second PR this week, not a
 `blocked:` row. Write `blocked:` when you can name the thing outside your control
 that stops you.
+
+## 2026-08-30 — `.duckOthers` does not duck you
+
+"When I'm playing music I can't hear the cooldown ping." Three defects, none
+visible alone, all of which only line up while music is playing.
+
+**`AudioHub` promised something its mechanism could not deliver.** Its own doc
+comment says the ping "has to be audible over music", and it set `.duckOthers`
+to get there. But `MusicController` plays through `ApplicationMusicPlayer`,
+which renders in **this app's** audio session — and `.duckOthers` attenuates
+*other* apps. Spotify ducked; our own track did not. The cue was a 45 ms sine at
+gain 0.30 against a full-level song.
+
+**Chosen: the cue carries itself.** Rendered cues are normalised to a known
+peak, and there is a second, louder render used while our own music plays. Two
+renders rather than one gain knob, because it is not a volume: a cue sitting at
+the ceiling in a silent room with AirPods in is a shock.
+
+Rejected: **`SystemMusicPlayer`**, which would put the music in the Music app's
+session where `.duckOthers` really would duck it. It also hands the now-playing
+role to the Music app, and that role is the only way an AirPods squeeze reaches
+us — the trade the whole class exists to make. Rejected: **pausing the music
+around the ping**, which chops the track for a 45 ms tone and costs MusicKit's
+play/pause latency at both ends.
+
+**The backup channel was not there either.** No `UNUserNotificationCenterDelegate`
+existed, so iOS suppressed the local notification whenever the app was
+frontmost — which is where you are during a rest, watching the ring. And the
+gate deciding whether that notification carried a sound asked
+`isHoldingRemoteControl`, a different question whose answer is `false` exactly
+when music is playing, since `arm()` only holds silence when nothing real is. So
+the gate said "let the notification sound" while the delegate's absence meant it
+never did. **Two channels, both failing, for unrelated reasons, in the same
+conditions.** That is why the bug reads as one thing and is three.
+
+**And a stored flag that outlived its fact.** `engineRunning` was set at
+`engine.start()` and cleared only in `deactivate()`. `AVAudioEngine` stops itself
+on a configuration change — a route change when AirPods connect — so the flag
+went on claiming `true` while every cue was scheduled into a dead engine. The
+lesson is small and general: **do not cache a fact the system owns.**
+`engine.isRunning` is now read directly, and the configuration-change and
+interruption notifications are observed.
+
+**What I could not verify.** The simulator has no Apple Music, so none of this
+was confirmed by ear. What is tested is what can be: every cue renders
+non-silent and below the ceiling, the over-music render is meaningfully louder,
+and the notification carries its own sound when nothing will chime. The
+audibility itself needs a phone, a track and a person.
