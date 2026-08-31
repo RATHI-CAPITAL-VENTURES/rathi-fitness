@@ -14,6 +14,41 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.3.2 — 2026-08-30
+
+### Fixed
+
+- **The cooldown ping could not be heard over your own music.** Three defects,
+  and they only line up when music is playing, which is why nothing caught them.
+
+  1. **You cannot duck yourself.** `MusicController` uses
+     `ApplicationMusicPlayer`, which renders through the app's *own* audio
+     session, and `AudioHub` sets `.duckOthers` — which ducks **other apps**. A
+     podcast dropped under the ping; our own track did not, so a 45 ms sine at
+     gain 0.30 sat far under it. Cues are now normalised on render and get a
+     separate, much louder render while our own music is playing.
+  2. **The notification was suppressed exactly when it was needed.** There was no
+     `UNUserNotificationCenterDelegate`, so iOS showed nothing while the app was
+     frontmost — which is where you are during a rest. It is presented now, but
+     only when the app cannot make the sound itself.
+  3. **The gate asked the wrong question.** `content.sound` was decided by
+     `isHoldingRemoteControl`, which is `false` precisely when music is playing
+     (`arm()` only holds silence when nothing real is). It asks
+     `AudioHub.willSoundCues` now — "will the app actually chime" — so exactly
+     one channel speaks.
+
+- **A cue after connecting AirPods was silent.** `engineRunning` was a stored
+  flag set once and cleared only at teardown, and nothing watched
+  `AVAudioEngineConfigurationChange`. A route change stops the engine; the flag
+  kept saying `true`, so every later cue was scheduled into a dead engine. The
+  engine's own `isRunning` is the truth now, and the engine is rebuilt on a
+  configuration change and after a call interruption.
+
+- **`restOver` clipped on a loud setting.** Its second and third notes overlap
+  and summed past 0.8 before the user's volume was applied. Normalising fixed it
+  as a side effect, and the test that claimed "renders without clipping" now
+  measures instead of only checking that `play` did not throw.
+
 ## 0.3.1 — 2026-08-30
 
 Clears every follow-up v0.3.0's retro left `blocked:`. All three were readable

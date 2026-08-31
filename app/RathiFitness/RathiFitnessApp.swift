@@ -37,6 +37,10 @@ struct RathiFitnessApp: App {
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
                 .task {
+                    // Without a delegate iOS shows nothing while the app is
+                    // frontmost, so the cooldown alert existed only for a
+                    // backgrounded app — the opposite of when it is needed.
+                    CueNotifications.install()
                     let context = container.mainContext
                     reportingFailure("setting up your plan") {
                         try Seed.runIfNeeded(context)

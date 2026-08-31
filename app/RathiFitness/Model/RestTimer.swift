@@ -140,13 +140,49 @@ final class RestTimer: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = exercise.map { "\($0) — you're up" } ?? "You're up"
         content.body = "Rest is done."
-        // Silent when the app is holding the audio session: it is alive in the
-        // background and about to play the real chime, and two alerts a second
-        // apart reads as a bug rather than as emphasis.
-        content.sound = AudioHub.shared.isHoldingRemoteControl ? nil : .default
+        // Silent only when the app really will make the noise itself — two
+        // alerts a second apart reads as a bug rather than as emphasis.
+        //
+        // This asked `isHoldingRemoteControl`, which is a different question and
+        // is `false` exactly when music is playing, since `RemoteControls.arm`
+        // only holds silence when nothing real is. So with music on, the gate
+        // said "the notification should sound" — while the foreground
+        // suppression below meant it never did, and the in-app chime was buried
+        // under the track. Both channels failed at once, which is what "I can't
+        // hear the ping over my music" turned out to be.
+        content.sound = AudioHub.shared.willSoundCues ? nil : .default
         content.interruptionLevel = .timeSensitive
         center.add(UNNotificationRequest(
             identifier: Self.notificationID, content: content,
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)))
+    }
+}
+
+/// Lets the cooldown notification through while the app is on screen.
+///
+/// iOS suppresses a local notification whose app is frontmost unless a delegate
+/// says otherwise, and nothing here was one. So the "you're up" alert existed
+/// only for a backgrounded app — which is the opposite of when it was needed
+/// during a two-minute rest spent looking at the ring with music playing: the
+/// chime was buried under the track and the notification was not shown at all.
+///
+/// It defers to the app's own chime rather than doubling it. If `AudioHub` is
+/// going to make the noise, this shows nothing; if it cannot — engine stopped,
+/// session lost to a call — the notification carries the alert instead. Exactly
+/// one of the two speaks.
+final class CueNotifications: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = CueNotifications()
+
+    /// Called once at launch. Setting the delegate is the whole installation.
+    static func install() {
+        UNUserNotificationCenter.current().delegate = shared
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        let appWillSoundIt = await MainActor.run { AudioHub.shared.willSoundCues }
+        return appWillSoundIt ? [] : [.banner, .sound]
     }
 }

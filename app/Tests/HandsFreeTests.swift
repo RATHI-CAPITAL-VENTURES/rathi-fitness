@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import RathiFitness
 
 /// The AirPods layer, which is the only part of the app that can act without
@@ -118,12 +119,55 @@ final class CueTests: XCTestCase {
         }
     }
 
+    /// This used to call `play` and assert it did not throw, under a name that
+    /// promised rather more. The renderer normalises now, so the claim in the
+    /// name is one the test can actually make.
     func testTonesRenderWithoutClippingOrSilence() {
         let hub = AudioHub.shared
         for tone in AudioHub.Tone.allCases {
-            // Rendering happens lazily inside `play`; this just proves the
-            // scores are well-formed rather than exercising the hardware.
-            XCTAssertNoThrow(hub.play(tone))
+            for overMusic in [false, true] {
+                let peak = peakOf(hub.render(.init(tone: tone, overMusic: overMusic)))
+                XCTAssertGreaterThan(peak, 0.1,
+                                     "\(tone.rawValue) renders near-silent")
+                XCTAssertLessThanOrEqual(peak, 1.0,
+                                         "\(tone.rawValue) clips")
+            }
         }
+    }
+
+    /// The reason two renders exist.
+    ///
+    /// `MusicController` uses `ApplicationMusicPlayer`, which plays through the
+    /// app's OWN audio session — and `.duckOthers` ducks other apps. Nothing
+    /// attenuates our music under a cue, so the cue has to carry itself or it is
+    /// simply not heard, which is what "I can't hear the ping over my music"
+    /// was.
+    func testACueHasToBeLouderWhenItIsCompetingWithOurOwnMusic() {
+        let hub = AudioHub.shared
+        for tone in AudioHub.Tone.allCases {
+            let quiet = peakOf(hub.render(.init(tone: tone, overMusic: false)))
+            let loud = peakOf(hub.render(.init(tone: tone, overMusic: true)))
+            XCTAssertGreaterThan(loud, quiet * 1.5,
+                                 "\(tone.rawValue) is no louder over music")
+        }
+    }
+
+    /// The notification is the backup channel, and it must not go silent on the
+    /// strength of a chime that cannot play. Before the session is taken there
+    /// is no engine, so the alert has to bring its own sound.
+    func testTheNotificationCarriesSoundWhenTheAppCannotMakeIt() {
+        XCTAssertFalse(AudioHub.shared.willSoundCues,
+                       "nothing is holding the session, so nothing will chime")
+    }
+
+    private func peakOf(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let channels = buffer.floatChannelData else { return 0 }
+        var peak: Float = 0
+        for channel in 0..<Int(buffer.format.channelCount) {
+            for frame in 0..<Int(buffer.frameLength) {
+                peak = max(peak, abs(channels[channel][frame]))
+            }
+        }
+        return peak
     }
 }
