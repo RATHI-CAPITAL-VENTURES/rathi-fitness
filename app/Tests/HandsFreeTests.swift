@@ -36,6 +36,61 @@ final class HandsFreeTests: XCTestCase {
         XCTAssertEqual(RemoteControls.Gesture.double.action, .nextTrack)
     }
 
+    // MARK: the silent switch
+
+    /// `-RFSilent` exists so a UI test never reaches the audio engine, because
+    /// the simulator's audio server can time out and CoreAudio answers that
+    /// with `abort()`. These assert the gate actually gates rather than merely
+    /// existing — a flag nobody checks is the shape of the original bug.
+
+    func testSilentModeStopsTheEngineEverBeingTouched() {
+        let hub = AudioHub.shared
+        let wasEnabled = AudioHub.isEnabled
+        defer { AudioHub.isEnabled = wasEnabled }
+
+        // The hub is a singleton with a private init, so an earlier test in the
+        // same run may have left a live session and a running engine behind.
+        // Hand it back first: `isEnabled` gates the engine **starting**, it is
+        // not a runtime kill switch for one already running — which is the
+        // right semantic for a launch argument read once at launch, and the
+        // wrong thing to assume in a test. This assertion failed for exactly
+        // that reason before the `deactivate()` was here.
+        hub.deactivate()
+        XCTAssertFalse(hub.willSoundCues, "the hub should be idle before the gate is tested")
+
+        AudioHub.isEnabled = false
+        hub.activate()
+        // No engine means no cues, which is exactly what `willSoundCues` is for:
+        // the local notification brings its own sound instead.
+        XCTAssertFalse(hub.willSoundCues)
+        // Every audible path must be a no-op rather than a crash.
+        for tone in AudioHub.Tone.allCases { hub.play(tone) }
+        hub.holdRemoteControl(true)
+        XCTAssertFalse(hub.isHoldingRemoteControl,
+                       "the now-playing trick needs a live engine; silent must refuse it")
+        hub.deactivate()
+    }
+
+    func testTheFlagIsReadFromTheLaunchArgumentsAndNotHardcodedOff() {
+        // The default for a normal run is ON. A gate that defaults to silent
+        // would ship an app that never chimes and never says why.
+        XCTAssertEqual(AudioHub.isEnabled,
+                       !ProcessInfo.processInfo.arguments.contains("-RFSilent"))
+    }
+
+    /// Rendering is deliberately independent of the engine, which is what makes
+    /// the cues testable at all in an environment that cannot play them.
+    func testCuesStillRenderWhileSilent() {
+        let wasEnabled = AudioHub.isEnabled
+        defer { AudioHub.isEnabled = wasEnabled }
+        AudioHub.isEnabled = false
+
+        for tone in AudioHub.Tone.allCases {
+            let buffer = AudioHub.shared.render(AudioHub.Cue(tone: tone, overMusic: false))
+            XCTAssertGreaterThan(buffer.frameLength, 0, "\(tone) rendered nothing")
+        }
+    }
+
     // MARK: what a squeeze does, and does not do
 
     /// The bug this whole design exists to avoid: a squeeze on the Trends tab
