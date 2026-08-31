@@ -64,13 +64,41 @@ final class AudioHub: ObservableObject {
     private let silenceNode = AVAudioPlayerNode()
     private let speaker = AVSpeechSynthesizer()
     private lazy var format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
-    private var buffers: [Tone: AVAudioPCMBuffer] = [:]
-    private var engineRunning = false
+    private var buffers: [Cue: AVAudioPCMBuffer] = [:]
     private var sessionActive = false
+    private var watching = false
+
+    /// Whether OUR OWN music is playing — `MusicController` sets this.
+    ///
+    /// It matters because `ApplicationMusicPlayer` renders through *this app's*
+    /// audio session, and `.duckOthers` ducks **other** apps. You cannot duck
+    /// yourself, so nothing attenuates the music under a cue and the cue has to
+    /// carry itself. See `Cue.overMusic`.
+    var ownMusicIsPlaying = false
+
+    /// The engine's own answer, not a copy of it.
+    ///
+    /// This was a stored `engineRunning` flag set at `start()` and cleared only
+    /// in `deactivate()`. `AVAudioEngine` stops itself on a configuration
+    /// change — a route change when AirPods connect, or the session being
+    /// reconfigured when music starts — and the flag went on saying `true`, so
+    /// every later cue was scheduled into a dead engine and silently dropped
+    /// until you left the screen and came back.
+    private var engineRunning: Bool { engine.isRunning }
 
     private init() {
         volume = UserDefaults.standard.object(forKey: Keys.volume) as? Double ?? 0.85
     }
+
+    /// Whether a cue played right now would actually be heard.
+    ///
+    /// The local notification asks this to decide whether to carry a sound: if
+    /// the app is going to make the noise itself, two alerts a second apart
+    /// reads as a bug rather than as emphasis. It used to ask
+    /// `isHoldingRemoteControl`, which is a different question — and one whose
+    /// answer is `false` precisely when music is playing, because `arm()` only
+    /// holds silence when nothing real is.
+    var willSoundCues: Bool { sessionActive && engineRunning }
 
     // MARK: - Session
 
@@ -96,10 +124,7 @@ final class AudioHub: ObservableObject {
     func deactivate() {
         holdRemoteControl(false)
         speaker.stopSpeaking(at: .immediate)
-        if engineRunning {
-            engine.stop()
-            engineRunning = false
-        }
+        if engineRunning { engine.stop() }
         #if os(iOS)
         guard sessionActive else { return }
         try? AVAudioSession.sharedInstance()
@@ -108,7 +133,55 @@ final class AudioHub: ObservableObject {
         #endif
     }
 
+    /// Restart the engine when the system pulls it out from under us.
+    ///
+    /// `AVAudioEngineConfigurationChange` fires when the route or format
+    /// changes — plugging in AirPods, or MusicKit starting playback — and the
+    /// engine is **stopped** by the time it arrives. Nothing watched for it, so
+    /// the first cue after connecting AirPods was the last one you heard.
+    private func watchForConfigurationChanges() {
+        guard !watching else { return }
+        watching = true
+        let centre = NotificationCenter.default
+        centre.addObserver(forName: .AVAudioEngineConfigurationChange,
+                           object: engine, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.restartEngine() }
+        }
+        #if os(iOS)
+        centre.addObserver(forName: AVAudioSession.interruptionNotification,
+                           object: AVAudioSession.sharedInstance(),
+                           queue: .main) { [weak self] note in
+            // A phone call ends and the session comes back deactivated. Without
+            // this the cooldown that was running when the call arrived finishes
+            // in silence.
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            Task { @MainActor in
+                self?.sessionActive = false
+                self?.activate()
+            }
+        }
+        #endif
+    }
+
+    private func restartEngine() {
+        // The graph survives a configuration change; the engine does not.
+        // Reconnecting is what makes it playable again on the new format.
+        engine.disconnectNodeOutput(cueNode)
+        engine.disconnectNodeOutput(silenceNode)
+        engine.connect(cueNode, to: engine.mainMixerNode, format: format)
+        engine.connect(silenceNode, to: engine.mainMixerNode, format: format)
+        try? engine.start()
+        if isHoldingRemoteControl {
+            // The silence loop went with the engine, and with it the
+            // now-playing role the AirPods gestures depend on.
+            isHoldingRemoteControl = false
+            holdRemoteControl(true)
+        }
+    }
+
     private func startEngineIfNeeded() {
+        watchForConfigurationChanges()
         guard !engineRunning else { return }
         if engine.attachedNodes.contains(cueNode) == false {
             engine.attach(cueNode)
@@ -117,14 +190,10 @@ final class AudioHub: ObservableObject {
             engine.connect(silenceNode, to: engine.mainMixerNode, format: format)
         }
         engine.prepare()
-        do {
-            try engine.start()
-            engineRunning = true
-        } catch {
-            // A dead engine costs the tones and nothing else — the haptics and
-            // the local notification still land.
-            engineRunning = false
-        }
+        // A dead engine costs the tones and nothing else — the haptics and the
+        // local notification still land, and `willSoundCues` tells the
+        // notification to bring its own sound.
+        try? engine.start()
     }
 
     // MARK: - Holding the now-playing role
@@ -156,12 +225,33 @@ final class AudioHub: ObservableObject {
 
     // MARK: - Tones
 
+    /// A tone, and whether it has to be heard over our own music.
+    ///
+    /// Two renders of each tone rather than one gain knob, because the
+    /// difference is not a volume: an over-music cue is normalised right up to
+    /// the ceiling, and a cue that sits at the ceiling all the time is a shock
+    /// in AirPods in a silent room.
+    /// Internal rather than private so the tests can render a cue and measure
+    /// it. "The tones render without clipping" was an assertion nobody could
+    /// make while the renderer was sealed; the old test only checked that
+    /// calling `play` did not throw.
+    struct Cue: Hashable {
+        var tone: Tone
+        var overMusic: Bool
+    }
+
     func play(_ tone: Tone) {
         startEngineIfNeeded()
         guard engineRunning else { return }
-        let buffer = buffers[tone] ?? render(tone)
-        buffers[tone] = buffer
-        cueNode.volume = Float(max(0, min(1, volume)))
+        let cue = Cue(tone: tone, overMusic: ownMusicIsPlaying)
+        let buffer = buffers[cue] ?? render(cue)
+        buffers[cue] = buffer
+        // The user's setting still scales it, but never below audibility when
+        // it is competing with a track — a cue you cannot hear is the same as
+        // no cue, and the whole point of the ping is that it reaches you when
+        // you are not looking at the screen.
+        let level = max(0, min(1, volume))
+        cueNode.volume = Float(cue.overMusic ? max(0.75, level) : level)
         cueNode.scheduleBuffer(buffer, at: nil, options: [.interrupts])
         if !cueNode.isPlaying { cueNode.play() }
     }
@@ -201,8 +291,17 @@ final class AudioHub: ObservableObject {
         }
     }
 
-    private func render(_ tone: Tone) -> AVAudioPCMBuffer {
-        let notes = score(for: tone)
+    /// Peak the rendered cue is normalised to.
+    ///
+    /// Normalising at all is new. The scores were hand-gained and `restOver`'s
+    /// second and third notes overlap, summing past 0.8 before the user's
+    /// volume was applied — close enough to the ceiling to clip on a loud
+    /// setting. Normalising fixes that AND makes "louder over music" a single
+    /// honest number instead of a multiplier that would have clipped.
+    private func peak(overMusic: Bool) -> Float { overMusic ? 0.97 : 0.55 }
+
+    func render(_ cue: Cue) -> AVAudioPCMBuffer {
+        let notes = score(for: cue.tone)
         let seconds = (notes.map { $0.start + $0.length }.max() ?? 0.2) + 0.05
         let rate = format.sampleRate
         let frames = AVAudioFrameCount(seconds * rate)
@@ -225,6 +324,22 @@ final class AudioHub: ObservableObject {
                 for channel in 0..<Int(format.channelCount) {
                     channels[channel][frame] += value
                 }
+            }
+        }
+
+        // Normalise. The scores are written for shape, not for level; the level
+        // is decided here, once, where the ceiling is known.
+        var loudest: Float = 0
+        for channel in 0..<Int(format.channelCount) {
+            for frame in 0..<Int(frames) {
+                loudest = max(loudest, abs(channels[channel][frame]))
+            }
+        }
+        guard loudest > 0 else { return buffer }
+        let scale = peak(overMusic: cue.overMusic) / loudest
+        for channel in 0..<Int(format.channelCount) {
+            for frame in 0..<Int(frames) {
+                channels[channel][frame] *= scale
             }
         }
         return buffer
