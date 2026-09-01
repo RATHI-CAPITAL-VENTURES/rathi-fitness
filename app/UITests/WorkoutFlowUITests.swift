@@ -78,10 +78,26 @@ final class WorkoutFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 20))
 
         app.swipeLeft()
-        let ago = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS[c] %@", "ago")).firstMatch
-        XCTAssertTrue(ago.waitForExistence(timeout: 10),
+        // "moved", the tonnage caption, and nothing else in the app says it.
+        //
+        // This asserted on the word "ago" until v0.4.1, which is a fact about
+        // the CALENDAR rather than about the swipe: `PastDayView.daysAgo`
+        // answers "Yesterday" at one day and "Last week" at exactly seven, so
+        // the test passed or failed depending on which weekday the suite ran
+        // and where the demo history happened to fall. It went green for
+        // eleven releases and then failed on a Tuesday having found the page
+        // it was looking for.
+        let moved = app.staticTexts["moved"]
+        XCTAssertTrue(moved.waitForExistence(timeout: 10),
                       "swiping left should reach a workout you already did")
+        // The relative label is still checked — just against every form it can
+        // actually take, rather than the three of four that contain "ago".
+        let relative = ["Yesterday", "Last week"]
+        let hasRelative = relative.contains { app.staticTexts[$0].exists }
+            || app.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS[c] %@", "ago")).firstMatch.exists
+        XCTAssertTrue(hasRelative,
+                      "the page should say how long ago the workout was")
         // A backfilled workout is named from what was in it, so the page is not
         // a nameless "Workout".
         XCTAssertFalse(app.staticTexts["Logged as you went"].exists,

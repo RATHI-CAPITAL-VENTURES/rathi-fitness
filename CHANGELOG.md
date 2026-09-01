@@ -14,6 +14,27 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.3.4 — 2026-09-01
+
+### Fixed
+
+- **A UI test asserted on the calendar, not on the app.**
+  `testPastWorkoutsAreReachableBySwiping` swiped to a past workout and then
+  checked the page for the word *"ago"*. `PastDayView.daysAgo` answers
+  **"Yesterday"** at one day and **"Last week"** at exactly seven, so the
+  assertion held for two of its four forms — and which form you get depends on
+  which weekday the suite runs and where the demo history falls.
+
+  It went green for eleven releases and then failed on a Tuesday **having found
+  exactly the page it was looking for**: the dump shows "Yesterday · Pull A ·
+  Mon 31 Aug" with the full summary under it. A test that fails while the
+  feature works is worse than no test, because the first instinct is to go
+  looking for a regression in the code that just landed.
+
+  It now anchors on `"moved"` — the tonnage caption, which nothing else in the
+  app says — and still checks the relative label, against every form it can
+  actually take instead of the two that happen to contain "ago".
+
 ## 0.3.3 — 2026-08-31
 
 ### Fixed
