@@ -588,6 +588,38 @@ final class PlanDefaults {
         context.insert(made)
         return made
     }
+
+    /// The slots a plan-wide rest change would touch.
+    ///
+    /// Separate from the write so the confirmation can name a real number.
+    /// "Set every rest to 1:30?" with no count is a dialog asking you to trust
+    /// it about the size of the thing it is about to do.
+    ///
+    /// **Cardio is excluded, deliberately.** `restSeconds` on a cardio slot is
+    /// the gap *between intervals* — a different quantity that happens to share
+    /// a field, and one that is `0` on every treadmill slot the plan editor
+    /// creates. Writing 90 seconds across them would not reset anything; it
+    /// would invent intervals nobody asked for, on slots whose rest column
+    /// currently reads "—". A cardio slot that *has* an interval rest was set
+    /// by hand, which is exactly the setting a blanket apply should not eat.
+    static func slotsTakingPlanRest(in context: ModelContext) throws -> [PlanItem] {
+        try context.fetch(FetchDescriptor<PlanItem>())
+            .filter { !($0.exercise?.isCardio ?? false) }
+    }
+
+    /// Push one rest onto every strength slot in the plan. Returns how many
+    /// actually changed — a slot already at the value is not a write, so
+    /// applying twice reports `0` the second time rather than claiming work.
+    @discardableResult
+    static func applyRestToPlan(_ seconds: Int, in context: ModelContext) throws -> Int {
+        var changed = 0
+        for item in try slotsTakingPlanRest(in: context) where item.restSeconds != seconds {
+            item.restSeconds = seconds
+            changed += 1
+        }
+        if changed > 0 { try context.save() }
+        return changed
+    }
 }
 
 /// Everything about the body that isn't a lift.

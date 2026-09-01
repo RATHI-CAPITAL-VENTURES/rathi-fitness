@@ -529,4 +529,46 @@ final class WritePathUITests: XCTestCase {
             "a rotation should describe itself in terms of the cycle")
         shoot("schedule")
     }
+    /// `SettingsView` — `PlanDefaults.applyRestToPlan`.
+    ///
+    /// The newest control in the app that writes, and a bulk one: it rewrites
+    /// every strength slot on every day in a single tap. Exactly the shape that
+    /// most wants a finger on it, since "the dialog closed" and "eleven rows
+    /// changed" are very different claims.
+    func testApplyingRestToTheWholePlan() {
+        openSettings()
+
+        let apply = app.buttons.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "Apply rest to the whole plan")).firstMatch
+        XCTAssertTrue(apply.waitForExistence(timeout: 10),
+                      "settings should offer to apply rest across the plan")
+        apply.tap()
+
+        // The confirmation names a count, and the count is the reason to trust
+        // the button — so the test presses the counted button, not "the first
+        // one in the sheet".
+        let confirm = app.buttons.containing(
+            NSPredicate(format: "label BEGINSWITH[c] %@", "Set ")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5),
+                      "the confirmation should say how many exercises it will change")
+        confirm.tap()
+
+        // The result line, which only appears once the write returned — the
+        // half of this that "the sheet closed" does not prove.
+        let result = app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "1:30")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5),
+                      "the apply should report what it did")
+        shoot("apply-rest")
+
+        // And the data really moved: the plan's own rows quote each item's rest.
+        back()
+        openThePlan()
+        app.staticTexts["Push A"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "90s rest")).firstMatch
+            .waitForExistence(timeout: 5),
+            "every slot in the day should now quote the applied rest")
+    }
+
 }

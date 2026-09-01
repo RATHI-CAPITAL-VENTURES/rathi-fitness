@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var working = false
     @State private var confirmingWipe = false
     @State private var wipeResult: String?
+    @State private var confirmingRestApply = false
+    @State private var restApplyResult: String?
     @State private var exportFiles: [URL]?
 
     @Query private var allSets: [SetEntry]
@@ -54,6 +56,23 @@ struct SettingsView: View {
                 Button("Keep them", role: .cancel) {}
             } message: {
                 Text("Your plan, exercises and passes are kept. This cannot be undone.")
+            }
+            .confirmationDialog("Set every rest to \(Fmt.clock(planRest))?",
+                                isPresented: $confirmingRestApply, titleVisibility: .visible) {
+                Button("Set \(restSlotCount) \(restSlotCount == 1 ? "exercise" : "exercises")",
+                       role: .destructive) {
+                    restApplyResult = reportingFailure("applying rest to your plan") {
+                        try PlanDefaults.applyRestToPlan(planRest, in: context)
+                    }
+                        .map { $0 == 0 ? "Every exercise was already at \(Fmt.clock(planRest))."
+                                       : "Set \($0) to \(Fmt.clock(planRest))." }
+                    snapshots.setNeedsWrite(context)
+                }
+                Button("Leave them", role: .cancel) {}
+            } message: {
+                Text("Overwrites the rest on every exercise in your plan, on every day. "
+                     + "Cardio is left alone — its rest is the gap between intervals. "
+                     + "This cannot be undone.")
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -248,7 +267,9 @@ struct SettingsView: View {
         SettingsSection(
             title: "New exercises open on",
             footer: "Applies to exercises you add from now on. Nothing already in the plan "
-                  + "changes — edit those on the exercise itself.\n\n"
+                  + "changes on its own — edit those on the exercise itself, or use "
+                  + "\"Apply rest to the whole plan\" to push this rest through all of "
+                  + "them at once.\n\n"
                   + "It follows the programme rather than the phone, so it is the same on "
                   + "every device you log from."
         ) {
@@ -261,9 +282,42 @@ struct SettingsView: View {
                           .map { ($0, Fmt.clock($0)) }) { restBinding.wrappedValue = $0 }
             ChoiceRow(label: "Cardio", value: defaults?.cardioSeconds ?? 20 * 60,
                       options: [10, 15, 20, 25, 30, 40, 45, 60]
-                          .map { ($0 * 60, "\($0) min") },
-                      showsDivider: false) { cardioBinding.wrappedValue = $0 }
+                          .map { ($0 * 60, "\($0) min") }) { cardioBinding.wrappedValue = $0 }
+            // The counterpart to the footer above, rather than a contradiction
+            // of it: the default still never rewrites your programme on its
+            // own, and this is the one place you can ask it to, once, on
+            // purpose. Without it, changing your mind about rest means opening
+            // every slot in the plan and turning the same dial.
+            ActionRow(label: "Apply rest to the whole plan",
+                      detail: restApplyDetail,
+                      symbol: "timer",
+                      showsDivider: false) { confirmingRestApply = true }
+                .disabled(restSlotCount == 0)
+                .opacity(restSlotCount == 0 ? 0.4 : 1)
+            if let restApplyResult {
+                Text(restApplyResult)
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.labelDim)
+                    .padding(.top, 8)
+            }
         }
+    }
+
+    /// The rest the apply row writes: the one set directly above it. One number
+    /// on one dial — a second picker here would be a second place to declare
+    /// the same thing, and the row would stop being obviously about the row
+    /// above it.
+    private var planRest: Int { planDefaults.first?.restSeconds ?? 90 }
+
+    /// What the apply row would do, on the row itself — the count is the part
+    /// that decides whether you tap it.
+    private var restApplyDetail: String {
+        guard restSlotCount > 0 else { return "no exercises yet" }
+        return "\(restSlotCount) \(restSlotCount == 1 ? "exercise" : "exercises")"
+    }
+
+    private var restSlotCount: Int {
+        (try? PlanDefaults.slotsTakingPlanRest(in: context).count) ?? 0
     }
 
     private func defaultsRow() -> PlanDefaults { PlanDefaults.current(in: context) }
