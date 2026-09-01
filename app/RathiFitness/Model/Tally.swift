@@ -384,6 +384,142 @@ enum Tally {
         cardioRecords(for: candidate, history: history).first?.headline
     }
 
+    // MARK: - Showing up
+    //
+    // Deliberately NOT a streak, and the distinction is the whole design.
+    //
+    // `docs/RESEARCH.md` ruled streaks out for a good reason — they turn a
+    // deload week into a failure state — and the reason survives scrutiny: a
+    // counter that resets to zero is reported to make people abandon the habit
+    // *harder* after one miss than no tracking at all, because the number does
+    // not degrade, it detonates. Everything below is the same information with
+    // that edge removed. There is no zero to fall to. A bad week moves a
+    // percentage by a few points and rolls off the back in twelve.
+    //
+    // What makes it possible here and not in Duolingo or the Move ring: this
+    // app KNOWS the schedule. `Rotation.Config` says which days you meant to
+    // train, so a rest day is not an absence of training, it is the plan. The
+    // denominator is what you intended, never the calendar.
+
+    /// One week of the band.
+    struct Week: Equatable, Identifiable {
+        /// Start of the week in the user's own calendar, so it honours
+        /// `firstWeekday` rather than assuming Monday.
+        let start: Date
+        /// Workouts the schedule asked for.
+        let planned: Int
+        /// Workouts you did.
+        let done: Int
+        /// The week `now` falls in. It cannot have been failed yet, so it is
+        /// drawn differently and left out of the percentage — a Monday morning
+        /// that reads "0 of 3" is the app telling you off for not having
+        /// finished a week that has barely started.
+        let inProgress: Bool
+
+        var id: Date { start }
+
+        var met: Bool { planned > 0 && done >= planned }
+
+        /// 0…1, and capped on purpose: four sessions in a three-session week is
+        /// a full week, not a week and a third.
+        var fraction: Double {
+            guard planned > 0 else { return 0 }
+            return min(Double(done) / Double(planned), 1)
+        }
+    }
+
+    /// Twelve weeks of showing up, and the one number underneath.
+    struct Consistency: Equatable {
+        /// Oldest first, so the strip reads left to right like a calendar.
+        let weeks: [Week]
+        /// Share of planned workouts actually done, over the FINISHED weeks.
+        /// Nil until at least one week has finished — a percentage computed
+        /// from a Tuesday is not a fact about anything.
+        let adherence: Double?
+        /// The two halves of that fraction, for a caption that can be checked.
+        let credited: Int
+        let planned: Int
+
+        var isEmpty: Bool { weeks.isEmpty }
+    }
+
+    /// How many workouts a week the schedule asks for.
+    ///
+    /// Each mode answers differently because each means a different thing:
+    /// a weekday split does every day it has; a rotation does its chosen days;
+    /// every-N-days does not think in weeks at all, so it gets the floor —
+    /// `every 2 days` is 3.5 a week and a 3-session week must not be a failure.
+    static func weeklyTarget(_ config: Rotation.Config, plannedDays: Int) -> Int {
+        switch config.mode {
+        case .weekday:
+            return plannedDays
+        case .rotation:
+            return config.trainingWeekdays.count
+        case .everyNDays:
+            return max(1, 7 / max(1, config.everyNDays))
+        }
+    }
+
+    /// The band.
+    ///
+    /// - Parameter sessionDates: `Session.startedAt` for every workout — the
+    ///   same input `Rotation.index` counts. **Sessions, not days**, which
+    ///   matters for a two-a-day: two workouts on Saturday count twice here
+    ///   because the plan asks for workouts, not attendances, and because
+    ///   v0.3.1 already made the session the unit everywhere else. Two answers
+    ///   to "how much did I train this week" in one app would be worse than
+    ///   either answer alone.
+    static func consistency(sessionDates: [Date],
+                            config: Rotation.Config,
+                            plannedDays: Int,
+                            weeks limit: Int = 12,
+                            now: Date = .now,
+                            calendar: Calendar = .current) -> Consistency {
+        let empty = Consistency(weeks: [], adherence: nil, credited: 0, planned: 0)
+        let target = weeklyTarget(config, plannedDays: plannedDays)
+        guard target > 0,
+              limit > 0,
+              let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)
+        else { return empty }
+
+        // Nothing before your first workout is a week you missed. A fresh
+        // install opening on twelve grey marks is twelve failures you did not
+        // earn, on the screen you see first.
+        guard let firstSession = sessionDates.min(),
+              let firstWeek = calendar.dateInterval(of: .weekOfYear, for: firstSession)
+        else { return empty }
+
+        var starts: [Date] = []
+        var cursor = thisWeek.start
+        while starts.count < limit, cursor >= firstWeek.start {
+            starts.append(cursor)
+            guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor)
+            else { break }
+            cursor = previous
+        }
+
+        let weeks: [Week] = starts.reversed().map { start in
+            let end = calendar.date(byAdding: .weekOfYear, value: 1, to: start) ?? start
+            let done = sessionDates.filter { $0 >= start && $0 < end }.count
+            return Week(start: start, planned: target, done: done,
+                        inProgress: start == thisWeek.start)
+        }
+
+        let finished = weeks.filter { !$0.inProgress }
+        let planned = finished.reduce(0) { $0 + $1.planned }
+        // Credited per week, capped at that week's target: a big week must not
+        // pay for a missed one. Six sessions one week and none the next is not
+        // the same as three and three, and a percentage that says it is has
+        // stopped measuring consistency.
+        let credited = finished.reduce(0) { $0 + min($1.done, $1.planned) }
+
+        return Consistency(
+            weeks: weeks,
+            adherence: planned > 0 ? Double(credited) / Double(planned) : nil,
+            credited: credited,
+            planned: planned)
+    }
+
     // MARK: - Comparing a session to the last one like it
 
     struct SessionComparison: Equatable {

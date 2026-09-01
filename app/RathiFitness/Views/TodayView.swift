@@ -229,6 +229,7 @@ struct TodayView: View {
                     restDay
                 }
                 MusicBar()
+                consistency
                 bodyWeight
                 swipeHint
             }
@@ -249,6 +250,23 @@ struct TodayView: View {
             .rfEyebrow()
             .frame(maxWidth: .infinity)
             .padding(.top, RFDesign.sm)
+        }
+    }
+
+    /// Twelve weeks of showing up.
+    ///
+    /// On Today rather than Trends, and on both a training day and a rest day:
+    /// it is the one number that answers "am I actually doing this", and the
+    /// day you most need to see it is the day you are deciding whether to go.
+    /// Hidden until there is a first workout to count from — a band of empty
+    /// weeks on a fresh install is the app opening with a reprimand.
+    @ViewBuilder private var consistency: some View {
+        let band = Tally.consistency(sessionDates: sessionDates,
+                                     config: config,
+                                     plannedDays: days.count,
+                                     calendar: calendar)
+        if !band.isEmpty {
+            ConsistencyBand(consistency: band)
         }
     }
 
