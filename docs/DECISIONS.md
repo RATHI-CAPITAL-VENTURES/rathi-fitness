@@ -726,3 +726,45 @@ was confirmed by ear. What is tested is what can be: every cue renders
 non-silent and below the ceiling, the over-music render is meaningfully louder,
 and the notification carries its own sound when nothing will chime. The
 audibility itself needs a phone, a track and a person.
+
+## 2026-08-31 — The UI tests do not get an audio engine
+
+**Chosen: a `-RFSilent` launch argument that stops `AudioHub` touching
+`AVAudioEngine` at all. Rejected: trying to make the engine survive.**
+
+Every UI-test run aborted the app with `Abort trap: 6`. The stack is entirely
+outside this repo: `startEngineIfNeeded` reads `engine.mainMixerNode`,
+`AVAudioEngineImpl::UpdateOutputNode` uninitialises the remote IO unit, and
+`AURemoteIO::Cleanup` RPCs an audio server that the simulator does not always
+have — then calls `abort()` when the call times out.
+
+That last step is what closes off every other option. It is a SIGABRT raised in
+AudioToolbox's frame, not a Swift error: `try? engine.start()` is already there
+and cannot help, because the crash happens on the *property access* before any
+start. There is nothing to catch, nothing to retry, and no state of ours that
+was wrong.
+
+So the fix is the only lever available: **do not touch the engine in an
+environment that cannot service it.** `-RFSilent` joins `-RFDay` and
+`-RFDemoHistory` as a launch argument the tests pass, and the gate sits in front
+of `activate()` and `startEngineIfNeeded()`.
+
+**What this deliberately does not claim.** It makes the UI tests deterministic.
+It does not prove a device can never see the same timeout. The honest position
+is written at the declaration rather than left for someone to infer from the
+flag's existence — and if a device ever does abort here, this note is the
+pointer that the cause was known and only the test environment was addressed.
+
+**Why the coverage does not really move.** The cues were already testable
+without an engine: `render(_:)` is internal precisely so a test can measure a
+tone rather than assert that `play` did not throw (v0.3.2). Those tests never
+started an engine and still do not. What the UI tests were exercising was the
+write path — logging a set, starting a second workout — and none of it is about
+sound.
+
+**Found by accident, and that is its own finding.** CI has not run this suite
+since v0.3.0: the `scope` job fails at startup with *"the job was not started
+because recent account payments have failed or your spending limit needs to be
+increased"*, and every downstream job is skipped rather than failed. A red run
+whose jobs are all `skipped` reads at a glance like a run that passed. The
+crash had been landing on every push for two releases with nothing to report it.

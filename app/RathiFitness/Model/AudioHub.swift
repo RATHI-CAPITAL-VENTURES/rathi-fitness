@@ -59,6 +59,27 @@ final class AudioHub: ObservableObject {
         static let volume = "cue.volume"
     }
 
+    /// Whether the audio engine may run at all. `false` under `-RFSilent`.
+    ///
+    /// **This exists because of a crash, not a preference.** Reaching
+    /// `engine.mainMixerNode` makes CoreAudio rebuild the remote IO unit, which
+    /// RPCs to an audio server — and in the simulator that server may simply
+    /// not answer. `AURemoteIO::Cleanup` then calls `abort()` from inside
+    /// AudioToolbox: a SIGABRT in someone else's frame, with no `try?` that
+    /// catches it and nothing to retry. The only lever the app has is not to
+    /// touch the engine in an environment that cannot service it, so the UI
+    /// tests pass `-RFSilent` and get a deterministic run.
+    ///
+    /// Worth stating plainly rather than letting the flag imply otherwise:
+    /// this makes the UI tests deterministic, it does **not** prove the same
+    /// timeout can never happen on a device. What is genuinely testable about
+    /// the cues — that every tone renders non-silent and below the ceiling —
+    /// is covered by tests that never start an engine.
+    ///
+    /// A `var` so a test can flip it; read once from the launch arguments, the
+    /// same shape as `-RFDay` and `-RFDemoHistory`.
+    static var isEnabled = !ProcessInfo.processInfo.arguments.contains("-RFSilent")
+
     private let engine = AVAudioEngine()
     private let cueNode = AVAudioPlayerNode()
     private let silenceNode = AVAudioPlayerNode()
@@ -106,6 +127,7 @@ final class AudioHub: ObservableObject {
     /// an app that grabs the audio session on cold start is an app that stops
     /// your podcast for no reason.
     func activate() {
+        guard Self.isEnabled else { return }
         #if os(iOS)
         guard !sessionActive else { return }
         let session = AVAudioSession.sharedInstance()
@@ -181,6 +203,9 @@ final class AudioHub: ObservableObject {
     }
 
     private func startEngineIfNeeded() {
+        // Before `watchForConfigurationChanges`, deliberately: registering the
+        // observer is harmless, but everything below it reaches the engine.
+        guard Self.isEnabled else { return }
         watchForConfigurationChanges()
         guard !engineRunning else { return }
         if engine.attachedNodes.contains(cueNode) == false {

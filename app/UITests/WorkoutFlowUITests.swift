@@ -12,6 +12,7 @@ final class WorkoutFlowUITests: XCTestCase {
         app = XCUIApplication()
         // A training day whatever day the test runs on, and never CloudKit.
         app.launchArguments += ["-RFDay", "Push A"]
+        app.launchArguments += ["-RFSilent"]
         // A fresh install has NO history — that is the point of the fix that
         // stopped the app inventing six weeks of it. Trends therefore needs the
         // sample data asked for explicitly.
@@ -92,6 +93,7 @@ final class WorkoutFlowUITests: XCTestCase {
     func testAFreshInstallHasNoInventedHistory() throws {
         let clean = XCUIApplication()
         clean.launchArguments += ["-RFDay", "Push A"]
+        clean.launchArguments += ["-RFSilent"]
         clean.launchEnvironment["RF_NO_CLOUDKIT"] = "1"
         clean.launchEnvironment["RF_UITEST"] = "1"   // no -RFDemoHistory
         clean.launch()
