@@ -14,6 +14,44 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.1 — 2026-09-01
+
+### Added
+
+- **Reset every rest at once.** Settings › New exercises › **Apply rest to the
+  whole plan** pushes the Rest dial through every strength slot on every day.
+
+  That section has refused to touch an existing plan since it shipped, and the
+  footer said so — *nothing already in the plan changes*. The refusal is right:
+  a default that silently rewrites your programme is a default you stop
+  trusting. But it left no way to do the thing **on purpose** either, so
+  changing your mind about rest meant opening every slot on every day and
+  turning the same dial. The fix is an explicit act, not a looser default.
+
+  It applies the number set directly above it rather than offering a picker of
+  its own — a second place to declare one thing is a second place to forget it.
+
+  **Cardio is left alone, and that is what makes a blanket write safe.**
+  `restSeconds` on a cardio slot is the gap *between intervals*, a different
+  quantity that happens to share a field, and the plan editor creates every
+  treadmill slot with `0`. Including them would not reset a rest; it would
+  invent intervals nobody asked for, on rows whose rest column reads "—". A
+  cardio slot that *does* carry an interval rest was set by hand, which is
+  precisely what a bulk action must not eat. The exclusion lives in
+  `slotsTakingPlanRest` with the reason written beside it.
+
+  Three things the confirmation does rather than ask you to trust:
+
+  1. **It names the count** — "Set 8 exercises" — from the same query that does
+     the write, so the number cannot drift from the act.
+  2. **It reports what changed, not what it inspected.** A slot already at the
+     value is not a write, so a second tap says *"Every exercise was already at
+     1:30"* instead of claiming eight more.
+  3. **It says cardio is excluded** in the message, rather than leaving you to
+     diff your own programme to find out.
+
+  Not undoable, and the message says so.
+
 ## 0.4.0 — 2026-09-01
 
 ### Added
