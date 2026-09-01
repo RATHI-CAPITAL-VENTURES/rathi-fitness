@@ -27,6 +27,7 @@ final class WritePathUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments += ["-RFDay", "Push A"]
+        app.launchArguments += ["-RFSilent"]
         app.launchEnvironment["RF_NO_CLOUDKIT"] = "1"
         app.launchEnvironment["RF_UITEST"] = "1"
         app.launch()

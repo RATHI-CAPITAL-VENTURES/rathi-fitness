@@ -14,6 +14,30 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.3.3 — 2026-08-31
+
+### Fixed
+
+- **The UI test suite crashed the app, and CI could not tell anyone.** Every run
+  of `WritePathUITests.testASecondWorkoutInADayStartsFresh` aborted with
+  `Abort trap: 6` on the simulator. The crash is not in this app's code:
+  reaching `engine.mainMixerNode` makes CoreAudio rebuild the remote IO unit,
+  which RPCs to an audio server that the simulator may never answer for, and
+  `AURemoteIO::Cleanup` responds by calling `abort()`. There is no `try?` that
+  catches a SIGABRT raised in AudioToolbox's own frame.
+
+  The only lever the app has is not to touch the engine where it cannot be
+  serviced, so `AudioHub.isEnabled` is now `false` under a new `-RFSilent`
+  launch argument and the UI tests pass it — the same shape as the existing
+  `-RFDay` and `-RFDemoHistory`. Every audible path (`activate`, `play`,
+  `holdRemoteControl`) becomes a no-op rather than a crash, and `willSoundCues`
+  correctly reports `false`, so the local notification brings its own sound.
+
+  **Stated rather than implied:** this makes the UI tests deterministic; it does
+  not prove the same timeout cannot happen on a device. What is genuinely
+  testable about the cues — that each one renders non-silent and below the
+  ceiling — never needed a running engine and still does not.
+
 ## 0.3.2 — 2026-08-30
 
 ### Fixed
