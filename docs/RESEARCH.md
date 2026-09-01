@@ -73,7 +73,13 @@ Saying no is the point of a personal app.
 - **A social feed, leaderboards, friends.** Hevy's differentiator. There is one
   user. Even the shape of it is wrong here.
 - **Streaks.** Cheap motivation that turns a deload week into a failure state.
-  The tonnage comparison does the reinforcement job without punishing rest.
+  Still refused, and the reason got sharper rather than weaker: a counter that
+  resets to zero is reported to make people abandon a habit *harder* after one
+  miss than no tracking at all, because the number does not degrade, it
+  detonates. What v0.4.0 shipped instead is the **consistency band** — twelve
+  weeks, no counter, nothing to reset. The distinction that makes it possible
+  here and not in Duolingo or the Move ring: this app knows the schedule, so the
+  denominator is what you *planned*, and a rest day cannot be a miss.
 - **AI-generated routines** (HevyGPT, Fitbod's auto-programming). RIA is right
   there and already knows the log — if this ever happens, it happens through
   her, not as a second brain inside the app.

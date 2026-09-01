@@ -768,3 +768,58 @@ because recent account payments have failed or your spending limit needs to be
 increased"*, and every downstream job is skipped rather than failed. A red run
 whose jobs are all `skipped` reads at a glance like a run that passed. The
 crash had been landing on every push for two releases with nothing to report it.
+
+## 2026-08-31 — Showing up, without a streak
+
+**Chosen: a consistency band. Rejected: a streak, again — but for a better
+reason than last time.**
+
+The ask was explicitly for weekly streaks. `docs/RESEARCH.md` had already ruled
+streaks out ("cheap motivation that turns a deload week into a failure state"),
+and the honest thing was to test that ruling rather than quote it. It survives,
+and the research sharpened it: a counter that resets is reported to make people
+abandon a habit *harder* after one miss than no tracking at all — the number
+does not degrade, it detonates. Apple shipped a pause button for Activity
+streaks in watchOS 11 after years of exactly this; Gentler Streak built a
+product on rest counting as keeping the streak.
+
+**What makes a band possible here and a streak unnecessary:** this app knows the
+schedule. `Rotation.Config` says which days you meant to train, so the
+denominator is what you *planned*, never the calendar. A rest day is not an
+absence of training, it is the training. That single fact is why the objection
+was about *day* streaks specifically and does not rule out measuring
+consistency at all.
+
+Rejected along the way, and worth recording so they are not re-proposed:
+
+- **A weekly streak with a declarable week off** (the watchOS 11 shape). It
+  works, and it needs a `TrainingBreak` model, a snapshot field and a CLI read
+  to answer a question the band answers with no stored state at all. Kept in
+  reserve; if the band turns out to motivate nothing, this is the next thing to
+  try, not a day streak.
+- **A PR or progression streak** — consecutive sessions where something got
+  beaten. It is the one mechanic that would make training *worse*: linear
+  progression ends for everybody, and a counter that treats the end of it as
+  failure is the app arguing with physiology.
+
+**Three decisions inside the band that could each have gone the other way:**
+
+1. **Sessions, not days.** Two workouts on a Saturday count twice. `Rotation`
+   was moved to counting sessions in v0.3.1 on purpose, and a second unit for
+   "how much did I train this week" would mean the app holds two answers to one
+   question. Consistency with the existing model beat the argument that a
+   two-a-day is one attendance.
+2. **The current week is drawn but not scored.** A percentage computed from a
+   Tuesday is not a fact about anything, and "0 of 3" on a Monday morning is the
+   app telling you off for a week that has barely started.
+3. **Credit is capped per week.** Six sessions one week and none the next is not
+   the same as three and three, and a percentage that says it is has stopped
+   measuring consistency and started measuring volume — which the tonnage
+   figure already does, better.
+
+**On Today rather than Trends.** It was proposed for Trends and moved on
+request, and the request is right: the day you most need to see whether you are
+actually doing this is the day you are deciding whether to go. It shows on rest
+days too, for the same reason. Hidden entirely until there is a first workout to
+count from — a fresh install opening on twelve empty marks is twelve failures
+nobody earned, on the first screen they see.
