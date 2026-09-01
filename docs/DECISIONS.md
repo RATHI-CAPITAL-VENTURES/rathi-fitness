@@ -823,3 +823,46 @@ actually doing this is the day you are deciding whether to go. It shows on rest
 days too, for the same reason. Hidden entirely until there is a first workout to
 count from — a fresh install opening on twelve empty marks is twelve failures
 nobody earned, on the first screen they see.
+
+## 2026-09-01 — Resetting every rest at once
+
+**Chosen: one confirmed, counted apply driven by the default you already set.
+Rejected: a second rest picker, and a blanket write that includes cardio.**
+
+"New exercises open on" has refused to touch an existing plan since it shipped,
+and the footer said so: *nothing already in the plan changes*. That refusal is
+right — a default that silently rewrites your programme is a default you stop
+trusting — but it left no way to do the thing **on purpose** either. Changing
+your mind about rest meant opening every slot on every day and turning the same
+dial, which is the app charging rent in exactly the way that section exists to
+stop.
+
+So the fix is an explicit act, not a looser default. The row sits directly under
+the Rest dial and applies *that* number, because a picker of its own would be a
+second place to declare one thing and the row would stop being obviously about
+the row above it.
+
+**Cardio is excluded, and this is the part that makes a blanket write safe.**
+`PlanItem.restSeconds` on a cardio slot is not a rest between sets — it is the
+gap *between intervals*, a different quantity that happens to share a field.
+The plan editor creates every treadmill slot with `0`, so an apply that included
+them would not reset anything: it would invent intervals nobody asked for, on
+rows whose rest column currently reads "—". And a cardio slot that *does* carry
+an interval rest was set by hand, which is precisely the setting a bulk action
+must not eat. The exclusion lives in `slotsTakingPlanRest` with that reason
+written next to it, rather than being a filter someone later "tidies up".
+
+Three things the dialog does rather than asks you to trust:
+
+1. **It names the count** — "Set 8 exercises", from the same query that does the
+   write, so the number cannot drift from the act.
+2. **It reports what changed, not what it looked at.** A slot already at the
+   value is not a write, so applying twice says *"Every exercise was already at
+   1:30"* the second time instead of claiming eight more.
+3. **It says cardio is left alone** in the message, because a user who has a
+   treadmill in the plan would otherwise have to diff their own programme to
+   find out.
+
+Not undoable, and the message says so. A rest is one integer per slot and the
+plan is small; an undo stack for one field is more machinery than the thing it
+protects, and the confirmation is where the protection belongs.
