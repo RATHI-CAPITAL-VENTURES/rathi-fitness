@@ -458,6 +458,9 @@ struct CardioSetView: View {
         record = nil
         guard let last = todays.last else { return }
         context.delete(last)
+        // The session may now hold nothing. One left behind reads as an extra
+        // workout on Today and advances the rotation.
+        Sessions.pruneEmpty(in: context)
         context.saveOrReport("undoing a set")
         snapshots.setNeedsWrite(context)
     }

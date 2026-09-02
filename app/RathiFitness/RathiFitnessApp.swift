@@ -58,6 +58,10 @@ struct RathiFitnessApp: App {
                     // Anything left open by a kill on a previous day is closed
                     // before it can collect today's sets.
                     Sessions.closeStale(in: context)
+                    // Before anything counts sessions. Empty ones already on
+                    // disk — from an undo on an earlier build — otherwise keep
+                    // reading as extra workouts for ever.
+                    Sessions.pruneEmpty(in: context)
                     // A fresh install has nothing to warn about, so the legacy
                     // banner is answered before it can ever be shown.
                     if (try? context.fetchCount(FetchDescriptor<SetEntry>())) == 0,
