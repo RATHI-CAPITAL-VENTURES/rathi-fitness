@@ -40,9 +40,16 @@ A **MINOR bump is a milestone** and must ship a retro under
   the contention is machine-wide. Only not overlapping them does.
 
 - **CI runs `make`.** It had its own hand-rolled `xcodebuild test`, so the
-  Makefile could grow a split that CI never got. Only the destination and
-  toolchain are overridden now. Unit and UI are separate steps, so a unit
-  failure reports in about a minute instead of six.
+  Makefile could grow a split that CI never got. Only the destination, the
+  toolchain and `PARALLEL` are overridden now, and unit and UI are separate
+  steps so a unit failure reports without waiting for the UI bundle.
+
+- **Parallelism is a knob with a measured default, not a belief.** `PARALLEL=NO`
+  on CI. A macos runner has about three cores, and with three clones the UI step
+  **alone** took 19:26 — against a whole job, build included, of about 16:00
+  before any of this. The same flag on a ten-core Mac takes the suite from 7:54
+  to 5:39. The first version of this change shipped `WORKERS=3` to CI and made
+  it *slower*; the number above is why it does not any more.
 
 ### Fixed
 

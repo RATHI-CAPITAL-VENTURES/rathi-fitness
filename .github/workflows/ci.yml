@@ -113,8 +113,14 @@ jobs:
       # iCloud/HealthKit credential does not belong in CI. A simulator needs
       # neither and catches the same breakage.
       #
-      # Two steps rather than one `make test` so a unit failure reports in about
-      # a minute instead of six: the UI bundle is ~5 of the ~6.
+      # Two steps rather than one `make test` so a unit failure reports early
+      # rather than behind the UI bundle.
+      #
+      # PARALLEL=NO, measured rather than assumed. A macos runner has about three
+      # cores; with three simulator clones the UI step ALONE took 19:26, against
+      # a whole job — build included — of about 16:00 before this change. The
+      # same parallelism on a ten-core Mac takes the suite from 7:54 to 5:39.
+      # It is a fact about the machine, so the machine says.
       - name: Unit tests
         run: |
           set -euo pipefail
@@ -128,4 +134,4 @@ jobs:
           make test-ui \
             DEVELOPER_DIR="$(xcode-select -p)" \
             SIMULATOR='platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            WORKERS=3
+            PARALLEL=NO

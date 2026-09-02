@@ -941,3 +941,13 @@ found a crash that a slow lane was hiding.
 **CI now runs `make`.** It had its own copy of the xcodebuild line, so the
 Makefile could grow a split that CI never received. The destination and the
 toolchain are the only things a runner should need to override.
+
+**Postscript, same day.** The first version of this went to CI with
+`WORKERS=3` and made it **slower**: the UI step alone took 19:26, against a
+whole job of about 16:00 before. A macos runner has roughly three cores and each
+worker is a whole simulator, so the clones fought over them. The local win was
+real and so was the remote loss, which is the actual lesson — parallelism here
+is a property of the machine, not of the suite, so it is a `PARALLEL` variable
+with both measurements written next to it rather than a setting anyone has to
+remember. Green on CI is not the same as good on CI, and only the step timings
+said so.

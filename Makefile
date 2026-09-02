@@ -21,6 +21,19 @@ SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 # while working — the unit bundle is 2.5 SECONDS of testing, and lived behind
 # eight minutes of UI tests until v0.4.3 because there was only one target.
 WORKERS ?= 4
+# Parallel UI testing is a property of the MACHINE, not of the suite, so it is
+# a knob with a measured default rather than a setting someone believed in.
+#
+# Measured, on the whole suite:
+#
+#   this Mac, 10 cores:   7:54 serial  ->  5:39 with the split and 4 workers
+#   macos-15 runner, ~3:  the UI step alone took 19:26 with 3 workers, against
+#                         a whole job of about 16:00 before this change
+#
+# Each clone is a whole simulator. Given cores to spare that is a win; on a
+# runner with three, the clones fight over them and the UI step alone outruns
+# what the entire job used to cost. So CI passes PARALLEL=NO.
+PARALLEL ?= YES
 XCTEST = cd app && xcodebuild \
 	-project RathiFitness.xcodeproj -scheme RathiFitness \
 	-destination '$(SIMULATOR)' -derivedDataPath /tmp/rf-build \
@@ -69,8 +82,11 @@ test: test-unit test-ui
 test-unit: project
 	$(XCTEST) -only-testing:RathiFitnessTests test
 
-## The UI bundle only, parallel across classes. Everything slow is in here:
-## 22 tests, ~4:40, against ~2.5s for all 139 unit tests.
+## The UI bundle only. Everything slow is in here: 22 tests against ~2.5s for
+## all 139 unit tests. `-parallel-testing-enabled` is safe HERE, unlike in
+## `test`, because -only-testing already excludes the unit bundle it would
+## otherwise drag in.
 test-ui: project
 	$(XCTEST) -only-testing:RathiFitnessUITests \
+		-parallel-testing-enabled $(PARALLEL) \
 		-maximum-parallel-testing-workers $(WORKERS) test
