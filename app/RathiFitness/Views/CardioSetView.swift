@@ -111,6 +111,14 @@ struct CardioSetView: View {
             } else {
                 Text(planLine).rfEyebrow()
             }
+            // Only before you start. Once this bout is logged the number to
+            // beat is behind you, and a nag under a finished set is noise.
+            if todays.isEmpty, let suggestion = cardioSuggestion {
+                Text(suggestionLine(suggestion))
+                    .font(RFDesign.ui(13))
+                    .foregroundStyle(RFDesign.ready)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, RFDesign.xs)
     }
@@ -126,6 +134,35 @@ struct CardioSetView: View {
             return "Last time — " + summary(of: last)
         }
         return parts.isEmpty ? "No target — whatever you feel like" : parts.joined(separator: " · ")
+    }
+
+    /// "Try 2.1 mi — you covered the distance last time."
+    ///
+    /// The cardio half of what the lifting screen has always done. One
+    /// dimension, because four dials moving at once is a different workout
+    /// rather than progression — see `Tally.nextCardioTarget`.
+    private var cardioSuggestion: Tally.CardioSuggestion? {
+        Tally.nextCardioTarget(
+            lastBout: lastBout.map {
+                Tally.Bout(seconds: $0.seconds, distance: $0.distance,
+                           incline: $0.incline, speed: $0.speed,
+                           resistance: $0.resistance, heartRate: $0.averageHeartRate)
+            },
+            target: Tally.CardioTarget(seconds: item.targetSeconds,
+                                       distance: item.targetDistance,
+                                       speed: item.targetSpeed,
+                                       incline: item.targetIncline))
+    }
+
+    private func suggestionLine(_ s: Tally.CardioSuggestion) -> String {
+        let value: String
+        switch s.dimension {
+        case .duration: value = Fmt.minutes(Int(s.value))
+        case .distance: value = "\(Fmt.distance(s.value)) mi"
+        case .speed:    value = "\(Fmt.rate(s.value)) mph"
+        case .incline:  value = "\(Fmt.rate(s.value))% grade"
+        }
+        return "Try \(value) — \(s.because)."
     }
 
     /// The clock, or the interval cooldown when one is running.

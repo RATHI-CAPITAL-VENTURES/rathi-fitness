@@ -26,6 +26,8 @@ import argparse
 import datetime as dt
 import json
 import os
+import subprocess
+import time
 import sys
 from pathlib import Path
 
@@ -56,14 +58,55 @@ def snapshot_path() -> Path:
     return Path(override).expanduser() if override else CONTAINER
 
 
+def _placeholder_for(path: Path) -> Path:
+    """Where iCloud parks a file it has evicted.
+
+    An evicted file is not missing — it is a zero-byte `.name.icloud` stub
+    beside where it used to be, and the real bytes stay in the cloud until
+    something asks for them. `path.exists()` is False for it, so the old
+    message blamed the phone for never having written.
+    """
+    return path.with_name("." + path.name + ".icloud")
+
+
+def materialise(path: Path, timeout: float = 10.0) -> None:
+    """Ask iCloud to bring the file down, and wait for it.
+
+    `brctl download` is how you trigger this from outside an app; it returns
+    immediately and the daemon fetches in the background, so we poll. Best
+    effort: if brctl is missing or fails, the caller's own error message is
+    more useful than an exception from here.
+    """
+    if path.exists() or not _placeholder_for(path).exists():
+        return
+    try:
+        subprocess.run(["brctl", "download", str(path)],
+                       check=False, capture_output=True, timeout=timeout)
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.25)
+
+
 def load() -> dict:
     path = snapshot_path()
+    # Evicted, not absent. This is the case the old message described in its
+    # own third bullet and then did nothing about.
+    materialise(path)
     if not path.exists():
+        evicted = _placeholder_for(path).exists()
         raise NoSnapshot(
-            f"No snapshot at {path}.\n"
-            "  · Open Rathi Fitness on the phone once — it writes on launch.\n"
-            "  · Check the phone is signed into iCloud with iCloud Drive on.\n"
-            "  · Or point GYM_SNAPSHOT at a file yourself."
+            f"{'Snapshot evicted by iCloud' if evicted else 'No snapshot'} at {path}.\n"
+            + ("  · iCloud holds the file but has not downloaded it here.\n"
+               "    `brctl download` was tried and it did not arrive in time —\n"
+               "    open the folder in Finder, or check you are online.\n"
+               if evicted else
+               "  · Open Rathi Fitness on the phone once — it writes on launch.\n"
+               "  · Check the phone is signed into iCloud with iCloud Drive on.\n")
+            + "  · Or point GYM_SNAPSHOT at a file yourself."
         )
     try:
         data = json.loads(path.read_text())

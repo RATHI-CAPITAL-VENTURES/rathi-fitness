@@ -14,7 +14,6 @@ struct TodayView: View {
     @Query private var schedules: [Schedule]
     @Query(sort: \Session.startedAt) private var sessions: [Session]
 
-    @State private var weighingIn = false
     @State private var overrideDay: PlannedDay?
     @State private var showingSettings = false
     @State private var showingPlan = false
@@ -88,6 +87,13 @@ struct TodayView: View {
     ///
     /// Falls back to the day when nothing is open yet, so a rest-day glance at
     /// what you did still shows it.
+    /// Bodyweight as of any date, for valuing assisted work. Built from the
+    /// weigh-in query rather than passed around, because both tonnage figures
+    /// on this screen have to agree about it.
+    private var bodyWeightLog: Tally.BodyWeightLog {
+        Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+    }
+
     private var todaysSets: [SetEntry] {
         if let session = openSession {
             return allSets.filter {
@@ -178,6 +184,11 @@ struct TodayView: View {
                                 Sessions.close(session, in: context)
                                 context.saveOrReport("finishing a workout")
                                 snapshots.setNeedsWrite(context)
+                                // Straight to Health. The export gate is
+                                // "finished", and this is the moment it became
+                                // true — waiting for the next cold launch is
+                                // how workouts went missing from Fitness.
+                                Task { await health.syncNow(context) }
                             } label: {
                                 Label("Finish \(session.title)",
                                       systemImage: "checkmark.circle")
@@ -199,16 +210,6 @@ struct TodayView: View {
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(isPresented: $showingPlan) { PlanView() }
-            .sheet(isPresented: $weighingIn) {
-                WeighInSheet { pounds in
-                    context.insert(WeighIn(pounds: pounds))
-                    context.saveOrReport("saving a weigh-in")
-                    snapshots.setNeedsWrite(context)
-                    // Back out to Health, so it does not disagree with us about
-                    // a number you typed here.
-                    Task { await health.write(weighIn: pounds) }
-                }
-            }
         }
     }
 
@@ -230,7 +231,6 @@ struct TodayView: View {
                 }
                 MusicBar()
                 consistency
-                bodyWeight
                 swipeHint
             }
             .padding(.horizontal, 22)
@@ -261,10 +261,10 @@ struct TodayView: View {
     /// Hidden until there is a first workout to count from — a band of empty
     /// weeks on a fresh install is the app opening with a reprimand.
     @ViewBuilder private var consistency: some View {
-        let band = Tally.consistency(sessionDates: sessionDates,
-                                     config: config,
-                                     plannedDays: days.count,
-                                     calendar: calendar)
+        let band = Tally.consistency(
+            sessions: sessions.map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
+            plannedWorkouts: days.count,
+            calendar: calendar)
         if !band.isEmpty {
             ConsistencyBand(consistency: band)
         }
@@ -398,7 +398,7 @@ struct TodayView: View {
     /// something to show — a zero here would be a scoreboard telling you off.
     @ViewBuilder private func moved(for day: PlannedDay) -> some View {
         let sets = todaysSets.map {
-            $0.tally
+            $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
         }
         if !sets.isEmpty {
             let comparison = Tally.SessionComparison(
@@ -421,21 +421,40 @@ struct TodayView: View {
         }
     }
 
-    /// The last time this same day was done — comparing Push A to Legs would be
-    /// a number that moves for no reason.
+    /// The last time this same workout was done — comparing Push A to Legs
+    /// would be a number that moves for no reason.
+    ///
+    /// **A session, not a day.** This grouped past sets by `startOfDay` and
+    /// matched them by exercise SLUG, which was wrong three ways at once and
+    /// is why the figure "made no sense":
+    ///
+    ///  - a day is not a workout. v0.3.1 made `Session` the unit everywhere
+    ///    else precisely because a two-a-day is two workouts; here a morning
+    ///    and an evening session were added together and compared against as
+    ///    one, so today's single workout looked like a collapse.
+    ///  - matching by slug pulled in any past set of any exercise that happens
+    ///    to appear in today's plan. Bench in both Push A and Push B meant Push
+    ///    B's bench counted as "last time you did Push A".
+    ///  - it excluded everything dated today, so the second half of a two-a-day
+    ///    had nothing to compare against at all.
+    ///
+    /// Now: the most recent session with this workout's name that is not the
+    /// one currently on screen.
     private func previousVolume(for day: PlannedDay) -> Double? {
-        let slugs = Set(day.orderedItems.compactMap { $0.exercise?.slug })
-        guard !slugs.isEmpty else { return nil }
-        let past = allSets.filter {
-            !calendar.isDate($0.date, inSameDayAs: .now)
-            && slugs.contains($0.exercise?.slug ?? "")
-        }
-        let byDay = Dictionary(grouping: past) { calendar.startOfDay(for: $0.date) }
-        guard let mostRecent = byDay.keys.max(), let entries = byDay[mostRecent] else {
-            return nil
-        }
+        // Identity, not date: the session being shown might be open, might be
+        // finished, and on a two-a-day there are two of them today.
+        let shown = Set(todaysSets.map(\.persistentModelID))
+        let previous = sessions
+            .filter { $0.dayName == day.name }
+            .filter { session in
+                !session.orderedSets.contains { shown.contains($0.persistentModelID) }
+            }
+            .max { $0.startedAt < $1.startedAt }
+        guard let previous else { return nil }
+        let entries = previous.orderedSets
+        guard !entries.isEmpty else { return nil }
         return Tally.volume(entries.map {
-            $0.tally
+            $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
         })
     }
 
@@ -461,37 +480,10 @@ struct TodayView: View {
              + "the calendar button starts one early."
     }
 
-    private var bodyWeight: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Body weight").rfEyebrow()
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(weighIns.first.map { Fmt.bodyWeight($0.pounds) } ?? "—")
-                    .font(RFDesign.figure(30, relativeTo: .title))
-                    .foregroundStyle(RFDesign.speech)
-                Text("lb").rfEyebrow(RFDesign.labelDim, size: 12)
-                Spacer()
-                if let delta = weekChange {
-                    Text("\(Fmt.signed(delta)) this week")
-                        .font(RFDesign.ui(12.5))
-                        .foregroundStyle(delta <= 0 ? RFDesign.ready : RFDesign.label)
-                }
-                Button { weighingIn = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(RFDesign.ready)
-                }
-                .accessibilityLabel("Log today's weight")
-            }
-        }
-        .padding(.top, RFDesign.sm)
-    }
-
-    private var weekChange: Double? {
-        guard let latest = weighIns.first else { return nil }
-        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .now
-        guard let base = weighIns.first(where: { $0.date <= weekAgo }) else { return nil }
-        return latest.pounds - base.pounds
-    }
+    // Body weight used to sit here, under the workout. It is a Trends number:
+    // you look at it against a curve, not while deciding whether to add 5 lb to
+    // a bench. Today is the checklist and the room you are standing in.
+    // Logging one moved to Trends with it — see TrendsView.weighIn.
 
     // MARK: state
 

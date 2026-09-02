@@ -7,8 +7,12 @@ import XCTest
 final class WritePathBodyTests: WritePathCase {
     // MARK: - the body
 
-    /// `TodayView:146` — a weigh-in.
+    /// `TrendsView` — a weigh-in.
     func testLoggingAWeighIn() {
+        // On Trends since v0.5.0, not Today. Body weight is a number you read
+        // against a curve, not one you act on while deciding what to put on the
+        // bar — and the curve is on this screen.
+        app.tabBars.buttons["Trends"].tap()
         let add = app.buttons["Log today's weight"].firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 10))
         add.tap()
@@ -25,7 +29,7 @@ final class WritePathBodyTests: WritePathCase {
         app.buttons["Save"].firstMatch.tap()
 
         XCTAssertTrue(app.staticTexts["181.2"].waitForExistence(timeout: 5),
-                      "the weigh-in should be on Today straight away")
+                      "the weigh-in should be on the chart straight away")
         shoot("weigh-in")
     }
 

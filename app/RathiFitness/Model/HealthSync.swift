@@ -65,25 +65,36 @@ enum HealthSync {
         return WorkoutBounds(start: first, end: end)
     }
 
-    /// Workouts old enough to be finished, and not already sent.
-    ///
-    /// Only whole past days: writing today's workout while he is still in the
-    /// gym would either be wrong or need updating, and HealthKit workouts are
-    /// awkward to amend. Tomorrow it goes over complete.
+    /// Workouts that are finished, and not already sent.
     ///
     /// **Keyed on the workout's start, not on the day.** It used to take the
     /// min→max of every lifting set on a date, so a 7am lift and a 7pm lift
     /// reached Apple Health as one twelve-hour workout — with a pace and a
     /// calorie figure computed across the eleven hours you were at work. Two
     /// workouts now go over as two.
-    static func sessionsReadyToExport(sessionStarts: [Date],
+    ///
+    /// - Parameter sessions: every workout, with the time it ENDED — `nil`
+    ///   while it is still going.
+    ///
+    /// **Finished, not yesterday.** This took bare start dates and skipped
+    /// anything dated today, on the reasoning that you might still be in the
+    /// gym. The reasoning was right and the mechanism was wrong: a workout you
+    /// finished at 09:00 is finished, and waiting for midnight meant today's
+    /// training never reached Health from a session that was over. Worse, the
+    /// only caller ran at cold launch, so the workout landed only if you
+    /// happened to cold-start the app on some later day — and often it simply
+    /// never appeared.
+    ///
+    /// `endedAt` is the question actually being asked, and `Session` has
+    /// carried it since v0.3.0.
+    static func sessionsReadyToExport(sessions: [(start: Date, ended: Date?)],
                                       alreadyExported: Set<Date>,
                                       now: Date = .now,
                                       calendar: Calendar = .current) -> [Date] {
-        let today = calendar.startOfDay(for: now)
-        return sessionStarts
+        return sessions
+            .filter { $0.ended != nil }
+            .map(\.start)
             .filter { start in
-                guard calendar.startOfDay(for: start) < today else { return false }
                 // `alreadyExported` holds whatever was marked at the time, and
                 // before sessions existed that was the START OF A DAY. Matching
                 // only on the session start would treat every historical

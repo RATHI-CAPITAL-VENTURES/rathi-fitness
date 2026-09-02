@@ -18,18 +18,69 @@ final class AssistedTests: XCTestCase {
 
     // MARK: tonnage
 
-    /// The worst one, because the number is plausible: 100 lb of help × 8 reps
-    /// reads as 800 lb "moved", so the more help you needed the better the
-    /// session looked.
-    func testAssistanceIsNotTonnage() {
+    /// The original bug, and it must stay dead: 100 lb of help × 8 reps read as
+    /// 800 lb "moved", so the more help you needed the better the session
+    /// looked. The help is never the load.
+    func testTheHelpIsNeverTheLoad() {
+        // No weigh-in, so nothing is known and nothing is invented.
         XCTAssertEqual(Tally.volume([set(100, 8)]), 0)
         XCTAssertEqual(Tally.volume([set(100, 8), Tally.Set(weight: 185, reps: 8)]), 1480)
     }
 
-    func testNeedingMoreHelpCannotIncreaseYourVolume() {
-        let weaker = Tally.volume([set(120, 8)])
-        let stronger = Tally.volume([set(40, 8)])
-        XCTAssertEqual(weaker, stronger, "volume must not rank these at all")
+    /// What an assisted set actually moves: you, less the help.
+    func testAssistedTonnageIsBodyweightMinusTheHelp() {
+        let s = Tally.Set(weight: 100, reps: 8, assisted: true, bodyWeight: 230)
+        XCTAssertEqual(Tally.volume([s]), (230 - 100) * 8)
+    }
+
+    /// The direction that matters. Under the old rule both of these were 0, so
+    /// taking help off showed as no progress at all — on three of this plan's
+    /// exercises.
+    func testLessHelpIsMoreTonnage() {
+        let more = Tally.Set(weight: 120, reps: 8, assisted: true, bodyWeight: 230)
+        let less = Tally.Set(weight: 40, reps: 8, assisted: true, bodyWeight: 230)
+        XCTAssertGreaterThan(Tally.volume([less]), Tally.volume([more]),
+                             "needing less help must move more weight, not the same")
+    }
+
+    /// Still refused when it would have to be guessed.
+    func testNoWeighInMeansNoTonnageRatherThanAGuess() {
+        XCTAssertEqual(Tally.volume([Tally.Set(weight: 60, reps: 8, assisted: true)]), 0)
+    }
+
+    /// Help above bodyweight is a typo, not negative work.
+    func testHelpAboveBodyweightFloorsAtZero() {
+        let s = Tally.Set(weight: 300, reps: 8, assisted: true, bodyWeight: 230)
+        XCTAssertEqual(Tally.volume([s]), 0)
+    }
+
+    /// A warm-up is still a warm-up.
+    func testAnAssistedWarmUpStillCountsForNothing() {
+        let s = Tally.Set(weight: 100, reps: 8, kind: .warmup,
+                          assisted: true, bodyWeight: 230)
+        XCTAssertEqual(Tally.volume([s]), 0)
+    }
+
+    // MARK: bodyweight as of a date
+
+    /// An old session is valued at what you weighed THEN. Using today's weight
+    /// for all of history would make last month's tonnage move every time you
+    /// step on the scale.
+    func testBodyweightIsTheReadingOnOrBeforeTheSet() {
+        let day = { (s: String) in ISO8601DateFormatter().date(from: s + "T12:00:00Z")! }
+        let log = Tally.BodyWeightLog([(date: day("2026-08-01"), pounds: 222),
+                                       (date: day("2026-08-21"), pounds: 230.8)])
+        XCTAssertEqual(log.pounds(on: day("2026-08-20")), 222)
+        XCTAssertEqual(log.pounds(on: day("2026-08-21")), 230.8, "on the day counts")
+        XCTAssertEqual(log.pounds(on: day("2026-09-02")), 230.8)
+        XCTAssertNil(log.pounds(on: day("2026-07-31")), "before the first weigh-in is unknown")
+    }
+
+    func testTheLogSortsWhateverOrderItIsHandedIn() {
+        let day = { (s: String) in ISO8601DateFormatter().date(from: s + "T12:00:00Z")! }
+        let log = Tally.BodyWeightLog([(date: day("2026-08-21"), pounds: 230.8),
+                                       (date: day("2026-08-01"), pounds: 222)])
+        XCTAssertEqual(log.pounds(on: day("2026-08-10")), 222)
     }
 
     // MARK: records
@@ -88,9 +139,39 @@ final class AssistedTests: XCTestCase {
 
     // MARK: what to do next
 
+    /// The bug this cost a real session to find.
+    ///
+    /// `nextTarget` took `assisted` as a parameter with a `false` default, and
+    /// `SetView` never passed it — so on the pull-up assist, hitting every rep
+    /// suggested MORE help. Every test below passed the flag by hand, which is
+    /// exactly why none of them noticed the call site was not.
+    ///
+    /// It reads the flag off the sets now, so this test is the whole contract:
+    /// nobody tells `nextTarget` anything, and it still gets the direction
+    /// right.
+    func testTheDirectionIsRightWithNobodyPassingAFlag() {
+        let assistedSets = [Tally.Set(weight: 70, reps: 8, assisted: true),
+                            Tally.Set(weight: 70, reps: 8, assisted: true)]
+        XCTAssertEqual(Tally.nextTarget(lastSession: assistedSets, target: 8)?.weight, 65,
+                       "help must come OFF when every rep was hit")
+
+        let loadedSets = [Tally.Set(weight: 70, reps: 8),
+                          Tally.Set(weight: 70, reps: 8)]
+        XCTAssertEqual(Tally.nextTarget(lastSession: loadedSets, target: 8)?.weight, 75,
+                       "weight must go ON when every rep was hit")
+    }
+
+    /// A mixed list should not silently pick the loaded branch. In practice a
+    /// session is one exercise, but the derivation must not depend on that.
+    func testOneAssistedSetIsEnoughToReadAsAssisted() {
+        let mixed = [Tally.Set(weight: 70, reps: 8, assisted: true),
+                     Tally.Set(weight: 70, reps: 8)]
+        XCTAssertEqual(Tally.nextTarget(lastSession: mixed, target: 8)?.weight, 65)
+    }
+
     func testHittingEveryRepTakesHelpOffRatherThanAddingIt() {
         let last = [set(70, 8), set(70, 8), set(70, 8)]
-        let next = Tally.nextTarget(lastSession: last, target: 8, assisted: true)
+        let next = Tally.nextTarget(lastSession: last, target: 8)
         XCTAssertEqual(next?.weight, 65, "the app suggested MORE help for a good session")
         XCTAssertEqual(next?.because, "you hit every rep last time")
     }
@@ -99,24 +180,23 @@ final class AssistedTests: XCTestCase {
     /// least help — or it works off your easiest and never progresses.
     func testProgressionAnchorsOnTheLeastHelpNotTheMost() {
         let last = [set(90, 8), set(70, 8)]   // a heavy first set, then less help
-        let next = Tally.nextTarget(lastSession: last, target: 8, assisted: true)
+        let next = Tally.nextTarget(lastSession: last, target: 8)
         XCTAssertEqual(next?.weight, 65)
     }
 
     func testHelpNeverGoesNegative() {
-        let next = Tally.nextTarget(lastSession: [set(3, 8)], target: 8,
-                                    step: 5, assisted: true)
+        let next = Tally.nextTarget(lastSession: [set(3, 8)], target: 8, step: 5)
         XCTAssertEqual(next?.weight, 0)
     }
 
     func testAlreadyUnassistedSaysSoRatherThanSuggestingLessThanNothing() {
-        let next = Tally.nextTarget(lastSession: [set(0, 8)], target: 8, assisted: true)
+        let next = Tally.nextTarget(lastSession: [set(0, 8)], target: 8)
         XCTAssertEqual(next?.weight, 0)
         XCTAssertEqual(next?.because, "you're doing these unassisted — try the real thing")
     }
 
     func testAStallKeepsTheSameHelpAndSaysHelp() {
-        let next = Tally.nextTarget(lastSession: [set(70, 4)], target: 8, assisted: true)
+        let next = Tally.nextTarget(lastSession: [set(70, 4)], target: 8)
         XCTAssertEqual(next?.weight, 70)
         XCTAssertTrue(next?.because.contains("help") ?? false)
     }
@@ -146,8 +226,10 @@ final class AssistedTests: XCTestCase {
         try context.save()
 
         XCTAssertTrue(machine.assisted)
-        XCTAssertTrue(entry.tally.assisted)
-        XCTAssertEqual(entry.tally.volume, 0)
+        XCTAssertTrue(entry.tally(bodyWeight: nil).assisted)
+        XCTAssertEqual(entry.tally(bodyWeight: nil).volume, 0,
+                       "no weigh-in, so no tonnage rather than a guess")
+        XCTAssertEqual(entry.tally(bodyWeight: 230).volume, (230 - 70) * 8)
     }
 
     func testTheCatalogueKnowsWhichMachinesWorkThisWay() {

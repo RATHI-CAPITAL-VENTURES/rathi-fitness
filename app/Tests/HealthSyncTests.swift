@@ -77,11 +77,31 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertNil(HealthSync.bounds(forSetsAt: []))
     }
 
-    func testTodayIsNotExportedWhileYouMightStillBeInTheGym() {
-        let now = day(2026, 8, 20, 18)
+    /// The gate is FINISHED, not yesterday.
+    ///
+    /// This used to skip anything dated today, so a workout you finished at
+    /// 09:00 could not reach Health until the next day — and since the only
+    /// caller ran at cold launch, often it never did.
+    func testAWorkoutStillInProgressIsNotExported() {
         let ready = HealthSync.sessionsReadyToExport(
-            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 20, 17)],
-            alreadyExported: [], now: now)
+            sessions: [(start: day(2026, 8, 20, 17), ended: nil)],
+            alreadyExported: [], now: day(2026, 8, 20, 18))
+        XCTAssertTrue(ready.isEmpty, "you might still be in the gym")
+    }
+
+    func testAWorkoutFinishedTodayIsExportedToday() {
+        let ready = HealthSync.sessionsReadyToExport(
+            sessions: [(start: day(2026, 8, 20, 7), ended: day(2026, 8, 20, 8))],
+            alreadyExported: [], now: day(2026, 8, 20, 18))
+        XCTAssertEqual(ready, [day(2026, 8, 20, 7)],
+                       "a finished workout is finished, whatever day it is")
+    }
+
+    func testFinishedAndUnfinishedAreSortedOutTogether() {
+        let ready = HealthSync.sessionsReadyToExport(
+            sessions: [(start: day(2026, 8, 19, 7), ended: day(2026, 8, 19, 8)),
+                       (start: day(2026, 8, 20, 17), ended: nil)],
+            alreadyExported: [], now: day(2026, 8, 20, 18))
         XCTAssertEqual(ready, [day(2026, 8, 19, 7)])
     }
 
@@ -89,7 +109,8 @@ final class HealthSyncTests: XCTestCase {
     /// evening lift are two workouts, not one twelve-hour one.
     func testTwoWorkoutsInADayGoOverAsTwo() {
         let ready = HealthSync.sessionsReadyToExport(
-            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 19, 19)],
+            sessions: [(start: day(2026, 8, 19, 7), ended: day(2026, 8, 19, 8)),
+                       (start: day(2026, 8, 19, 19), ended: day(2026, 8, 19, 20))],
             alreadyExported: [], now: day(2026, 8, 20, 9))
         XCTAssertEqual(ready, [day(2026, 8, 19, 7), day(2026, 8, 19, 19)])
     }
@@ -97,7 +118,8 @@ final class HealthSyncTests: XCTestCase {
     func testAlreadyExportedWorkoutsAreNotSentTwice() {
         let already: Set<Date> = [day(2026, 8, 19, 7)]
         let ready = HealthSync.sessionsReadyToExport(
-            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 17, 7)],
+            sessions: [(start: day(2026, 8, 19, 7), ended: day(2026, 8, 19, 8)),
+                       (start: day(2026, 8, 17, 7), ended: day(2026, 8, 17, 8))],
             alreadyExported: already, now: day(2026, 8, 20, 18))
         XCTAssertEqual(ready, [day(2026, 8, 17, 7)])
     }
@@ -109,7 +131,8 @@ final class HealthSyncTests: XCTestCase {
     func testADayExportedBeforeSessionsExistedIsNotSentAgain() {
         let already: Set<Date> = [cal.startOfDay(for: day(2026, 8, 19))]
         let ready = HealthSync.sessionsReadyToExport(
-            sessionStarts: [day(2026, 8, 19, 7), day(2026, 8, 19, 19)],
+            sessions: [(start: day(2026, 8, 19, 7), ended: day(2026, 8, 19, 8)),
+                       (start: day(2026, 8, 19, 19), ended: day(2026, 8, 19, 20))],
             alreadyExported: already, now: day(2026, 8, 20, 18))
         XCTAssertTrue(ready.isEmpty,
                       "a day already sent covers the workouts inside it")

@@ -55,7 +55,10 @@ struct PastDayView: View {
             ? nil : session.dayName
     }
 
-    private var volume: Double { Tally.volume(entries.map(\.tally)) }
+    private var volume: Double {
+        let log = Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        return Tally.volume(entries.map { $0.tally(bodyWeight: log.pounds(on: $0.date)) })
+    }
     private var cardioSeconds: Int { entries.reduce(0) { $0 + $1.seconds } }
     private var workingSets: Int { entries.filter { $0.setKind.counts && !$0.isCardio }.count }
 

@@ -26,16 +26,37 @@ enum Tally {
         /// in one place and no caller can forget to apply it.
         var assisted: Bool = false
 
-        /// Assistance is not tonnage.
+        /// What you weighed when you did this set, if it is known.
         ///
-        /// This is the worst of the assisted bugs, because the number it
-        /// produces is plausible: 100 lb of help × 8 reps reads as 800 lb
-        /// "moved", so the *more* help you needed the better your session
-        /// looked. Excluded outright rather than converted — turning it into
-        /// bodyweight-minus-assistance means storing a bodyweight per set and
-        /// guessing for every day you did not weigh yourself, which is the same
-        /// invention that keeps push-ups out of tonnage.
-        var volume: Double { (kind.counts && !assisted) ? weight * Double(reps) : 0 }
+        /// Only assisted work reads it, and only to answer the question the
+        /// machine is actually asking: a pull-up assist set moves **you**, less
+        /// the help. `nil` means no weigh-in on or before that date.
+        var bodyWeight: Double? = nil
+
+        /// Assistance is not tonnage — but the load is not zero either.
+        ///
+        /// The original bug was counting the HELP as the load: 100 lb of
+        /// assistance × 8 reps read as 800 lb "moved", so the more help you
+        /// needed the better your session looked. That was fixed by excluding
+        /// assisted work outright, on the argument that converting it "means
+        /// storing a bodyweight per set and guessing for every day you did not
+        /// weigh yourself".
+        ///
+        /// Half of that argument was right and half was an excuse. Guessing is
+        /// still refused — no weigh-in, no tonnage, same as before. But when a
+        /// weigh-in *is* known there is nothing to guess: an assisted pull-up
+        /// moves `bodyweight − help`, which is a measured number, and dropping
+        /// it meant three of this plan's exercises contributed nothing to the
+        /// one figure on Today that is supposed to be countable.
+        ///
+        /// Floored at zero: help exceeding bodyweight is a typo, not negative
+        /// work.
+        var volume: Double {
+            guard kind.counts else { return 0 }
+            guard assisted else { return weight * Double(reps) }
+            guard let bodyWeight else { return 0 }
+            return max(0, bodyWeight - weight) * Double(reps)
+        }
         var counts: Bool { kind.counts }
     }
 
@@ -46,6 +67,32 @@ enum Tally {
     /// put an invented number into the one figure that is supposed to be
     /// countable. Assisted machines do not count either, and for a sharper
     /// reason: their weight would count the wrong way round.
+    /// Bodyweight as of a date, from the weigh-in history.
+    ///
+    /// Built once and asked many times, because the alternative is a linear
+    /// scan of every weigh-in per set. "As of" means the most recent reading on
+    /// or before that day — so an old session is valued at what you weighed
+    /// then, not at what you weigh now. Using today's weight for all of history
+    /// would make last month's tonnage move every time you step on the scale,
+    /// which is a trend line that reports the scale rather than the training.
+    struct BodyWeightLog {
+        /// Ascending by date.
+        private let readings: [(date: Date, pounds: Double)]
+
+        init(_ readings: [(date: Date, pounds: Double)]) {
+            self.readings = readings.sorted { $0.date < $1.date }
+        }
+
+        /// The most recent reading on or before `date`, or `nil` if you had not
+        /// weighed yourself yet. `nil` is not a failure — it is the honest
+        /// answer, and `volume` refuses to invent one.
+        func pounds(on date: Date) -> Double? {
+            readings.last { $0.date <= date }?.pounds
+        }
+
+        static let unknown = BodyWeightLog([])
+    }
+
     static func volume(_ sets: [Set]) -> Double {
         sets.reduce(0) { $0 + $1.volume }
     }
@@ -257,8 +304,22 @@ enum Tally {
     ///   - lastSession: working sets from the most recent day this lift was done.
     ///   - target: the plan's rep target.
     static func nextTarget(lastSession: [Set], target: Int,
-                           step: Double = 5, assisted: Bool = false) -> Suggestion? {
+                           step: Double = 5) -> Suggestion? {
         let working = workingSets(lastSession)
+        // DERIVED, never passed in — and that is the fix, not a tidy-up.
+        //
+        // This arrived as `assisted: Bool = false`, and `SetView` never passed
+        // it. So every assisted machine got the unassisted branch: hit all your
+        // reps on the pull-up assist and the app told you to add MORE help,
+        // which is the opposite of progress and the opposite of what the
+        // branch below was carefully written to do. A default parameter made a
+        // wrong answer the quiet one.
+        //
+        // `Tally.Set` has carried `assisted` since v0.2.0 for exactly this
+        // reason — "every rule about it lives in one place and no caller can
+        // forget to apply it" — and then this function asked for it separately
+        // anyway. Now it does not.
+        let assisted = working.contains(where: \.assisted)
         // The hardest set you did. On an assisted machine that is the one with
         // the LEAST help, not the most weight — get this backwards and the app
         // progresses you off your easiest set.
@@ -314,6 +375,90 @@ enum Tally {
             guard seconds > 0, distance > 0 else { return nil }
             return distance / (Double(seconds) / 3600)
         }
+    }
+
+    /// What the plan asked of a cardio slot.
+    struct CardioTarget: Equatable {
+        var seconds: Int = 0
+        var distance: Double = 0
+        var speed: Double = 0
+        var incline: Double = 0
+
+        var isEmpty: Bool {
+            seconds == 0 && distance == 0 && speed == 0 && incline == 0
+        }
+    }
+
+    /// One thing to try next time, on a treadmill.
+    struct CardioSuggestion: Equatable {
+        enum Dimension: Equatable { case duration, distance, speed, incline }
+        let dimension: Dimension
+        /// Seconds for `.duration`, miles for `.distance`, mph for `.speed`,
+        /// percent for `.incline`.
+        let value: Double
+        let because: String
+    }
+
+    /// The cardio answer to "try 190, you hit 185 last time".
+    ///
+    /// Lifting had this and cardio did not, so a treadmill slot showed the same
+    /// prescription for ever and progressive overload stopped at the weights.
+    ///
+    /// **One dimension at a time, and that is the design.** A treadmill offers
+    /// four things to make harder — longer, further, faster, steeper — and
+    /// raising several at once is not progression, it is a different workout
+    /// that you cannot attribute anything to. So this picks exactly one, in the
+    /// order the plan itself prescribes: distance if the plan asks for a
+    /// distance, else duration, else speed, else grade. What the plan measures
+    /// you by is what it should push.
+    ///
+    /// Increments are the ones a console actually offers rather than a
+    /// percentage: 0.1 mi, a minute, 0.1 mph, 0.5% grade. A suggestion you
+    /// cannot dial in is a suggestion you ignore.
+    static func nextCardioTarget(lastBout: Bout?,
+                                 target: CardioTarget) -> CardioSuggestion? {
+        guard let last = lastBout, !target.isEmpty else { return nil }
+
+        // Did last time meet what was asked? Only the measured dimensions get a
+        // vote — a slot that prescribes twenty minutes and leaves the speed to
+        // how you feel is not failed by running it slowly.
+        var met = true
+        if target.seconds > 0 { met = met && last.seconds >= target.seconds }
+        if target.distance > 0 { met = met && last.distance >= target.distance - 0.001 }
+
+        guard met else {
+            let short: String
+            if target.seconds > 0, last.seconds < target.seconds {
+                short = "you got \(Fmt.minutes(last.seconds)) last time"
+            } else {
+                short = "you got \(Fmt.distance(last.distance)) mi last time"
+            }
+            if target.distance > 0 {
+                return CardioSuggestion(dimension: .distance, value: target.distance,
+                                        because: "\(short) — same again")
+            }
+            return CardioSuggestion(dimension: .duration, value: Double(target.seconds),
+                                    because: "\(short) — same again")
+        }
+
+        if target.distance > 0 {
+            return CardioSuggestion(dimension: .distance,
+                                    value: ((target.distance + 0.1) * 10).rounded() / 10,
+                                    because: "you covered the distance last time")
+        }
+        if target.seconds > 0 {
+            return CardioSuggestion(dimension: .duration,
+                                    value: Double(target.seconds + 60),
+                                    because: "you ran the clock out last time")
+        }
+        if target.speed > 0 {
+            return CardioSuggestion(dimension: .speed,
+                                    value: ((target.speed + 0.1) * 10).rounded() / 10,
+                                    because: "that pace held last time")
+        }
+        return CardioSuggestion(dimension: .incline,
+                                value: ((target.incline + 0.5) * 10).rounded() / 10,
+                                because: "that grade held last time")
     }
 
     /// Total time on cardio. Minutes, because that is the unit every guideline
@@ -443,40 +588,46 @@ enum Tally {
         var isEmpty: Bool { weeks.isEmpty }
     }
 
-    /// How many workouts a week the schedule asks for.
+    /// One workout, as done — which one, and when.
     ///
-    /// Each mode answers differently because each means a different thing:
-    /// a weekday split does every day it has; a rotation does its chosen days;
-    /// every-N-days does not think in weeks at all, so it gets the floor —
-    /// `every 2 days` is 3.5 a week and a 3-session week must not be a failure.
-    static func weeklyTarget(_ config: Rotation.Config, plannedDays: Int) -> Int {
-        switch config.mode {
-        case .weekday:
-            return plannedDays
-        case .rotation:
-            return config.trainingWeekdays.count
-        case .everyNDays:
-            return max(1, 7 / max(1, config.everyNDays))
+    /// The name matters because the question is coverage, not attendance.
+    struct Done: Equatable {
+        let date: Date
+        let workout: String
+
+        init(date: Date, workout: String) {
+            self.date = date
+            self.workout = workout
         }
     }
 
-    /// The band.
+    /// The band: how much of your plan you covered, week by week.
     ///
-    /// - Parameter sessionDates: `Session.startedAt` for every workout — the
-    ///   same input `Rotation.index` counts. **Sessions, not days**, which
-    ///   matters for a two-a-day: two workouts on Saturday count twice here
-    ///   because the plan asks for workouts, not attendances, and because
-    ///   v0.3.1 already made the session the unit everywhere else. Two answers
-    ///   to "how much did I train this week" in one app would be worse than
-    ///   either answer alone.
-    static func consistency(sessionDates: [Date],
-                            config: Rotation.Config,
-                            plannedDays: Int,
+    /// **Coverage, not attendance, and that is the correction.** v0.4.0 counted
+    /// sessions against a target derived from the schedule's training days, and
+    /// it answered a question nobody asked. On a four-workout plan it sat near
+    /// half whatever you did, because the target came from weekdays while the
+    /// plan came from workouts, and a two-a-day scored two.
+    ///
+    /// The question is "did I get round to each of my workouts this week".
+    /// So: **distinct workouts covered**, against the number in the plan.
+    /// Shoulders twice on a Tuesday is one of four, not two — you have not
+    /// done Legs by doing Shoulders again.
+    ///
+    /// Deliberately day-agnostic. Which weekday you did Legs on is not a fact
+    /// about consistency, and a plan you finished on the wrong days is a plan
+    /// you finished.
+    ///
+    /// - Parameter sessions: one entry per workout — `Session.startedAt` and
+    ///   `Session.dayName`.
+    /// - Parameter plannedWorkouts: how many workouts the plan contains.
+    static func consistency(sessions: [Done],
+                            plannedWorkouts: Int,
                             weeks limit: Int = 12,
                             now: Date = .now,
                             calendar: Calendar = .current) -> Consistency {
         let empty = Consistency(weeks: [], adherence: nil, credited: 0, planned: 0)
-        let target = weeklyTarget(config, plannedDays: plannedDays)
+        let target = plannedWorkouts
         guard target > 0,
               limit > 0,
               let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)
@@ -485,7 +636,7 @@ enum Tally {
         // Nothing before your first workout is a week you missed. A fresh
         // install opening on twelve grey marks is twelve failures you did not
         // earn, on the screen you see first.
-        guard let firstSession = sessionDates.min(),
+        guard let firstSession = sessions.map(\.date).min(),
               let firstWeek = calendar.dateInterval(of: .weekOfYear, for: firstSession)
         else { return empty }
 
@@ -500,7 +651,14 @@ enum Tally {
 
         let weeks: [Week] = starts.reversed().map { start in
             let end = calendar.date(byAdding: .weekOfYear, value: 1, to: start) ?? start
-            let done = sessionDates.filter { $0 >= start && $0 < end }.count
+            // DISTINCT workouts, not sessions. "How many times did I hit each
+            // workout this week" is the question — so Shoulders twice on the
+            // same day is one of the four covered, not two.
+            // `Swift.Set`, spelled out: inside `Tally`, a bare `Set` is
+            // `Tally.Set` — the set of a lift — and the collision compiles into
+            // something quite different from a count of distinct names.
+            let done = Swift.Set(sessions.filter { $0.date >= start && $0.date < end }
+                                         .map(\.workout)).count
             return Week(start: start, planned: target, done: done,
                         inProgress: start == thisWeek.start)
         }
@@ -553,8 +711,16 @@ extension SetEntry {
     /// defaulted `assisted` to false — which is exactly how a pull-up assist
     /// ends up counted as tonnage. One converter means adding a rule to the
     /// value is a change here and nowhere else.
-    var tally: Tally.Set {
+    /// - Parameter bodyWeight: what you weighed when this set was done, for
+    ///   assisted work. **Required, with no default**, and that is deliberate:
+    ///   `nextTarget` used to take `assisted` as a defaulted parameter and one
+    ///   call site silently never passed it, which made the app suggest more
+    ///   help for a good session. A defaulted `nil` here would fail the same
+    ///   way — quietly, as a zero in the tonnage. Pass `nil` when the caller
+    ///   genuinely does not need volume; the compiler will at least have asked.
+    func tally(bodyWeight: Double?) -> Tally.Set {
         Tally.Set(weight: weight, reps: reps, kind: setKind,
-                  assisted: exercise?.assisted ?? false)
+                  assisted: exercise?.assisted ?? false,
+                  bodyWeight: bodyWeight)
     }
 }
