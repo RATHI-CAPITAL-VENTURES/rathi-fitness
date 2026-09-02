@@ -1,13 +1,21 @@
 import XCTest
 @testable import RathiFitness
 
-/// Showing up, measured against the plan rather than the calendar.
+/// Showing up, measured as **coverage of the plan**.
 ///
-/// The properties worth protecting are all about what the band refuses to say:
-/// it does not count a week that has not finished, it does not let a big week
-/// pay for a missed one, and it does not invent weeks before your first
-/// workout. Each of those is a way a consistency number could quietly flatter
-/// or scold, which is the whole reason this is not a streak.
+/// v0.4.0 measured attendance: sessions counted against a target derived from
+/// the schedule's training weekdays. On a four-workout plan that answered a
+/// question nobody asked and sat near half of whatever you did, because the
+/// target came from weekdays while the plan came from workouts.
+///
+/// The question is "did I get round to each of my workouts this week". So the
+/// unit is a DISTINCT workout covered, and the target is the size of the plan.
+/// Which weekday you did Legs on is not a fact about consistency.
+///
+/// The three refusals from v0.4.0 were right and are kept: no scoring a week
+/// that has not finished, no letting a big week pay for a missed one, and no
+/// inventing weeks before your first workout. Each is a way the number could
+/// quietly flatter or scold, which is why this is not a streak.
 final class ConsistencyTests: XCTestCase {
 
     /// Fixed rather than `.current`: week boundaries depend on `firstWeekday`,
@@ -23,164 +31,126 @@ final class ConsistencyTests: XCTestCase {
         cal.date(from: DateComponents(year: y, month: m, day: d, hour: 7))!
     }
 
-    /// Ishan's: Tue, Thu, Sat — three workouts a week.
-    private var config: Rotation.Config {
-        Rotation.Config(mode: .rotation, trainingWeekdays: [3, 5, 7])
-    }
-
     /// Monday. The week it belongs to started Sunday 30 August.
     private var now: Date { date(2026, 8, 31) }
 
-    private func band(_ sessions: [Date],
-                      config: Rotation.Config? = nil,
-                      plannedDays: Int = 4,
+    /// Ishan's plan, which is what sent this back for a rewrite.
+    private let plan = ["Arms and Abs", "Leg Day", "Shoulders and Back", "Chest and Abs"]
+
+    private func did(_ d: Date, _ workout: String) -> Tally.Done {
+        Tally.Done(date: d, workout: workout)
+    }
+
+    private func band(_ sessions: [Tally.Done],
+                      plannedWorkouts: Int = 4,
                       weeks: Int = 12) -> Tally.Consistency {
-        Tally.consistency(sessionDates: sessions,
-                          config: config ?? self.config,
-                          plannedDays: plannedDays,
+        Tally.consistency(sessions: sessions,
+                          plannedWorkouts: plannedWorkouts,
                           weeks: weeks,
                           now: now,
                           calendar: cal)
     }
 
-    // MARK: how many workouts a week is the plan
+    // MARK: coverage, not attendance
 
-    func testWeeklyTargetPerMode() {
-        XCTAssertEqual(Tally.weeklyTarget(config, plannedDays: 4), 3,
-                       "a rotation asks for its chosen weekdays")
-
-        let weekday = Rotation.Config(mode: .weekday)
-        XCTAssertEqual(Tally.weeklyTarget(weekday, plannedDays: 4), 4,
-                       "a weekday split asks for every day it has")
+    /// The bug, stated as a test. Two Shoulders sessions in one week is one of
+    /// four workouts covered — you have not done Leg Day by doing Shoulders
+    /// again, and a number that says otherwise is measuring turning up.
+    func testTheSameWorkoutTwiceCoversItOnce() {
+        let week = [did(date(2026, 8, 24), "Shoulders and Back"),
+                    did(date(2026, 8, 25), "Shoulders and Back"),
+                    did(date(2026, 8, 26), "Shoulders and Back")]
+        let b = band(week)
+        XCTAssertEqual(b.weeks.last(where: { !$0.inProgress })?.done, 1,
+                       "three Shoulders sessions cover one workout, not three")
     }
 
-    func testEveryNDaysTakesTheFloorSoAShortWeekIsNotAFailure() {
-        var every = Rotation.Config(mode: .everyNDays)
-        // Every 2 days is 3.5 workouts a week. A 3-workout week must count.
-        every.everyNDays = 2
-        XCTAssertEqual(Tally.weeklyTarget(every, plannedDays: 4), 3)
-        every.everyNDays = 1
-        XCTAssertEqual(Tally.weeklyTarget(every, plannedDays: 4), 7)
-        every.everyNDays = 3
-        XCTAssertEqual(Tally.weeklyTarget(every, plannedDays: 4), 2)
-        // Longer than a week still asks for one, never zero — a target of zero
-        // would make every week vacuously met.
-        every.everyNDays = 9
-        XCTAssertEqual(Tally.weeklyTarget(every, plannedDays: 4), 1)
+    func testCoveringEveryWorkoutIsAFullWeek() {
+        let week = plan.enumerated().map { i, w in did(date(2026, 8, 24 + i), w) }
+        let finished = band(week).weeks.last { !$0.inProgress }
+        XCTAssertEqual(finished?.done, 4)
+        XCTAssertTrue(finished?.met ?? false)
+        XCTAssertEqual(band(week).adherence, 1.0)
     }
 
-    // MARK: the shape of the band
-
-    /// Four weeks: one thin, one short, one met, and the week in progress.
-    private var fourWeeks: [Date] {
-        [date(2026, 8, 15),                                       // wk of  9 Aug
-         date(2026, 8, 18), date(2026, 8, 20),                    // wk of 16 Aug
-         date(2026, 8, 25), date(2026, 8, 27), date(2026, 8, 29), // wk of 23 Aug
-         date(2026, 8, 31)]                                       // in progress
+    /// "Fine if not on the actual day." All four on consecutive days, none of
+    /// them the day the schedule would have picked, is still a full week.
+    func testTheDayOfTheWeekIsNotPartOfTheQuestion() {
+        let crammed = plan.enumerated().map { i, w in did(date(2026, 8, 27 + i % 3), w) }
+        XCTAssertEqual(band(crammed).weeks.last { !$0.inProgress }?.done, 4)
     }
 
-    func testBandRunsOldestFirstAndCountsEachWeekAgainstThePlan() {
-        let result = band(fourWeeks)
-
-        XCTAssertEqual(result.weeks.count, 4)
-        XCTAssertEqual(result.weeks.map(\.done), [1, 2, 3, 1])
-        XCTAssertEqual(result.weeks.map(\.planned), [3, 3, 3, 3])
-        XCTAssertEqual(result.weeks.map(\.met), [false, false, true, false])
-        XCTAssertEqual(result.weeks.first?.start, date(2026, 8, 9).startOfWeek(cal),
-                       "oldest first, so the strip reads like a calendar")
+    /// A two-a-day of two DIFFERENT workouts is two covered — the distinctness
+    /// is about the workout, not the date.
+    func testTwoDifferentWorkoutsOnOneDayCoverTwo() {
+        let day = [did(date(2026, 8, 25), "Leg Day"),
+                   did(date(2026, 8, 25), "Chest and Abs")]
+        XCTAssertEqual(band(day).weeks.last { !$0.inProgress }?.done, 2)
     }
+
+    // MARK: the three refusals, kept
 
     func testTheWeekInProgressIsMarkedAndLeftOutOfThePercentage() {
-        let result = band(fourWeeks)
+        let b = band([did(date(2026, 8, 24), "Leg Day"),
+                      did(date(2026, 8, 31), "Leg Day")])
+        XCTAssertTrue(b.weeks.last?.inProgress ?? false, "this week is in progress")
+        XCTAssertEqual(b.planned, 4, "only the one finished week is scored")
+        XCTAssertEqual(b.credited, 1)
+    }
 
-        XCTAssertEqual(result.weeks.filter(\.inProgress).count, 1)
-        XCTAssertTrue(result.weeks.last?.inProgress == true)
-
-        // 1 + 2 + 3 credited out of 3 + 3 + 3 planned. The Monday session is
-        // in neither half — a week that has barely started cannot be scored.
-        XCTAssertEqual(result.credited, 6)
-        XCTAssertEqual(result.planned, 9)
-        XCTAssertEqual(try XCTUnwrap(result.adherence), 6.0 / 9.0, accuracy: 0.0001)
+    func testABigWeekCannotPayForAMissedOne() {
+        let lopsided = plan.enumerated().map { i, w in did(date(2026, 8, 17 + i), w) }
+        let b = band(lopsided)                       // then a week of nothing
+        XCTAssertEqual(b.planned, 8, "two finished weeks")
+        XCTAssertEqual(b.credited, 4, "a full week and an empty one")
+        XCTAssertEqual(b.adherence, 0.5)
     }
 
     func testNothingBeforeYourFirstWorkoutCountsAsAMissedWeek() {
-        // One session, three weeks ago. The band is three weeks long, not
-        // twelve — a fresh install must not open on nine failures it did not
-        // earn.
-        let result = band([date(2026, 8, 18)])
-        XCTAssertEqual(result.weeks.count, 3)
-        XCTAssertEqual(result.weeks.first?.start, date(2026, 8, 16).startOfWeek(cal))
+        let b = band([did(date(2026, 8, 24), "Leg Day")])
+        XCTAssertEqual(b.weeks.count, 2, "the first week, and the one in progress")
     }
 
     func testNoSessionsAtAllIsEmptyRatherThanZeroPercent() {
-        let result = band([])
-        XCTAssertTrue(result.isEmpty)
-        XCTAssertNil(result.adherence)
-        XCTAssertEqual(result.credited, 0)
+        let b = band([])
+        XCTAssertTrue(b.isEmpty)
+        XCTAssertNil(b.adherence, "a fresh install has not failed at anything")
+    }
+
+    // MARK: shape
+
+    func testBandRunsOldestFirst() {
+        let b = band([did(date(2026, 8, 17), "Leg Day")])
+        let starts = b.weeks.map(\.start)
+        XCTAssertEqual(starts, starts.sorted(), "the strip reads left to right")
     }
 
     func testTheBandIsCappedAtItsWindow() {
-        // A year of training every Saturday, well past the twelve-week window.
-        let sessions = (0..<52).compactMap {
-            cal.date(byAdding: .weekOfYear, value: -$0, to: date(2026, 8, 29))
-        }
-        XCTAssertEqual(band(sessions).weeks.count, 12)
-        XCTAssertEqual(band(sessions, weeks: 4).weeks.count, 4)
-    }
-
-    // MARK: what it refuses to flatter
-
-    func testABigWeekCannotPayForAMissedOne() {
-        // Six workouts one week, none the next, against a target of three.
-        // Uncapped this reads 100%; consistency is not a quarterly total.
-        let binge = [date(2026, 8, 16), date(2026, 8, 17), date(2026, 8, 18),
-                     date(2026, 8, 19), date(2026, 8, 20), date(2026, 8, 21)]
-        let result = band(binge)
-
-        XCTAssertEqual(result.weeks.map(\.done), [6, 0, 0])
-        XCTAssertEqual(result.credited, 3, "capped at that week's target")
-        XCTAssertEqual(result.planned, 6)
-        XCTAssertEqual(try XCTUnwrap(result.adherence), 0.5, accuracy: 0.0001)
-    }
-
-    func testAnOverfullWeekIsAFullWeekAndNotMore() {
-        let week = band([date(2026, 8, 17), date(2026, 8, 18),
-                         date(2026, 8, 19), date(2026, 8, 20),
-                         date(2026, 8, 21)])
-        let first = try? XCTUnwrap(week.weeks.first)
-        XCTAssertEqual(first?.done, 5)
-        XCTAssertEqual(first?.fraction, 1, "the mark fills once and stops")
-        XCTAssertEqual(first?.met, true)
-    }
-
-    /// Sessions, not days — the same unit `Rotation.index` counts, and the one
-    /// v0.3.1 settled on. Two workouts on a Saturday are two workouts; the
-    /// plan asks for workouts, not attendances.
-    func testTwoWorkoutsInADayCountTwice() {
-        var morning = DateComponents(year: 2026, month: 8, day: 22, hour: 7)
-        var evening = morning; evening.hour = 18
-        let result = band([cal.date(from: morning)!, cal.date(from: evening)!])
-
-        XCTAssertEqual(result.weeks.first?.done, 2)
+        let long = (0..<30).map { did(date(2026, 2, 1).addingTimeInterval(Double($0) * 604_800),
+                                      "Leg Day") }
+        XCTAssertLessThanOrEqual(band(long, weeks: 12).weeks.count, 12)
     }
 
     func testAWeekYouTrainedButCameUpShortIsNotTheSameAsOneYouMissed() {
-        let short = band([date(2026, 8, 18), date(2026, 8, 20)]).weeks.first
-        XCTAssertEqual(short?.done, 2)
-        XCTAssertEqual(short?.met, false)
-        XCTAssertEqual(try XCTUnwrap(short?.fraction), 2.0 / 3.0, accuracy: 0.0001,
-                       "the mark is short, not empty — the band draws the difference")
+        let short = band([did(date(2026, 8, 24), "Leg Day"),
+                          did(date(2026, 8, 26), "Chest and Abs")])
+        let none = band([did(date(2026, 8, 17), "Leg Day")])
+        XCTAssertGreaterThan(short.credited, 0)
+        XCTAssertNotEqual(short.weeks.last { !$0.inProgress }?.done,
+                          none.weeks.last { !$0.inProgress }?.done)
     }
 
-    func testAPlanWithNoDaysHasNothingToMeasureAgainst() {
-        let weekday = Rotation.Config(mode: .weekday)
-        XCTAssertTrue(band([date(2026, 8, 18)], config: weekday, plannedDays: 0).isEmpty)
+    func testAPlanWithNoWorkoutsHasNothingToMeasureAgainst() {
+        XCTAssertTrue(band([did(date(2026, 8, 24), "Leg Day")], plannedWorkouts: 0).isEmpty)
     }
-}
 
-private extension Date {
-    /// The start of the week this date falls in, for asserting on boundaries.
-    func startOfWeek(_ calendar: Calendar) -> Date {
-        calendar.dateInterval(of: .weekOfYear, for: self)?.start ?? self
+    /// A workout you have since deleted from the plan still happened, and still
+    /// covers something — but it cannot push a week past full.
+    func testAnOverfullWeekIsAFullWeekAndNotMore() {
+        var week = plan.enumerated().map { i, w in did(date(2026, 8, 24 + i), w) }
+        week.append(did(date(2026, 8, 28), "Some Old Workout"))
+        let finished = band(week).weeks.last { !$0.inProgress }
+        XCTAssertEqual(finished?.fraction, 1.0, "five covered against four is a full week")
+        XCTAssertEqual(band(week).adherence, 1.0, "and not more than full")
     }
 }

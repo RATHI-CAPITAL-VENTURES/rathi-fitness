@@ -21,12 +21,14 @@ private func workoutKey(_ entry: SetEntry) -> Date {
 
 struct TrendsView: View {
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var health: HealthBridge
     @Query(sort: \WeighIn.date) private var weighIns: [WeighIn]
     @Query(sort: \SetEntry.date) private var allSets: [SetEntry]
     @Query private var exercises: [Exercise]
     @Query(sort: \BodyMetric.date, order: .reverse) private var metrics: [BodyMetric]
 
     @State private var measuring = false
+    @State private var weighingIn = false
 
     @State private var selection: Selection = .body
     @State private var range: Range = .month
@@ -76,7 +78,22 @@ struct TrendsView: View {
                             .font(RFDesign.ui(12))
                             .foregroundStyle(RFDesign.ember)
                     }
-                    headline
+                    HStack(alignment: .firstTextBaseline) {
+                        headline
+                        Spacer()
+                        // Logging the scale lives here now rather than on
+                        // Today. Body weight is a number you read against a
+                        // curve, not one you need while deciding what to put on
+                        // the bar — and the curve is on this screen.
+                        if selection == .body {
+                            Button { weighingIn = true } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(RFDesign.ready)
+                            }
+                            .accessibilityLabel("Log today's weight")
+                        }
+                    }
                     chart
                     rangePicker
 
@@ -99,6 +116,13 @@ struct TrendsView: View {
             }
             .scrollIndicators(.hidden)
             .background(RoomBackground())
+            .sheet(isPresented: $weighingIn) {
+                WeighInSheet { pounds in
+                    context.insert(WeighIn(pounds: pounds))
+                    context.saveOrReport("saving your weight")
+                    Task { await health.write(weighIn: pounds) }
+                }
+            }
             .sheet(isPresented: $measuring) {
                 MeasureSheet { kind, inches in
                     context.insert(BodyMetric(kind: kind, inches: inches))

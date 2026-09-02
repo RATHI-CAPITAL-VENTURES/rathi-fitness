@@ -288,14 +288,23 @@ enum SnapshotBuilder {
         let allSets = try context.fetch(
             FetchDescriptor<SetEntry>(sortBy: [SortDescriptor(\.date, order: .forward)]))
 
+        // Built once. Assisted work is valued at bodyweight minus the help,
+        // and every section that reports tonnage has to agree about it — the
+        // phone and `gym` reading different numbers for the same day is the
+        // failure this whole file exists to prevent.
+        let bodyWeightLog = Tally.BodyWeightLog(
+            weighIns.map { (date: $0.date, pounds: $0.pounds) })
+
         return Snapshot(
             generatedAt: Fmt.iso(now),
             appVersion: appVersion,
             bodyWeight: bodyWeight(weighIns, now: now, cal: cal),
-            today: today(days: days, sets: allSets, sessions: sessionRecords,
+            today: today(days: days, sets: allSets, bodyWeightLog: bodyWeightLog,
+                         sessions: sessionRecords,
                          schedule: schedules.first, now: now, cal: cal),
             exercises: exercises
-                .map { summary($0, sets: allSets, now: now, cal: cal) }
+                .map { summary($0, sets: allSets, bodyWeightLog: bodyWeightLog,
+                               now: now, cal: cal) }
                 .sorted { $0.name < $1.name },
             plan: days.sorted { ($0.weekday, $0.order) < ($1.weekday, $1.order) }.map(planDay),
             passes: passes
@@ -303,6 +312,7 @@ enum SnapshotBuilder {
                 .map(passSummary),
             sessions: sessions(sessionRecords,
                                orphans: allSets.filter { $0.session == nil },
+                               bodyWeightLog: bodyWeightLog,
                                cal: cal))
     }
 
@@ -343,6 +353,7 @@ enum SnapshotBuilder {
     /// is open, that is what you are doing, whatever the cycle says. It is also
     /// how a two-a-day reads correctly — the second workout is the current one.
     private static func today(days: [PlannedDay], sets: [SetEntry],
+                              bodyWeightLog: Tally.BodyWeightLog,
                               sessions: [Session], schedule: Schedule?,
                               now: Date, cal: Calendar) -> Snapshot.Today? {
         let todaysSessions = sessions
@@ -407,7 +418,7 @@ enum SnapshotBuilder {
                 warmupSets: performed.count - working.count,
                 done: isDone,
                 volume: Tally.volume(performed.map {
-                    $0.tally
+                    $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
                 }),
                 performed: performed.map(performedLine),
                 modality: ex.modality,
@@ -416,7 +427,7 @@ enum SnapshotBuilder {
         }
         // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
-            $0.tally
+            $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
         })
         return .init(date: Fmt.day(now), day: day.name,
                      setsDone: items.reduce(0) { $0 + $1.setsDone },
@@ -479,6 +490,7 @@ enum SnapshotBuilder {
     }
 
     private static func summary(_ ex: Exercise, sets: [SetEntry],
+                                bodyWeightLog: Tally.BodyWeightLog,
                                 now: Date, cal: Calendar) -> Snapshot.ExerciseSummary {
         let mine = sets.filter { $0.exercise?.slug == ex.slug }
         let byDay = Dictionary(grouping: mine) { Fmt.day($0.date) }
@@ -493,7 +505,7 @@ enum SnapshotBuilder {
                                         : working.map(\.weight).max()) ?? 0,
                 reps: working.sorted { $0.setIndex < $1.setIndex }.map(\.reps),
                 volume: Tally.volume(entries.map {
-                    $0.tally
+                    $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
                 }),
                 warmupSets: entries.count - working.count,
                 averageRpe: rpes.isEmpty ? nil
@@ -588,6 +600,7 @@ enum SnapshotBuilder {
     /// happened to sit on that weekday. Sessions carry their own name, recorded
     /// when they were performed.
     private static func sessions(_ records: [Session], orphans: [SetEntry],
+                                 bodyWeightLog: Tally.BodyWeightLog,
                                  cal: Calendar) -> [Snapshot.Session] {
         // A set with no session still happened.
         //
@@ -648,7 +661,7 @@ enum SnapshotBuilder {
                     sets: working.count,
                     warmupSets: entries.count - working.count,
                     volume: Tally.volume(entries.map {
-                        $0.tally
+                        $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
                     }),
                     topLifts: Array(top),
                     cardioMinutes: round1(Tally.cardioMinutes(entries.map {
@@ -703,9 +716,30 @@ enum SnapshotWriter {
                       to destination: Destination? = nil) throws -> Destination {
         let dest = destination ?? self.destination()
         let data = try encoder().encode(snapshot)
-        // Atomic: the CLI may be reading while the app writes, and a half-written
-        // JSON is a crash on the other end rather than a stale answer.
-        try data.write(to: dest.url, options: .atomic)
+
+        // Atomic AND coordinated. Atomic alone is what we had, and it is only
+        // half the problem: it writes a temp file and renames it over the old
+        // one, which gives the reader a whole file or nothing — good — but also
+        // produces a NEW inode every time, which iCloud sees as delete-then-
+        // create. Without an `NSFileCoordinator` telling the daemon that this
+        // is one deliberate replacement, the Mac side can be left holding a
+        // reference to a file that no longer exists, or an unmaterialised
+        // placeholder it never gets told to download. Which is exactly the
+        // "cloud file locked" the Mac reported.
+        //
+        // Coordination is not optional in a ubiquity container; it was simply
+        // missing. Local writes get the same path so there is one code route
+        // rather than two, and the coordinator is cheap on a plain file.
+        var coordinationError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: dest.url,
+                                       options: .forReplacing,
+                                       error: &coordinationError) { url in
+            do { try data.write(to: url, options: .atomic) }
+            catch { writeError = error }
+        }
+        if let writeError { throw writeError }
+        if let coordinationError { throw coordinationError }
         return dest
     }
 }

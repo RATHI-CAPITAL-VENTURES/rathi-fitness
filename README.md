@@ -13,22 +13,22 @@ reader distrust the rest of the file.)
 
 | Ask | Where it lives |
 | --- | --- |
-| Log an exercise + current body weight, see trends over time | Trends tab — body weight chart, working weight table |
+| Log an exercise + current body weight, see trends over time | Trends tab — body weight chart (and where you log a weigh-in), working weight table |
 | Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes. Scan with the camera **or pull the code out of a screenshot you already have**. QR, Code 128, PDF417 and Aztec. |
 | A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time |
 | Look back at past sessions | Swipe left on Today. Read-only summaries, newest first — see below. |
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
 | Edit the programme | Settings → Edit the plan, or the calendar button on Today. Create/rename/reschedule/delete days, add-remove-reorder exercises, edit targets and rest, create new exercises. |
-| Cardio | Treadmill, bike, rower, elliptical, stairs and the rest — their own screen, with time, distance, incline, speed, resistance and heart rate. Each machine offers only the numbers its console has. |
-| Assisted machines | Pull-up/dip assist, where the weight makes it **easier**. Records, progression, tonnage and the trend arrow all run the other way. Toggle it on any exercise. |
+| Cardio | Treadmill, bike, rower, elliptical, stairs and the rest — their own screen, with time, distance, incline, speed, resistance and heart rate. Each machine offers only the numbers its console has. **Progresses like the weights do** — "try 2.1 mi, you covered the distance last time" — one dimension at a time. |
+| Assisted machines | Pull-up/dip assist, where the weight makes it **easier**. Records, progression, the trend arrow and the suggestion all run the other way, and tonnage counts **bodyweight − help** rather than nothing. Toggle it on any exercise. |
 | Machine settings | "2 on the leg press" — kept with the exercise, shown at the top of its screen, and readable from the Mac with `gym machines`. |
 | Music | Today and the set screen — cover art, one solid play/pause in the room's current colour, and skip. Your **Apple Music library playlists**, played by this app. |
 | Defaults | Settings → New exercises. Sets, reps, rest and cardio length a new plan slot opens on, so you stop correcting 3 × 10 every time. |
 | Reset every rest | Settings → New exercises → **Apply rest to the whole plan**. Pushes the Rest dial through every strength slot on every day, with a confirmation that names the count. Cardio is left alone — its "rest" is the gap between intervals. |
 | Hands-free | AirPods: press = play/pause, double = next track, **triple = log the set**. Settings → AirPods to remap. No narration — a ping, not a sentence. |
 | Apple Health | Weigh-ins come **from** Health (your scale writes there); finished sessions go back as workouts. Needs the entitlement — see below. |
-| Showing up | Today, under the workout — twelve weeks as twelve marks, and the share of **planned** workouts you actually did. Deliberately not a streak: nothing resets, and a rest day is the plan, not a miss. |
+| Showing up | Today, under the workout — twelve weeks as twelve marks, and how much of your plan you **covered** each week. Four workouts in the plan, four to get round to; which weekday you did them on is not the question. Deliberately not a streak: nothing resets. |
 
 ## Shape
 

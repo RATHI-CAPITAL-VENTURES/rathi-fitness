@@ -212,6 +212,21 @@ final class HealthBridge: ObservableObject {
 
     /// Send finished sessions over as workouts. Whole past days only — see
     /// `HealthSync.sessionsReadyToExport`.
+    /// Both directions, once, in the right order.
+    ///
+    /// The two halves were only ever called together — at cold launch, and
+    /// from Settings — and nowhere else, which is why finishing a workout put
+    /// nothing in Fitness and why body mass went months without arriving. One
+    /// method so every new caller gets both, in the order that matters: pull
+    /// weigh-ins first, because assisted tonnage is valued against bodyweight
+    /// and exporting before importing would send a workout costed at a weight
+    /// we were about to learn was stale.
+    func syncNow(_ context: ModelContext) async {
+        guard status.isConnected else { return }
+        await importWeighIns(into: context)
+        await exportWorkouts(from: context)
+    }
+
     func exportWorkouts(from context: ModelContext) async {
         #if canImport(HealthKit) && !RF_LOCAL_ONLY
         guard status.isConnected else { return }
@@ -220,7 +235,8 @@ final class HealthBridge: ObservableObject {
             let byStart = Dictionary(sessions.map { ($0.startedAt, $0) },
                                      uniquingKeysWith: { a, _ in a })
             let ready = HealthSync.sessionsReadyToExport(
-                sessionStarts: sessions.map(\.startedAt), alreadyExported: exportedDays)
+                sessions: sessions.map { (start: $0.startedAt, ended: $0.endedAt) },
+                alreadyExported: exportedDays)
             for day in ready {
                 guard let session = byStart[day] else { continue }
                 let entries = session.orderedSets

@@ -256,10 +256,14 @@ struct SetView: View {
     private var suggestion: Tally.Suggestion? {
         Tally.nextTarget(
             lastSession: lastSession.map {
-                $0.tally
+                // No bodyweight: `nextTarget` reads weight and reps, never
+                // volume. Saying so explicitly beats a default that hides it.
+                $0.tally(bodyWeight: nil)
             },
             target: item.targetReps,
             step: exercise.loadingKind.showsPlateMath ? 5 : 5)
+        // No `assisted:` here on purpose — `nextTarget` reads it off the sets,
+        // which is what stops this call site getting it wrong again.
     }
 
     // MARK: input
@@ -494,8 +498,10 @@ struct SetView: View {
     private func logSet() {
         // Records are judged against history WITHOUT this set — including it
         // would make every set a record for beating itself.
+        // Records compare weight and reps, never volume — so no bodyweight is
+        // needed and none is invented.
         let history = mine.map {
-            $0.tally
+            $0.tally(bodyWeight: nil)
         }
         let candidate = Tally.Set(weight: weight, reps: reps, kind: kind,
                                   assisted: exercise.assisted)

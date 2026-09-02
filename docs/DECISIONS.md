@@ -1028,3 +1028,138 @@ chrome that recedes behind the numbers — and Inter was drawn for exactly that.
 Fraunces still carries every figure, which is where the design actually lives.
 Verified by looking at the screens, not only by the suite: numbers, eyebrow
 tracking and the tab bar all read as before.
+
+## 2026-09-02 — A default parameter is a place to be silently wrong
+
+**Chosen: derive the flag, and require the one that cannot be derived.
+Rejected: passing `assisted` correctly at the call site and moving on.**
+
+`Tally.nextTarget(lastSession:target:step:assisted:)` had `assisted` default to
+`false`, and `SetView` never passed it. So every assisted machine took the
+loaded branch: hit every rep on the pull-up assist and the app told you to add
+**more help**. Three of the four exercises on this plan, every session, since
+assisted machines shipped.
+
+The one-line fix is to pass the flag. That leaves the trapdoor open, and the
+trapdoor is the actual defect: a default turns "the caller forgot" into "the
+caller agreed", and the wrong answer is the quiet one. `Tally.Set` had carried
+`assisted` since v0.2.0 with a comment saying every rule about it lives in one
+place "so no caller can forget to apply it" — and then this function asked for
+it separately anyway. It is derived from the sets now and cannot be passed.
+
+**The tests agreed with the bug**, which is the part worth remembering. Every
+assisted test built its input by hand with `assisted: true`, so they proved the
+branch was right while never exercising how it was reached. One of them is
+called `testTheConverterCarriesTheFlagSoNoCallSiteCanForgetIt`. It was green
+throughout.
+
+**Where a value genuinely cannot be derived, it gets no default.**
+`SetEntry.tally(bodyWeight:)` is required, so all eleven call sites had to state
+whether they need one; `nil` is a fine answer and an explicit one. The compiler
+asking is the whole point.
+
+## 2026-09-02 — Showing up is coverage, not attendance
+
+**Chosen: distinct workouts covered per week, against the size of the plan.
+Rejected: sessions counted against a weekday-derived target.**
+
+v0.4.0 asked "how many times did you train this week", against a target taken
+from the schedule's training weekdays. On a four-workout plan that answered a
+question nobody asks and sat near half of whatever you did — the target came
+from weekdays while the plan came from workouts, and a two-a-day scored two.
+
+The question people actually ask is **"did I get round to each of my workouts"**.
+So the unit is a distinct workout covered and the target is the number in the
+plan. Shoulders twice on a Tuesday is one of four: you have not done Leg Day by
+doing Shoulders again.
+
+Deliberately day-agnostic, and that is a reversal of what v0.4.0 leaned on.
+`Rotation.Config` is no longer consulted at all here. Which weekday you did Legs
+on is not a fact about consistency, and a plan you finished on the wrong days is
+a plan you finished. The three refusals from v0.4.0 survive unchanged — the week
+in progress is drawn but not scored, credit is capped per week, and nothing
+before your first workout counts.
+
+## 2026-09-02 — Assistance is not tonnage, but it is not nothing
+
+**Chosen: `bodyweight − help`, valued at the weigh-in on or before the set.
+Rejected: excluding it, which is what we did, and rejected today's weight for
+all of history.**
+
+The original bug counted the *help* as the load, so more help read as a better
+session. Excluding assisted work killed it and the note argued that converting
+it "means storing a bodyweight per set and guessing for every day you did not
+weigh yourself, which is the same invention that keeps push-ups out of tonnage".
+
+Half of that is right and half was an excuse. Guessing is still refused: **no
+weigh-in, no tonnage.** But where a weigh-in exists nothing is being invented —
+an assisted pull-up moves you, less the help, and that is measured. Excluding it
+meant three of this plan's exercises contributed nothing to the one figure on
+Today that is supposed to be countable, and taking help off showed as no
+progress at all.
+
+**As of the set, not as of now.** Today's weight applied to all of history would
+make last month's tonnage move every time you step on the scale — a trend line
+that reports the scale rather than the training.
+
+## 2026-09-02 — Finished, not yesterday
+
+**Chosen: export a workout when it has ended. Rejected: waiting for the day to
+be over.**
+
+`sessionsReadyToExport` skipped anything dated today, reasoning that you might
+still be in the gym. The question was right and the gate was wrong: a workout
+finished at 09:00 is finished, and `Session.endedAt` has said so since v0.3.0.
+
+Waiting for midnight would have been survivable on its own. It compounded with
+the other half — the only caller ran at cold launch — so a workout reached Apple
+Health only if you happened to cold-start the app on a later day, and often it
+simply never appeared. Two bugs whose overlap was much worse than either, and
+neither visible from inside its own file.
+
+Health now syncs on foreground and on finishing a workout, both directions,
+through one `syncNow` so a future caller cannot get half of it. Import runs
+before export: assisted tonnage is valued against bodyweight, and exporting
+first would send a workout costed at a weight we were about to learn was stale.
+
+## 2026-09-02 — Coordinate writes into a ubiquity container
+
+**Chosen: `NSFileCoordinator` around the atomic write, and a Mac side that can
+materialise an evicted file.**
+
+The snapshot was written with `.atomic` and no coordination. Atomic is right and
+insufficient: it gives the reader a whole file or nothing, but it also produces
+a new inode every time, which iCloud sees as delete-then-create. Uncoordinated,
+that can leave the other end holding a reference to a file that no longer exists
+or a placeholder it is never told to download — which is what "RIA couldn't read
+it, cloud file locked" was.
+
+The read end had its own half of it. An evicted file is not missing: it is a
+zero-byte `.snapshot.json.icloud` stub, and `path.exists()` is False for it, so
+`gym` blamed the phone for never having written. Its error message even listed
+"iCloud has not synced it down yet" as a possibility and did nothing about it.
+It now runs `brctl download`, waits, and distinguishes evicted from absent.
+
+## 2026-09-02 — Cardio progresses one dimension at a time
+
+**Chosen: push what the plan measures you by. Rejected: raising everything that
+was met, and rejected percentage increments.**
+
+Lifting has said "try 190, you hit 185 last time" since the first version.
+Cardio said nothing, so a treadmill slot showed the same prescription for ever
+and progressive overload stopped at the barbell.
+
+A treadmill offers four ways to be harder — longer, further, faster, steeper —
+and raising several at once is not progression, it is a different workout you
+cannot attribute anything to. So exactly one moves, chosen in the order the plan
+prescribes: distance, else duration, else speed, else grade. What it measures
+you by is what it should push.
+
+Increments are what a console offers — 0.1 mi, a minute, 0.1 mph, 0.5% — rather
+than a percentage of the last one. `2.0 mi + 5%` is 2.1; `3.7 mi + 5%` is 3.885,
+which is not a number you can dial in, and a suggestion you cannot follow is one
+you learn to ignore.
+
+Only dimensions the plan actually prescribes get a vote on whether you met it: a
+slot that asks for twenty minutes and leaves the pace to how you feel is not
+failed by running it slowly.

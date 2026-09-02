@@ -3,6 +3,7 @@ import SwiftData
 
 @main
 struct RathiFitnessApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     private let container = Store.makeContainer()
     @StateObject private var snapshots = SnapshotService()
     @StateObject private var rest = RestTimer()
@@ -36,6 +37,15 @@ struct RathiFitnessApp: App {
                 .environmentObject(saves)
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
+                .onChange(of: scenePhase) { _, phase in
+                    // Coming back from the background is the other moment your
+                    // Health data has moved: the scale wrote this morning while
+                    // the app was closed. `.task` only fires on a cold launch,
+                    // which on a phone can be weeks apart — this app had two
+                    // weigh-ins on record and a scale that writes daily.
+                    guard phase == .active else { return }
+                    Task { await health.syncNow(container.mainContext) }
+                }
                 .task {
                     // Without a delegate iOS shows nothing while the app is
                     // frontmost, so the cooldown alert existed only for a
@@ -84,10 +94,7 @@ struct RathiFitnessApp: App {
                     // If Health is already connected, it is the source of truth
                     // for body mass — pull before writing the snapshot so the
                     // Mac sees this morning's weigh-in without anyone typing it.
-                    if health.status.isConnected {
-                        await health.importWeighIns(into: context)
-                        await health.exportWorkouts(from: context)
-                    }
+                    await health.syncNow(context)
                     // Picks the player up if you have already granted access;
                     // never prompts here. The ask belongs to the first tap on
                     // the music bar, where it explains itself.
