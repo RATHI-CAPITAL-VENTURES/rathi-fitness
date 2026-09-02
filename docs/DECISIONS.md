@@ -901,6 +901,43 @@ built in `Calendar.current` now, because that is what `Seed` reads.
 **Every new test here reverts-red.** A regression test that has not been
 watched to fail is a regression test you are guessing about.
 
+## 2026-09-01 — A guard that only runs in CI is not a guard
+
+**Chosen: `pr-title` resolves a title locally instead of skipping. Rejected:
+leaving it to CI, and rejected making `make guards` set `PR_TITLE` itself.**
+
+`cmd_pr_title` read `PR_TITLE` from the environment, which CI sets and
+`make guards` does not, and answered *"✓ no PR_TITLE in the environment —
+skipping"*. Exit 0, a tick in the output, and no check performed. Three PRs
+shipped with the version on the wrong end of the subject while `make guards`
+reported clean, and because Actions billing was down that week, nothing said
+otherwise until the account was fixed and the backlog of runs went red at once.
+
+The tick is the part worth naming. A guard that skips loudly is survivable; one
+that prints the same "✓" as a guard that passed has actively told you the
+opposite of the truth. Every other line of that output means "checked, fine".
+
+**Why not fix it in the Makefile.** Resolving the title there would work and be
+two lines shorter — and it would be untestable, because `guards.test.sh` runs
+the script, not `make`. This repo's guards live in a script *so they can be
+tested rather than exercised by pushing a real PR*; a rule that lives in the
+Makefile is back to being exercised by pushing a real PR.
+
+**What it resolves, in the order these become true:**
+
+1. **An open PR's title** via `gh` — what GitHub squashes a multi-commit PR with.
+2. **A single-commit branch's subject** — what GitHub squashes a single-commit
+   PR with, regardless of the title, and checkable *before the PR exists*. This
+   is the case that would have caught all three.
+
+A multi-commit branch with no PR still skips: nothing has decided the squash
+subject yet, so there is genuinely nothing to check. It says that in those
+words rather than emitting a tick that reads like a pass.
+
+**The `main` history is left alone.** The three bad subjects are on `main` and
+rewriting merged trunk to fix a commit message is a far worse trade than living
+with three inconsistent lines in `git log`. They are recorded here instead.
+
 ## 2026-09-02 — Splitting a test class for time, not tidiness
 
 **Chosen: five classes and two invocations. Rejected: turning on parallelism
