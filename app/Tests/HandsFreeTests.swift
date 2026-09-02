@@ -96,6 +96,10 @@ final class HandsFreeTests: XCTestCase {
     /// The bug this whole design exists to avoid: a squeeze on the Trends tab
     /// inventing a set you never did.
     func testASqueezeWithNoWorkoutOnScreenLogsNothing() {
+        // See `testAnnounceUsesTheScreensOwnSentence` — `refuse()` plays a tone.
+        let wasEnabled = AudioHub.isEnabled
+        AudioHub.isEnabled = false
+        defer { AudioHub.isEnabled = wasEnabled }
         var logged = 0
         controls.handlers = RemoteControls.Handlers()      // nothing wired up
         controls.run(.logSet)
@@ -139,6 +143,16 @@ final class HandsFreeTests: XCTestCase {
     }
 
     func testAnnounceUsesTheScreensOwnSentence() {
+        // `.announce` reaches `AudioHub.say`, and `.logSet` with nothing wired
+        // reaches `refuse()` — both of which touch the audio stack. Silenced
+        // here for the same reason `-RFSilent` exists: on a simulator the audio
+        // server may never answer, and AURemoteIO::Cleanup answers a timeout
+        // with abort(). These two crashed the whole unit bundle when it was run
+        // on its own, and were invisible while it only ever ran alongside the
+        // UI suite.
+        let wasEnabled = AudioHub.isEnabled
+        AudioHub.isEnabled = false
+        defer { AudioHub.isEnabled = wasEnabled }
         controls.handlers = RemoteControls.Handlers(
             describe: { "Bench Press. Set 2 of 4." })
         RemoteControls.Gesture.double.action = .announce
