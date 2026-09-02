@@ -14,6 +14,37 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.4 — 2026-09-02
+
+### Fixed
+
+- **The `pr-title` guard did nothing locally, which is where it was needed.**
+  CI sets `PR_TITLE`; `make guards` does not — so the guard printed
+  *"✓ no PR_TITLE in the environment — skipping"* and exited 0 on every local
+  run. The one guard covering PR metadata was invisible to the command that
+  exists precisely so you do not have to push to find out.
+
+  Three PRs (#9, #11, #12) went out with the version on the **wrong end** of
+  the title — `feat: a thing (v0.4.1)` where this repo wants
+  `v0.4.1 feat: a thing`. All three were single-commit, so GitHub squashed with
+  the commit subject and **the wrong format is on `main` permanently**. The
+  guard says exactly this in its own error message; nothing local ever ran it.
+  Actions billing was down at the time, so nothing else caught it either.
+
+  It now resolves what GitHub will actually use, in the order those become
+  true: an open PR's title, else a single-commit branch's subject — which is
+  checkable **before** the PR exists. A multi-commit branch with no PR still
+  skips, because nothing has decided the squash subject yet, but it says that
+  in those words rather than implying it ran.
+
+  This is the same failure the repo already documented once at v2.30.3 of RIA —
+  *registering a guard is not the same as running it* — one level further in:
+  the guard was wired into CI **and** into `make guards`, and still could not
+  fail on a developer's machine.
+
+  Six new cases in `guards.test.sh`, including the two that matter: no
+  `PR_TITLE` catches a bad subject, and no `PR_TITLE` passes a good one.
+
 ## 0.4.3 — 2026-09-02
 
 ### Changed

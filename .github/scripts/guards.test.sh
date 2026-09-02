@@ -317,6 +317,30 @@ setup
   says "explains why the subject matters" "COMMIT SUBJECT"
 teardown
 
+# With no PR_TITLE at all — the way `make guards` runs it. This used to print
+# "no PR_TITLE — skipping" and exit 0, which is how three PRs shipped with the
+# version on the wrong end of the subject.
+setup
+  bump 1.0.1; entry 1.0.1; commit "fix: forgot the version"
+  run pr-title;  bad  "no PR_TITLE still catches a bad single-commit subject"
+  says "names the format it wants" "v1.0.1 <type>: <summary>"
+teardown
+
+setup
+  bump 1.0.1; entry 1.0.1; commit "v1.0.1 fix: a thing"
+  run pr-title;  ok   "no PR_TITLE passes when the subject is right"
+teardown
+
+# Two commits and no PR: nothing has decided the squash subject yet, so there
+# is genuinely nothing to check — and the message says that rather than
+# implying the guard ran.
+setup
+  bump 1.0.1; entry 1.0.1; commit "fix: one"
+  echo x >> src/thing.py; commit "fix: two"
+  run pr-title;  ok   "a multi-commit branch with no PR skips"
+  says "says what it skipped and why" "no PR"
+teardown
+
 echo "scope"
 setup
   echo more >> src/thing.py; commit "touch src"

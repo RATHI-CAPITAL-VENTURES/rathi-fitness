@@ -477,10 +477,40 @@ cmd_followups() {
 # On a SINGLE-commit PR GitHub squashes using the COMMIT SUBJECT, not the title,
 # so both are checked. A PR that landed titled correctly and committed carelessly
 # still put the wrong line in the log — and it is still there.
+# What GitHub will actually put on main, when nothing handed us a PR title.
+#
+# CI sets PR_TITLE; `make guards` does not, so this guard printed "skipping"
+# and exited 0 on every local run — the one guard covering PR metadata was
+# invisible to the command that exists precisely so you do not have to push to
+# find out. Three PRs went out with the version on the wrong end of the title
+# before CI (down for billing at the time) could say so.
+#
+# Two sources, in the order they become true:
+#   - an open PR's title, once there is a PR
+#   - a single-commit branch's SUBJECT, which is what --squash takes, and which
+#     is checkable before the PR exists at all
+# A multi-commit branch with no PR yet has nothing to check and still skips —
+# but it says so in those words, rather than implying the guard ran.
+_resolve_pr_title() {
+  local resolved=""
+  if command -v gh >/dev/null 2>&1; then
+    resolved=$(gh pr view --json title -q .title 2>/dev/null || true)
+  fi
+  if [ -z "$resolved" ] \
+     && [ "$(git rev-list --count "${MERGE_BASE}..${HEAD_SHA}" 2>/dev/null || echo 0)" = "1" ]; then
+    resolved=$(git log -1 --format=%s "$HEAD_SHA")
+  fi
+  printf '%s' "$resolved"
+}
+
 cmd_pr_title() {
-  local title ver subject n
+  local title="" ver="" subject="" n=""
   title="${PR_TITLE:-}"
-  [ -n "$title" ] || { echo "✓ no PR_TITLE in the environment — skipping."; return 0; }
+  [ -n "$title" ] || title=$(_resolve_pr_title)
+  [ -n "$title" ] || {
+    echo "✓ nothing to check yet — no PR, and more than one commit on the branch."
+    return 0
+  }
   ver=$(_head_version)
   if ! printf '%s' "$title" | grep -qE "^v${ver//./\\.} ($PR_TITLE_TYPES)(\(.+\))?: .+"; then
     echo "::error::PR title must be 'v$ver <type>: <summary>' (types: $PR_TITLE_TYPES)."
