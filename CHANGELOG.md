@@ -14,6 +14,34 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.6 — 2026-09-02
+
+### Changed
+
+- **History rewritten to remove the General Sans font software.** v0.4.5 took
+  the files out of the tree; that is not enough for a repo about to go public,
+  because a public repo hands over **every blob ever committed**, not just the
+  current ones. `git-filter-repo` dropped four paths from all 42 commits:
+
+  ```
+  app/RathiFitness/Resources/Fonts/GeneralSans-{Regular,Medium,Semibold}.ttf
+  app/RathiFitness/Resources/Fonts/FFL.txt
+  design/ios-first-pass.html          # old revisions embedded the same faces
+  ```
+
+  The mock is restored here at its Inter version. It lost its own history, which
+  is the price of having carried the font inside it as base64 — the alternative
+  was surgery on a 400KB data URI per revision.
+
+  Verified rather than assumed: **0 of the 424 blobs now in history contain
+  embedded font data**, and nothing matches `GeneralSans` or `FFL.txt` at any
+  path. The commits that *mention* General Sans in prose — this changelog,
+  `docs/DECISIONS.md`, the v0.4.5 message — are untouched and should be: the
+  name is not the software, and the reasoning is the point.
+
+  **Every SHA below v0.4.5 changed.** Any other clone of this repo must be
+  re-cloned rather than pulled.
+
 ## 0.4.5 — 2026-09-02
 
 ### Changed
