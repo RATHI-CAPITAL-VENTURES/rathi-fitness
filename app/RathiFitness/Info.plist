@@ -50,9 +50,9 @@
 	<array>
 		<string>Fraunces-Regular.ttf</string>
 		<string>Fraunces-SemiBold.ttf</string>
-		<string>GeneralSans-Regular.ttf</string>
-		<string>GeneralSans-Medium.ttf</string>
-		<string>GeneralSans-Semibold.ttf</string>
+		<string>Inter-Regular.ttf</string>
+		<string>Inter-Medium.ttf</string>
+		<string>Inter-SemiBold.ttf</string>
 	</array>
 	<!-- `audio` is load-bearing twice over: it lets the app keep playing your
 	     music with the screen locked, and it keeps the process alive so the

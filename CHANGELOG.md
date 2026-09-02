@@ -14,6 +14,29 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.5 — 2026-09-02
+
+### Changed
+
+- **The sans is Inter, not General Sans — a licence change, not a taste one.**
+  General Sans ships under the Fontshare EULA, which says the fonts may not
+  *"be distributed, duplicated, loaned, resold or licensed in any way … This
+  includes … uploading them in a public server"*. This repo is going public, so
+  shipping those three `.ttf` files in it would breach that, and **deleting them
+  from the tree would not be enough** — a public repo exposes every blob in
+  history, so they are purged from history too.
+
+  Inter is SIL OFL 1.1, redistributable with its licence file, which sits beside
+  it in `Resources/Fonts/`. It is also the better face for the job rather than
+  merely a legal one: it was drawn for user interfaces at small sizes, and the
+  whole of what the sans does here is 11–15pt chrome meant to recede behind the
+  numbers. Fraunces is untouched — already OFL, and it is the voice.
+
+  `design/ios-first-pass.html` embedded the same three faces as base64, so it
+  was a second copy being published. Re-embedded with Inter, **subset to the 109
+  glyphs the mock actually renders** so the file went to 499KB rather than the
+  1.8MB a full embed would have cost.
+
 ## 0.4.4 — 2026-09-02
 
 ### Fixed

@@ -124,14 +124,22 @@ public enum RFDesign {
     // RIA's rule is that the serif is HER voice and the only thing allowed to be
     // large. Ported: the serif is YOUR NUMBERS. The weight on the bar, the
     // clock, the number on the scale. Everything that is not a number you came
-    // here for is General Sans, quiet on purpose.
+    // here for is Inter, quiet on purpose.
+    //
+    // Inter and not General Sans since v0.4.5, for a licence rather than a
+    // taste: General Sans ships under the Fontshare EULA, which forbids
+    // "uploading them in a public server", and this repo is public. Inter is
+    // SIL OFL 1.1 — redistributable with its licence file, which is beside it.
+    // It is also the closer face for the job: drawn for user interfaces at
+    // small sizes, which is the whole of what the sans does here (11-15pt
+    // chrome that is meant to recede behind the numbers).
 
     public enum Face {
         public static let serif = "Fraunces-Regular"
         public static let serifBold = "Fraunces-SemiBold"
-        public static let sans = "GeneralSans-Regular"
-        public static let sansMedium = "GeneralSans-Medium"
-        public static let sansBold = "GeneralSans-Semibold"
+        public static let sans = "Inter-Regular"
+        public static let sansMedium = "Inter-Medium"
+        public static let sansBold = "Inter-SemiBold"
     }
 
     /// A number you lifted, weighed, or are waiting on.
