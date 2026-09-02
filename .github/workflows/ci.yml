@@ -101,19 +101,31 @@ jobs:
           brew install xcodegen
           cd app && xcodegen generate
 
-      # One destination, chosen by name so the image can move its device IDs
-      # without breaking us. `CODE_SIGNING_ALLOWED=NO` is what makes this
-      # possible at all: signing would need the Apple Development identity and
-      # its provisioning profile on the runner, and an iCloud/HealthKit
-      # credential does not belong in CI. A simulator needs neither and catches
-      # the same breakage.
-      - name: Build and test
-        working-directory: app
+      # `make`, not a hand-rolled xcodebuild, so CI and a developer's machine run
+      # the SAME invocations. Only the destination and toolchain are overridden,
+      # because those genuinely differ from a Mac — everything else lives in the
+      # Makefile, where it can be read in one place.
+      #
+      # One destination, chosen by NAME so the image can move its device IDs
+      # without breaking us. `CODE_SIGNING_ALLOWED=NO` (in the Makefile) is what
+      # makes this possible at all: signing would need the Apple Development
+      # identity and its provisioning profile on the runner, and an
+      # iCloud/HealthKit credential does not belong in CI. A simulator needs
+      # neither and catches the same breakage.
+      #
+      # Two steps rather than one `make test` so a unit failure reports in about
+      # a minute instead of six: the UI bundle is ~5 of the ~6.
+      - name: Unit tests
         run: |
           set -euo pipefail
-          xcodebuild test \
-            -project RathiFitness.xcodeproj \
-            -scheme RathiFitness \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO
+          make test-unit \
+            DEVELOPER_DIR="$(xcode-select -p)" \
+            SIMULATOR='platform=iOS Simulator,name=iPhone 16,OS=latest'
+
+      - name: UI tests
+        run: |
+          set -euo pipefail
+          make test-ui \
+            DEVELOPER_DIR="$(xcode-select -p)" \
+            SIMULATOR='platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            WORKERS=3

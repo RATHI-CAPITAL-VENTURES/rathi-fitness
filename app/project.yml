@@ -7,7 +7,7 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "0.4.2"
+    MARKETING_VERSION: "0.4.3"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # Same team the RIA faces sign with. Automatic signing plus
@@ -73,5 +73,12 @@ schemes:
         RathiFitnessUITests: [test]
     test:
       targets:
-        - RathiFitnessTests
-        - RathiFitnessUITests
+        # Serial. The whole unit bundle is ~2.5 SECONDS of testing, so there is
+        # nothing for a second worker to do.
+        - name: RathiFitnessTests
+          parallelizable: false
+        # Parallel. This bundle is ~7 of the suite's 8 minutes, and XCTest
+        # parallelises by CLASS — which is why WritePathUITests is five
+        # classes rather than one (see app/UITests/WritePathCase.swift).
+        - name: RathiFitnessUITests
+          parallelizable: true

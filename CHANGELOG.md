@@ -14,6 +14,61 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.3 — 2026-09-02
+
+### Changed
+
+- **The suite is 5:39 instead of 7:54, and the inner loop is 53 seconds.**
+  `make test-unit` runs the 139 unit tests on their own; `make test-ui` runs the
+  22 UI tests in parallel; `make test` runs both, in that order.
+
+  The measurement first, because it changed the plan. The unit bundle is **2.5
+  seconds** of actual testing. All of the time is UI, and 311 of those 428
+  seconds were in **one class** — `WritePathUITests`, 15 tests. XCTest
+  parallelises by CLASS and nothing finer, so simply turning parallelism on made
+  it **slower** (>10:00): four simulator clones booted so that three could sit
+  idle behind one long class.
+
+  So `WritePathUITests` is now five classes sharing a `WritePathCase` base,
+  grouped along the `// MARK:` sections it already had. That is the change that
+  makes parallelism pay.
+
+- **The unit and UI bundles no longer run at the same time.** Two `xcodebuild`
+  invocations, and that is the fix rather than a preference: with four UI clones
+  hammering the audio server, `HandsFreeTests` hits the CoreAudio `abort()` of
+  v0.3.3. Marking the unit target `parallelizable: false` does **not** help —
+  the contention is machine-wide. Only not overlapping them does.
+
+- **CI runs `make`.** It had its own hand-rolled `xcodebuild test`, so the
+  Makefile could grow a split that CI never got. Only the destination and
+  toolchain are overridden now. Unit and UI are separate steps, so a unit
+  failure reports in about a minute instead of six.
+
+### Fixed
+
+- **`AudioHub.say` was the audible path v0.3.3 missed.** That release gated
+  `activate`, `play` and `holdRemoteControl` on `isEnabled` and named them;
+  `say` reaches `AVSpeechSynthesizer` rather than the engine, so it did not look
+  like a fourth. It is.
+
+- **`engineRunning` asked the engine whether it was running.** Reading
+  `engine.isRunning` is itself enough to make CoreAudio rebuild the remote IO
+  unit — so the guard that `play` and `holdRemoteControl` both sit behind had
+  already done the thing it existed to prevent. It checks `isEnabled` first now,
+  and `&&` short-circuits.
+
+- **The unit bundle could not be run on its own.** `-only-testing:RathiFitnessTests`
+  crashed `HandsFreeTests.testAnnounceUsesTheScreensOwnSentence` and
+  `testASqueezeWithNoWorkoutOnScreenLogsNothing` — on `main`, before any of this.
+  It was invisible because nothing had ever run that bundle alone: the two tests
+  reach `say` and `refuse()`, and both now silence audio the way their
+  neighbours in that file already did.
+
+- **A passing run reported as a failure.** `xcode-select -p` here is
+  CommandLineTools, which has no `simctl`, and xcodebuild shells out to
+  `xcrun simctl` for end-of-run diagnostics. `DEVELOPER_DIR` was set as a command
+  prefix, which did not reach that nested `xcrun`; it is exported now.
+
 ## 0.4.2 — 2026-09-01
 
 ### Fixed
