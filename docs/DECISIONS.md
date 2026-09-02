@@ -997,3 +997,34 @@ behind thirteen minutes of UI tests. The speed the complaint was actually about
 is local, and there it is 7:54 -> 5:01. Worth writing down in that order,
 because "we parallelised the tests" would leave someone to rediscover the CI
 number later and reasonably conclude they had been sold something.
+
+## 2026-09-02 — An OFL sans, so the repo can be public
+
+**Chosen: Inter. Rejected: keeping General Sans and fetching it at setup, and
+rejected staying private to keep the typeface.**
+
+Going public was about GitHub Actions minutes — free for public repositories,
+against the 10x macOS multiplier a private one pays. The audit for it found no
+credentials in any of the 419 blobs in history, no `.env` that ever existed, no
+membership codes, no personal data; the seed weigh-ins are synthetic. One thing
+did block it, and it was a licence rather than a secret.
+
+General Sans is under the Fontshare EULA, §02 of which forbids "uploading them
+in a public server". Three `.ttf` files in `Resources/Fonts`, and a second copy
+embedded as base64 inside `design/ios-first-pass.html` — easy to miss, and it
+would have published the fonts just as effectively.
+
+**Deleting them from the tree is not enough.** A public repo exposes every blob
+ever committed, so the files had to come out of history, not just out of `main`.
+
+**Why not keep the typeface and fetch it at setup.** It would work: gitignore
+the fonts, add a `make fonts` step, let each person accept the EULA themselves.
+It also breaks clone-and-build, puts a download in every CI run, and leaves the
+repo one forgotten step away from a red build for a reason that has nothing to
+do with the code. The design cost of the swap is smaller than that.
+
+**And Inter is not a consolation.** The sans in this app does one job — 11-15pt
+chrome that recedes behind the numbers — and Inter was drawn for exactly that.
+Fraunces still carries every figure, which is where the design actually lives.
+Verified by looking at the screens, not only by the suite: numbers, eyebrow
+tracking and the tab bar all read as before.
