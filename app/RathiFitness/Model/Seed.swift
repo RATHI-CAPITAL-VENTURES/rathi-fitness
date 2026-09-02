@@ -191,7 +191,18 @@ enum Seed {
                                    weeksBack: Int, cal: Calendar) -> Date? {
         let today = cal.component(.weekday, from: now)
         var delta = weekday - today
-        if delta > 0 { delta -= 7 }
+        // `>= 0`, not `> 0`. At `delta == 0` — the seeded weekday IS today —
+        // this dated a "historical" workout 06:45 THIS MORNING, which is not
+        // history, it is today. Six weeks of history then included a session
+        // nobody had done yet, sitting in the same day as whatever you log
+        // next, and the collision only happened on the three weekdays the
+        // plan trains: Monday, Wednesday, Friday.
+        //
+        // That is why it hid. The suite ran green on a Tuesday and red on a
+        // Wednesday, and CI being down for billing meant the first Wednesday
+        // run in a fortnight arrived alongside four unrelated merges — every
+        // one of which looked likelier than a date.
+        if delta >= 0 { delta -= 7 }
         guard let thisOne = cal.date(byAdding: .day, value: delta, to: now) else { return nil }
         let shifted = cal.date(byAdding: .day, value: -7 * (weeksBack - 1), to: thisOne)
         return shifted.flatMap {

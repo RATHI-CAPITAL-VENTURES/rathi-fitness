@@ -14,6 +14,44 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.2 — 2026-09-01
+
+### Fixed
+
+- **The seed dated "six weeks of history" to this morning.**
+  `Seed.mostRecent` computed `delta = weekday - today` and shifted back only
+  `if delta > 0` — so when the seeded weekday **was** today, `delta` stayed `0`
+  and a "historical" workout landed at 06:45 **today**. History that includes a
+  session you have not done yet, sitting in the same day as whatever you log
+  next.
+
+  It only collides on the three weekdays the plan trains — Monday, Wednesday,
+  Friday — so the suite passed four days a week and failed three, and *which*
+  you saw depended on the timezone of the machine running it. A Mac on EDT and
+  a runner on UTC disagree about the weekday for four hours every night.
+
+  On CI (Wednesday, 02:31 UTC) it broke two tests with arithmetic that names
+  the cause exactly: `SnapshotTests.testSetKindsAndRpeReachTheSnapshot` saw
+  volume **6660** where it wanted 1480 — the seeded Push A bench is
+  `185 × (8+7+7+6) = 5180`, plus the test's own `185 × 8` — and a reps array of
+  **5** where it wanted 1, being the 4 seeded sets plus the working one.
+  `WorkoutFlowUITests` then opened the set screen on an exercise that was
+  already four sets in, so the plate math for 185 was not on screen.
+
+  `>= 0` now, and history means the past.
+
+- **`Seed.run(_:now:)` had a `now` nothing ever passed.** Every caller took the
+  default, so the seed was only ever exercised on whichever weekday the run
+  landed on — which is why a date bug survived in a covered function. The new
+  `SeedTests` pin the date and walk a whole week, so all seven are checked on
+  every run rather than one at random.
+
+  The first version of that test built its Wednesday in **UTC**, matching the
+  timestamp on the CI failure, and passed against the unfixed code: 02:00 UTC
+  Wednesday is 22:00 EDT Tuesday, so `Calendar.current` read it as a Tuesday
+  and the assertion agreed with itself about nothing. It builds dates in the
+  current calendar now — the same ambiguity as the bug, one level up.
+
 ## 0.4.1 — 2026-09-01
 
 ### Added
