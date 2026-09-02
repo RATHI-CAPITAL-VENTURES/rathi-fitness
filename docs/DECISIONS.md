@@ -900,3 +900,63 @@ built in `Calendar.current` now, because that is what `Seed` reads.
 
 **Every new test here reverts-red.** A regression test that has not been
 watched to fail is a regression test you are guessing about.
+
+## 2026-09-02 — Splitting a test class for time, not tidiness
+
+**Chosen: five classes and two invocations. Rejected: turning on parallelism
+and stopping there, which measured SLOWER.**
+
+The ask was "parallelise the tests". The measurement said something else:
+
+| | |
+| --- | --- |
+| whole unit bundle | **2.5 seconds** of testing |
+| `WritePathUITests` | **311s of the suite's 428**, in one class |
+| everything, serial | 7:54 |
+| everything, `-parallel-testing-enabled YES`, 4 workers | **>10:00** |
+
+XCTest parallelises by **class** and offers nothing finer — Xcode 27 has no
+`-parallel-testing-granularity`. So one class holding 73% of the work sets the
+floor, and the four simulator clones booted to beat it just cost two minutes.
+Six workers was worse again (6:55) on a ten-core machine.
+
+Splitting `WritePathUITests` along the `// MARK:` sections it already had is
+therefore not housekeeping; it is the only lever XCTest exposes. Five classes,
+one shared `WritePathCase`, no test body rewritten.
+
+**The second finding was not about speed at all.** With four UI clones running,
+`HandsFreeTests` crashed — the CoreAudio `abort()` of v0.3.3, reached through
+`AudioHub.say` and through `engineRunning` asking `engine.isRunning`, neither of
+which that release had gated. Marking the unit target `parallelizable: false`
+did **not** fix it, which is the useful part: the audio server is contended
+machine-wide, not per-bundle. Only running the two bundles one after the other
+does. That is why `make test` is two invocations.
+
+**And the bundle had never been run alone.** `-only-testing:RathiFitnessTests`
+crashed those same two tests on `main`, before any of this — invisible for
+eleven releases because every run was the whole suite, where the ordering
+happened to spare them. A fast lane is worth having for its own sake; it also
+found a crash that a slow lane was hiding.
+
+**CI now runs `make`.** It had its own copy of the xcodebuild line, so the
+Makefile could grow a split that CI never received. The destination and the
+toolchain are the only things a runner should need to override.
+
+**Postscript, same day.** The first version of this went to CI with
+`WORKERS=3` and made it **slower**: the UI step alone took 19:26, against a
+whole job of about 16:00 before. A macos runner has roughly three cores and each
+worker is a whole simulator, so the clones fought over them. The local win was
+real and so was the remote loss, which is the actual lesson — parallelism here
+is a property of the machine, not of the suite, so it is a `PARALLEL` variable
+with both measurements written next to it rather than a setting anyone has to
+remember. Green on CI is not the same as good on CI, and only the step timings
+said so.
+
+**And the honest total.** CI went 16:00 -> 17:36, not down: two invocations
+each pay a simulator boot and a runner has no spare cores to win it back. That
+is a real cost and it bought a real thing — the unit result now lands at 3:43
+instead of 16:00, so a compile error or a broken assertion no longer waits
+behind thirteen minutes of UI tests. The speed the complaint was actually about
+is local, and there it is 7:54 -> 5:01. Worth writing down in that order,
+because "we parallelised the tests" would leave someone to rediscover the CI
+number later and reasonably conclude they had been sold something.

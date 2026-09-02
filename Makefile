@@ -6,9 +6,38 @@
 # how an escape-hatch label starts looking reasonable.
 
 DEVELOPER_DIR ?= /Applications/Xcode-beta.app/Contents/Developer
+# EXPORTED, not passed as a command prefix. `xcode-select -p` here is
+# CommandLineTools, which has no `simctl`, and xcodebuild shells out to
+# `xcrun simctl` to collect diagnostics when a run finishes. A prefix
+# assignment did not reach that nested xcrun, so the collection failed with
+# "unable to find utility simctl" and xcodebuild exited non-zero having passed
+# every test — a green suite reported as a failure.
+export DEVELOPER_DIR
 SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 
-.PHONY: guards guards-test changelog-archive test project
+.PHONY: guards guards-test changelog-archive test test-unit test-ui project
+
+# Test runners. `test` is the gate; `test-unit` is the one you actually run
+# while working — the unit bundle is 2.5 SECONDS of testing, and lived behind
+# eight minutes of UI tests until v0.4.3 because there was only one target.
+WORKERS ?= 4
+# Parallel UI testing is a property of the MACHINE, not of the suite, so it is
+# a knob with a measured default rather than a setting someone believed in.
+#
+# Measured, on the whole suite:
+#
+#   this Mac, 10 cores:   7:54 serial  ->  5:39 with the split and 4 workers
+#   macos-15 runner, ~3:  the UI step alone took 19:26 with 3 workers, against
+#                         a whole job of about 16:00 before this change
+#
+# Each clone is a whole simulator. Given cores to spare that is a win; on a
+# runner with three, the clones fight over them and the UI step alone outruns
+# what the entire job used to cost. So CI passes PARALLEL=NO.
+PARALLEL ?= YES
+XCTEST = cd app && xcodebuild \
+	-project RathiFitness.xcodeproj -scheme RathiFitness \
+	-destination '$(SIMULATOR)' -derivedDataPath /tmp/rf-build \
+	CODE_SIGNING_ALLOWED=NO
 
 ## Run every guard against this branch. CLOSE to the way CI does, not identical:
 ## CI runs ubuntu with bash 5, macOS ships bash 3.2, and 3.2 does NOT enforce
@@ -34,9 +63,30 @@ changelog-archive:
 project:
 	cd app && xcodegen generate
 
-## The full suite on the simulator.
-test: project
-	cd app && DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild \
-		-project RathiFitness.xcodeproj -scheme RathiFitness \
-		-destination '$(SIMULATOR)' -derivedDataPath /tmp/rf-build \
-		CODE_SIGNING_ALLOWED=NO test
+## The full suite: the unit bundle, then the UI bundle. TWO invocations, not
+## one, and that is the whole fix rather than a tidiness preference.
+##
+## Run together, `HandsFreeTests` crashes with the CoreAudio abort v0.3.3 is
+## about. Those tests reach a real `AVAudioEngine` through `RemoteControls`,
+## and while four UI clones are hammering the audio server it answers a
+## timeout with `abort()` — a SIGABRT in AudioToolbox's own frame, which no
+## `try?` catches. It is not about which BUNDLE is parallel: marking the unit
+## target `parallelizable: false` does not help, because the contention is
+## machine-wide. Only not overlapping them does.
+##
+## 0:53 + 4:40 sequential, against 7:54 for one serial run of everything.
+test: test-unit test-ui
+
+## The unit bundle only. Seconds, not minutes — no app launches, no simulator
+## clones. This is the inner loop; `make test` is the gate before you push.
+test-unit: project
+	$(XCTEST) -only-testing:RathiFitnessTests test
+
+## The UI bundle only. Everything slow is in here: 22 tests against ~2.5s for
+## all 139 unit tests. `-parallel-testing-enabled` is safe HERE, unlike in
+## `test`, because -only-testing already excludes the unit bundle it would
+## otherwise drag in.
+test-ui: project
+	$(XCTEST) -only-testing:RathiFitnessUITests \
+		-parallel-testing-enabled $(PARALLEL) \
+		-maximum-parallel-testing-workers $(WORKERS) test

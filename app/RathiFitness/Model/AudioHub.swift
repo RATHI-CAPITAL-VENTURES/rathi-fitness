@@ -105,7 +105,14 @@ final class AudioHub: ObservableObject {
     /// reconfigured when music starts — and the flag went on saying `true`, so
     /// every later cue was scheduled into a dead engine and silently dropped
     /// until you left the screen and came back.
-    private var engineRunning: Bool { engine.isRunning }
+    ///
+    /// `isEnabled` first, and `&&` short-circuits on purpose: reading
+    /// `engine.isRunning` is itself enough to make CoreAudio rebuild the remote
+    /// IO unit, so a guard that asks the engine whether it is running has
+    /// already done the thing the guard exists to prevent. `play` and
+    /// `holdRemoteControl` both gate on this, which is why they looked covered
+    /// by v0.3.3 and were not.
+    private var engineRunning: Bool { Self.isEnabled && engine.isRunning }
 
     private init() {
         volume = UserDefaults.standard.object(forKey: Keys.volume) as? Double ?? 0.85
@@ -384,6 +391,16 @@ final class AudioHub: ObservableObject {
     /// So the only caller left is the `announce` gesture, which exists precisely
     /// because you squeezed to ask where you are.
     func say(_ sentence: String) {
+        // The audible path v0.3.3 missed. That release gated `activate`, `play`
+        // and `holdRemoteControl` on `isEnabled` and listed them by name; `say`
+        // is a fourth, and it reaches AVSpeechSynthesizer rather than the
+        // engine, so it did not look like one. `activate()` below is already a
+        // no-op when disabled — but speaking anyway still wakes the audio
+        // server, and on a simulator that cannot answer, AURemoteIO::Cleanup
+        // replies to the timeout with abort(). A SIGABRT in AudioToolbox's own
+        // frame, which no `try?` catches: the exact crash of v0.3.3, reached
+        // through the one door that release left open.
+        guard Self.isEnabled else { return }
         activate()
         let utterance = AVSpeechUtterance(string: sentence)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.06
