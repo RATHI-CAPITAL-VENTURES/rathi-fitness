@@ -526,6 +526,14 @@ struct SetView: View {
         // not leave an empty session in your history.
         entry.session = Sessions.current(for: item.day, in: context)
         context.insert(entry)
+        // The plan follows what you actually lift. Without this the row goes on
+        // showing 45 after you have been doing 50 for a month — the suggestion
+        // told you to move up, you moved up, and the checklist never noticed.
+        if let advanced = Tally.advancedTarget(current: item.targetWeight,
+                                               targetReps: item.targetReps,
+                                               set: candidate) {
+            item.targetWeight = advanced
+        }
         note = ""              // notes are per set, not sticky
         if kind == .warmup { kind = .working }   // warm-ups come first, once
         context.saveOrReport("logging a set")
@@ -539,6 +547,9 @@ struct SetView: View {
         record = nil
         guard let last = todays.last else { return }
         context.delete(last)
+        // The session may now hold nothing. One left behind reads as an extra
+        // workout on Today and advances the rotation.
+        Sessions.pruneEmpty(in: context)
         context.saveOrReport("undoing a set")
         snapshots.setNeedsWrite(context)
     }

@@ -588,6 +588,28 @@ enum Tally {
         var isEmpty: Bool { weeks.isEmpty }
     }
 
+    /// What the plan's target should become, given a set you just did.
+    ///
+    /// The Today row shows `PlanItem.targetWeight`, and nothing ever moved it.
+    /// So the set screen said "try 50, you hit every rep", you did 50, and the
+    /// checklist went on saying 45 — every row understating you by a notch, for
+    /// ever, while `working_weight` in the snapshot already knew the truth.
+    ///
+    /// Advances only on **evidence you own the weight**: a working set (not a
+    /// warm-up) that hit the rep target at a weight harder than the plan asks.
+    /// Five reps at a heavier weight is not a new working weight, it is a hard
+    /// set, and the plan should not move for it.
+    ///
+    /// Harder runs the other way on an assisted machine — less help, not more.
+    /// `nil` means leave the plan alone.
+    static func advancedTarget(current: Double,
+                               targetReps: Int,
+                               set: Set) -> Double? {
+        guard set.counts, set.reps >= targetReps else { return nil }
+        let harder = set.assisted ? set.weight < current : set.weight > current
+        return harder ? set.weight : nil
+    }
+
     /// One workout, as done — which one, and when.
     ///
     /// The name matters because the question is coverage, not attendance.

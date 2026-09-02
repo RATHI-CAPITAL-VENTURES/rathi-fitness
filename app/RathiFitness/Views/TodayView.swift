@@ -116,7 +116,13 @@ struct TodayView: View {
     /// Every workout finished today. Two on a two-a-day; the reason Today can
     /// say "second workout" rather than pretending the first did not happen.
     private var todaysSessions: [Session] {
-        sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: .now) }
+        sessions.filter {
+            calendar.isDate($0.startedAt, inSameDayAs: .now)
+                // A session with no sets did not happen. `pruneEmpty` removes
+                // them, and this is the belt to its braces: an empty one here
+                // made the header say "workout 3" on a one-workout day.
+                && !($0.sets ?? []).isEmpty
+        }
     }
 
     /// The workouts you have already done, newest first.
@@ -342,12 +348,33 @@ struct TodayView: View {
             HStack {
                 Text("\(done) of \(items.count) done").rfEyebrow()
                 Spacer()
-                if let first = todaysSets.last {
-                    let mins = Int(Date.now.timeIntervalSince(first.date) / 60)
-                    Text("\(mins) min in").rfEyebrow(RFDesign.ready)
+                if let elapsed = elapsedMinutes {
+                    Text(elapsed).rfEyebrow(RFDesign.ready)
                 }
             }
         }
+    }
+
+    /// How long the workout took, or how long it has been running.
+    ///
+    /// Was `Date.now.timeIntervalSince(todaysSets.last!.date)` — the variable
+    /// was even named `first` while taking `.last`, and only produced the right
+    /// end because `allSets` happens to sort descending. It measured wall clock
+    /// from your first set to **now**, so a workout finished at 08:49 read
+    /// "438 min in" at half past three, still counting.
+    ///
+    /// A finished workout has a duration; a live one has an elapsed time. They
+    /// are different sentences and it now says whichever is true.
+    private var elapsedMinutes: String? {
+        let sets = todaysSets
+        guard let start = sets.map(\.date).min() else { return nil }
+        if openSession != nil {
+            let mins = Int(Date.now.timeIntervalSince(start) / 60)
+            return "\(mins) min in"
+        }
+        guard let last = sets.map(\.date).max() else { return nil }
+        let mins = max(1, Int(last.timeIntervalSince(start) / 60))
+        return "\(mins) min"
     }
 
     private func rows(for day: PlannedDay) -> some View {

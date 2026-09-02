@@ -41,6 +41,41 @@ enum Sessions {
         return session
     }
 
+    /// Delete sessions that hold no sets.
+    ///
+    /// A session is created by logging a set — and left behind by undoing it.
+    /// `undoLast` deletes the `SetEntry` and nothing looks at the session it
+    /// came from, so one logged-then-undone set leaves a 0-set record with a
+    /// start and an end one second apart.
+    ///
+    /// They are not harmless. Today counts them, so a single mis-tap made the
+    /// header read **"workout 3"** on a day with one workout; they take an
+    /// ordinal in the snapshot, and `Rotation.index` counts sessions to decide
+    /// which workout is up next, so an empty one advances the rotation past a
+    /// day that was never trained.
+    ///
+    /// A session with no sets did not happen, so it is removed rather than
+    /// hidden — anything that merely skips them has to remember to, and
+    /// `Rotation` and the snapshot are two places that would have to.
+    @discardableResult
+    static func pruneEmpty(in context: ModelContext) -> Int {
+        // Flush first. The caller that matters most deletes a set and then asks
+        // whether its session is empty — and until pending changes are
+        // processed the relationship still hands back the deleted row, so the
+        // session looks occupied and survives. Done here rather than at the
+        // call site because getting the order wrong is silent, and this file
+        // has already been bitten once by a rule a caller had to remember.
+        context.processPendingChanges()
+
+        let all = (try? context.fetch(FetchDescriptor<Session>())) ?? []
+        var removed = 0
+        for session in all where (session.sets ?? []).allSatisfy(\.isDeleted) {
+            context.delete(session)
+            removed += 1
+        }
+        return removed
+    }
+
     /// End a workout. Idempotent — finishing a finished session does nothing.
     ///
     /// `endedAt` is the last set logged, not the moment you tapped the button,

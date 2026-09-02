@@ -14,6 +14,60 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.5.1 — 2026-09-02
+
+Three things one screenshot showed: a header reading **"workout 3"** on a day
+with one workout, **"438 min in"** seven hours after the last set, and six of
+seven rows showing a weight already beaten by 5 lb.
+
+### Fixed
+
+- **An undone set left its workout behind.** A session is created by logging a
+  set; `undoLast` deleted the set and nothing looked at the session, so one
+  mis-tap left a record with **zero sets** and a start and end a second apart.
+  Today counted it, so the header said "workout 3" on a day with one workout —
+  and `Rotation.index` counts sessions, so an empty one advanced the rotation
+  past a workout that was never done.
+
+  `Sessions.pruneEmpty` removes them, on undo and at launch so the ones already
+  on disk go too. It flushes pending changes first, because until it does,
+  SwiftData still hands back the set you just deleted and the session looks
+  occupied — the first version of this fix did nothing for exactly that reason,
+  and a test caught it.
+
+- **"438 min in" was measuring the wrong thing from the wrong end.** It took
+  `Date.now.timeIntervalSince(todaysSets.last!.date)` — the variable was named
+  `first` while taking `.last`, and only got the right end because `allSets`
+  happens to sort descending. So it counted wall clock from your first set to
+  **now**, for ever. A workout finished at 08:49 read "438 min in" at half past
+  three.
+
+  A finished workout has a duration and a live one has an elapsed time. It says
+  whichever is true: **"45 min"** once you are done, "45 min in" while you are
+  not.
+
+### Changed
+
+- **The plan keeps up with what you actually lift.** `PlanItem.targetWeight`
+  never moved, so the row showed the plan while the set screen suggested
+  beating it: "try 50, you hit every rep", you do 50, and the checklist goes on
+  saying 45 for ever. Six of seven rows were understating a real session by 5 lb
+  while `working_weight` in the snapshot already knew better.
+
+  A working set that **hits the rep target** at a harder weight now advances the
+  target. Evidence you own it, not evidence you tried it — five reps at a
+  heavier weight is a hard set, not a new working weight, and moves nothing. A
+  warm-up never moves it, and it never goes backwards.
+
+  Harder runs the other way on an assisted machine: 75 lb of help advances a
+  plan asking for 80, and needing *more* help never becomes the new plan.
+
+  **This is the app editing your programme, which it otherwise refuses to do** —
+  "Apply rest to the whole plan" is a confirmed, counted, explicit act for
+  exactly that reason. The difference is that this only ever records something
+  you already did, in the direction you already went, and the alternative was a
+  checklist that lies quietly for months. See `docs/DECISIONS.md`.
+
 ## 0.5.0 — 2026-09-02
 
 Everything here came from two weeks of actually using the app. Nine reports,

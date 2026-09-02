@@ -1163,3 +1163,61 @@ you learn to ignore.
 Only dimensions the plan actually prescribes get a vote on whether you met it: a
 slot that asks for twenty minutes and leaves the pace to how you feel is not
 failed by running it slowly.
+
+## 2026-09-02 — The plan follows the barbell
+
+**Chosen: a working set that hits the rep target advances `targetWeight`.
+Rejected: showing last session's weight on the row and leaving the plan stale.**
+
+The Today row renders `PlanItem.targetWeight` and nothing ever moved it. The set
+screen has always said "try 50 — you hit every rep last time"; you do 50, and
+the row goes on saying 45. On one real screenshot six of seven rows were
+understating the session by 5 lb, while `working_weight` in the snapshot already
+had it right. A checklist that is wrong in the same direction every week stops
+being a checklist.
+
+Showing "what you did last time" on the row instead would fix the display and
+leave the programme stale underneath — two numbers meaning almost the same
+thing, which is how the tonnage bug happened.
+
+**This is the app editing your programme, and that is a real cost.** v0.4.1
+deliberately made "Apply rest to the whole plan" an explicit, counted,
+confirmed act, on the argument that a default which silently rewrites your plan
+is a default you stop trusting. This is the same class of act with the opposite
+answer, so the distinction has to be stated rather than assumed:
+
+- That one changed **every slot in the plan at once**, to a number you had never
+  performed, from a settings screen. Nothing had happened to justify it.
+- This one records **one thing you just did**, on the one exercise you did it
+  on, in the direction you already moved. It cannot invent a weight, cannot
+  raise a target you did not hit, and cannot lower one.
+
+The gate is *evidence you own it*: the set counts, and it hit the rep target.
+Five reps at a heavier weight is a hard set, not a new working weight. A warm-up
+moves nothing. On an assisted machine "harder" is less help, so 75 advances a
+plan of 80 and 90 never does.
+
+## 2026-09-02 — A session with no sets did not happen
+
+**Chosen: delete empty sessions. Rejected: skipping them wherever they are
+counted.**
+
+`Sessions.current` creates a session when you log a set. `undoLast` deletes the
+set and looked at nothing else, so undoing your only set left a record with zero
+sets, `startedAt` and `endedAt` one second apart. Harmless-looking, and not:
+Today counted it and the header read **"workout 3"** on a one-workout day; it
+takes an ordinal in the snapshot; and `Rotation.index` counts sessions to decide
+what is up next, so an empty one advances the rotation past a workout nobody
+did.
+
+Skipping them at each site was the other option and it is the worse one — three
+places would each have to remember, and `Rotation` is exactly the kind of place
+that would not. They are removed instead. `todaysSessions` also filters them,
+as belt to braces for any that arrive from CloudKit mid-flight.
+
+**The bug inside the fix is the part worth writing down.** The first version
+deleted the set and then pruned, and did nothing at all: until pending changes
+are processed, SwiftData still returns the deleted row through the relationship,
+so the session looked occupied. It was caught by the test, not by reading. The
+flush now lives inside `pruneEmpty` rather than at the call site — this file has
+already been bitten once this week by a rule that a caller had to remember.
