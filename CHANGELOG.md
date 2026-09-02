@@ -51,6 +51,13 @@ A **MINOR bump is a milestone** and must ship a retro under
   to 5:39. The first version of this change shipped `WORKERS=3` to CI and made
   it *slower*; the number above is why it does not any more.
 
+  **Stated plainly rather than sold: CI got slightly slower, 16:00 → 17:36.**
+  Two invocations each pay their own simulator boot, and a runner has no cores
+  to win it back with. What CI buys for that 1½ minutes is the unit result at
+  **3:43 instead of 16:00** — a compile error or a broken assertion no longer
+  waits behind thirteen minutes of UI. The local numbers (7:54 → 5:01) are where
+  the actual speed is, which is where the complaint was.
+
 ### Fixed
 
 - **`AudioHub.say` was the audible path v0.3.3 missed.** That release gated

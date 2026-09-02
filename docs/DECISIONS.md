@@ -951,3 +951,12 @@ is a property of the machine, not of the suite, so it is a `PARALLEL` variable
 with both measurements written next to it rather than a setting anyone has to
 remember. Green on CI is not the same as good on CI, and only the step timings
 said so.
+
+**And the honest total.** CI went 16:00 -> 17:36, not down: two invocations
+each pay a simulator boot and a runner has no spare cores to win it back. That
+is a real cost and it bought a real thing — the unit result now lands at 3:43
+instead of 16:00, so a compile error or a broken assertion no longer waits
+behind thirteen minutes of UI tests. The speed the complaint was actually about
+is local, and there it is 7:54 -> 5:01. Worth writing down in that order,
+because "we parallelised the tests" would leave someone to rediscover the CI
+number later and reasonably conclude they had been sold something.
