@@ -866,3 +866,37 @@ Three things the dialog does rather than asks you to trust:
 Not undoable, and the message says so. A rest is one integer per slot and the
 plan is small; an undo stack for one field is more machinery than the thing it
 protects, and the confirmation is where the protection belongs.
+
+## 2026-09-01 — History means the past
+
+**Chosen: `Seed.mostRecent` shifts back at `delta >= 0`. Rejected: teaching the
+two failing tests to tolerate a seeded today.**
+
+`delta = weekday - today`, shifted back only `if delta > 0`. At `delta == 0` —
+the seeded weekday is today — a workout from "six weeks of history" was dated
+06:45 this morning. Not history. A session nobody had done, in the same day as
+whatever you log next.
+
+The tests could have been taught to subtract it. That is the wrong repair: they
+were not wrong, and the thing they tripped over is a real defect in what the
+demo data claims to be. A fresh demo install opened with today's workout
+already part-done, and nothing about `weeksOfHistory: 6` suggests that.
+
+**Why it hid for eleven releases.** It collides only on the three weekdays the
+plan trains, so the suite passed four days a week. Worse, *which* four depends
+on the timezone: a Mac on EDT and a runner on UTC disagree about the weekday
+for four hours every night, so the same commit could be green locally and red
+on CI with nothing between them but the clock. And `Seed.run` has always taken
+a `now` that no caller ever passed — a seam built for exactly this and never
+used, so the function was covered without any of its dates being chosen.
+
+**The near-miss is worth keeping.** The first regression test built its
+Wednesday in UTC, to match the 02:31 UTC stamp on the CI failure, and **passed
+against the unfixed code**: 02:00 UTC Wednesday is 22:00 EDT Tuesday, so
+`Calendar.current` saw a Tuesday, the seed put nothing on "today", and the test
+proved nothing while looking exactly like proof. It was caught only by
+reverting the fix and checking the test went red. Dates in these tests are
+built in `Calendar.current` now, because that is what `Seed` reads.
+
+**Every new test here reverts-red.** A regression test that has not been
+watched to fail is a regression test you are guessing about.
