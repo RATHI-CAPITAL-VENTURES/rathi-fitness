@@ -39,7 +39,15 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+          # Three ways there is no base to diff against, not one: unset, the
+          # all-zeroes first push to a branch, and — the one that bit us — a
+          # SHA that is real but GONE, because the branch was force-pushed and
+          # `github.event.before` still names the pre-rewrite commit. That last
+          # case died with "fatal: Not a valid commit name" and took the whole
+          # run down, on a push whose only sin was rewriting history.
+          if [ -z "${BASE_SHA:-}" ] \
+             || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo "no usable base — treating everything as changed"
             echo "swift=true"     >> "$GITHUB_OUTPUT"
             echo "cli=true"       >> "$GITHUB_OUTPUT"

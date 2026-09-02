@@ -14,6 +14,21 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.4.7 — 2026-09-02
+
+### Fixed
+
+- **A force-push took CI down.** The `scope` job diffs against
+  `github.event.before`, which after a history rewrite names a commit that no
+  longer exists — `fatal: Not a valid commit name b43d03d`, exit 128, whole run
+  red. It already handled two ways of having no base (unset, and the all-zeroes
+  first push to a branch) and not the third: a SHA that is real-looking but
+  **gone**. It now checks the base is reachable with `git cat-file -e` and falls
+  back to treating everything as changed.
+
+  Caught by the v0.4.6 rewrite itself, on a push whose only sin was rewriting
+  history.
+
 ## 0.4.6 — 2026-09-02
 
 ### Changed
