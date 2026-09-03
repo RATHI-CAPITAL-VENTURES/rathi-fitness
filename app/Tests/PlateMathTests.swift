@@ -121,6 +121,15 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(Fmt.signed(10), "+10")
         XCTAssertEqual(Fmt.signed(-2.5), "−2.5")
     }
+
+    /// Reps and workouts are counts, not weights. `Fmt.weight` was doing this
+    /// job and renders twelve thousand as "12300".
+    func testCountsAreGrouped() {
+        XCTAssertEqual(Fmt.count(0), "0")
+        XCTAssertEqual(Fmt.count(990), "990")
+        XCTAssertEqual(Fmt.count(2_990), "2,990")
+        XCTAssertEqual(Fmt.count(12_300), "12,300")
+    }
 }
 
 import SwiftUI

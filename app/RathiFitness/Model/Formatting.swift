@@ -5,6 +5,16 @@ import Foundation
 enum Fmt {
     /// Weights print as integers when they are integers. `185`, not `185.0`;
     /// `2.5` keeps its half.
+    /// A plain count, grouped. Reps and workouts are not weights, and
+    /// `weight` was quietly doing this job — which is fine at 2,990 and reads
+    /// as "12300" at twelve thousand.
+    static func count(_ v: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        return f.string(from: NSNumber(value: v)) ?? "\(v)"
+    }
+
     static func weight(_ v: Double) -> String {
         v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
     }

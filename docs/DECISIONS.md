@@ -1221,3 +1221,68 @@ are processed, SwiftData still returns the deleted row through the relationship,
 so the session looked occupied. It was caught by the test, not by reading. The
 flush now lives inside `pruneEmpty` rather than at the call site — this file has
 already been bitten once this week by a rule that a caller had to remember.
+
+## 2026-09-02 — A number needs to be the size of something
+
+**Chosen: lifetime tonnage against a ladder of real objects. Rejected: the
+number on its own, and rejected inventing tiers that made a nice curve.**
+
+"184,800 lb lifted" is not a feeling. Nobody has an intuition for it, so it
+reads as a serial number and gets ignored — which is what a lifetime total had
+been doing since tonnage shipped: correct, prominent, and inert.
+
+Giving it something to be the size of costs a table. The masses are **real and
+rounded**: 330,000 lb is a blue whale because a blue whale weighs about that.
+That is the honest version of a game mechanic, and it matters here more than in
+most apps, because everything else on this screen is a measured number and one
+invented scale beside them would undermine the lot. Where a real figure is a
+range, the ladder takes a representative adult and the code says so rather than
+implying precision.
+
+A **registry, not a tier per branch** — adding one is a row, and passed / next /
+remaining are derived. Progress is measured between tiers rather than from zero:
+from 875,000 toward 2,000,000, a fraction-of-target bar sits at 44% for a year
+and looks broken.
+
+## 2026-09-02 — The heatmap is the honest streak
+
+**Chosen: twenty-six weeks of squares. Rejected: a streak counter, for the third
+time.**
+
+The reference app shows "STREAK 2 weeks" and it is genuinely motivating to look
+at. `docs/RESEARCH.md` refused streaks on the grounds that a counter which
+resets makes one missed week worse than no tracking at all, and v0.4.0 tested
+that ruling rather than quoting it and kept it.
+
+Nothing has changed about the argument, so the answer is the same — but the
+*appeal* was real and worth answering. A heatmap shows the identical history:
+the good months are dense, the gap in June is visible, and none of it resets.
+You can see a run of weeks without the app claiming a number that a holiday can
+take away.
+
+Four shades rather than a gradient: the square is 10pt and the eye reads "some"
+and "a lot", not a ramp.
+
+## 2026-09-02 — A record you get for free teaches you to disbelieve the rest
+
+**Chosen: the record book excludes first-ever sets. Rejected: reusing what
+`records(for:history:)` says in the moment.**
+
+`records` answers "did this set beat anything" and, with no history, answers
+yes — there is nothing heavier than your first bench. That is right at the
+moment you log it: it *is* your best.
+
+In a book it is wrong. Every first set of every lift becomes an entry, so adding
+an exercise earns a badge and a fresh install with a seeded plan earns
+thirty-seven. The number stops meaning "you got stronger" and starts meaning
+"you used the app", which is the same failure the tie rule in `records` already
+guards against — matching your best is not a record, "and an app that says it is
+teaches you to disbelieve it."
+
+So the book requires something to have been beaten. The two functions disagree
+on purpose, and the disagreement is written where both can be seen.
+
+**Also declined: a strength score.** "Strength 41 · Intermediate I" needs
+published standards by bodyweight, age and sex to mean anything. A curve
+invented here would be a number with a confident face and nothing behind it,
+sitting next to a screen where every other figure is measured.
