@@ -26,6 +26,8 @@ struct TrendsView: View {
     @Query(sort: \SetEntry.date) private var allSets: [SetEntry]
     @Query private var exercises: [Exercise]
     @Query(sort: \BodyMetric.date, order: .reverse) private var metrics: [BodyMetric]
+    @Query(sort: \Session.startedAt) private var sessions: [Session]
+    private let calendar = Calendar.current
 
     @State private var measuring = false
     @State private var weighingIn = false
@@ -99,6 +101,9 @@ struct TrendsView: View {
 
                     muscleWork
                     cardio
+                    legacy
+                    activityGrid
+                    recordBook
 
                     VStack(alignment: .leading, spacing: RFDesign.sm) {
                         HStack {
@@ -131,6 +136,186 @@ struct TrendsView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    // MARK: - Everything you have ever lifted
+
+    /// Bodyweight as of any date, so assisted work is valued the way it is
+    /// everywhere else rather than counting for nothing here.
+    private var bodyWeightLog: Tally.BodyWeightLog {
+        Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+    }
+
+    private var lifetime: Tally.Lifetime {
+        let tallies = allSets.map { $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date)) }
+        return Tally.Lifetime(
+            workouts: sessions.count,
+            volume: Tally.volume(tallies),
+            reps: Tally.workingSets(tallies).reduce(0) { $0 + $1.reps },
+            records: Tally.recordBook(recordInput, limit: .max).count)
+    }
+
+    private var recordInput: [(date: Date, exercise: String, set: Tally.Set)] {
+        allSets.compactMap { entry in
+            guard let name = entry.exercise?.name, !entry.isCardio else { return nil }
+            return (date: entry.date, exercise: name,
+                    set: entry.tally(bodyWeight: bodyWeightLog.pounds(on: entry.date)))
+        }
+    }
+
+    /// The ladder. A number this large means nothing on its own — "147,000 lb"
+    /// is not a feeling — so it is given something to be the size of.
+    @ViewBuilder private var legacy: some View {
+        let life = lifetime
+        if life.volume > 0 {
+            let band = Tally.legacy(total: life.volume)
+            VStack(alignment: .leading, spacing: RFDesign.sm) {
+                Text("Everything you have lifted").rfEyebrow()
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(Tally.volumeText(life.volume))
+                        .font(RFDesign.figure(40))
+                        .monospacedDigit()
+                        .foregroundStyle(RFDesign.speech)
+                }
+
+                if let next = band.next {
+                    HStack(spacing: 8) {
+                        Image(systemName: next.symbol)
+                            .font(.system(size: 13))
+                            .foregroundStyle(RFDesign.ready)
+                        Text(next.name)
+                            .font(RFDesign.uiMedium(14))
+                            .foregroundStyle(RFDesign.speech)
+                        Spacer()
+                        if let left = band.remaining {
+                            Text("\(Tally.volumeText(left)) to go")
+                                .font(RFDesign.ui(12.5))
+                                .foregroundStyle(RFDesign.labelDim)
+                        }
+                    }
+                    Rail(fraction: band.fraction)
+                } else {
+                    Text("You have lifted everything on the list.")
+                        .font(RFDesign.ui(13))
+                        .foregroundStyle(RFDesign.labelDim)
+                }
+
+                if let last = band.passed.last {
+                    Text("Past \(last.name.lowercased())")
+                        .font(RFDesign.ui(12.5))
+                        .foregroundStyle(RFDesign.labelDim)
+                }
+
+                lifetimeTiles(life)
+            }
+            .padding(.top, RFDesign.lg)
+        }
+    }
+
+    private func lifetimeTiles(_ life: Tally.Lifetime) -> some View {
+        HStack(spacing: RFDesign.sm) {
+            tile(Fmt.count(life.workouts), "workouts")
+            tile(Fmt.count(life.reps), "reps")
+            tile(Fmt.count(life.records), life.records == 1 ? "record" : "records")
+        }
+        .padding(.top, RFDesign.xs)
+    }
+
+    private func tile(_ value: String, _ caption: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(RFDesign.figure(22, relativeTo: .title3))
+                .monospacedDigit()
+                .foregroundStyle(RFDesign.speech)
+            Text(caption).rfEyebrow()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: RFDesign.radiusSmall)
+            .fill(Color.white.opacity(0.05)))
+    }
+
+    /// Twenty-six weeks as squares.
+    ///
+    /// Deliberately NOT a streak. `docs/RESEARCH.md` refused those and the
+    /// consistency band replaced them; this shows the same history without a
+    /// counter that resets, so a blank fortnight is visible and is not a
+    /// failure state.
+    @ViewBuilder private var activityGrid: some View {
+        let days = Tally.activity(allSets.map {
+            (date: $0.date,
+             volume: $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date)).volume)
+        }, calendar: calendar)
+        let peak = days.map(\.volume).max() ?? 0
+        if peak > 0 {
+            VStack(alignment: .leading, spacing: RFDesign.sm) {
+                HStack {
+                    Text("Every day you trained").rfEyebrow()
+                    Spacer()
+                    Text("26 weeks").rfEyebrow()
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 3) {
+                        ForEach(Array(stride(from: 0, to: days.count, by: 7)), id: \.self) { i in
+                            VStack(spacing: 3) {
+                                ForEach(days[i..<min(i + 7, days.count)]) { day in
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(shade(day.volume, peak: peak))
+                                        .frame(width: 10, height: 10)
+                                }
+                            }
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+                .defaultScrollAnchor(.trailing)
+            }
+            .padding(.top, RFDesign.lg)
+        }
+    }
+
+    private func shade(_ volume: Double, peak: Double) -> Color {
+        guard volume > 0 else { return Color.white.opacity(0.06) }
+        // Four steps rather than a continuous ramp: a square is 10pt across and
+        // the eye cannot read a gradient that small, only "some" and "a lot".
+        let share = peak > 0 ? volume / peak : 0
+        let step = share > 0.75 ? 1.0 : share > 0.5 ? 0.75 : share > 0.25 ? 0.5 : 0.3
+        return RFDesign.ready.opacity(step)
+    }
+
+    /// The records you set, kept. `records(for:history:)` answers the question
+    /// at the moment you log a set and then the answer is thrown away — the app
+    /// could tell you something was a record and never mention it again.
+    @ViewBuilder private var recordBook: some View {
+        let book = Tally.recordBook(recordInput, limit: 8)
+        if !book.isEmpty {
+            VStack(alignment: .leading, spacing: RFDesign.sm) {
+                Text("Records").rfEyebrow()
+                VStack(spacing: 0) {
+                    ForEach(Array(book.enumerated()), id: \.element.id) { i, item in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.exercise)
+                                    .font(RFDesign.uiMedium(14.5))
+                                    .foregroundStyle(RFDesign.speech)
+                                Text(item.record.headline)
+                                    .font(RFDesign.ui(12.5))
+                                    .foregroundStyle(RFDesign.ready)
+                            }
+                            Spacer(minLength: 8)
+                            Text(Fmt.ago(item.date))
+                                .font(RFDesign.ui(12))
+                                .foregroundStyle(RFDesign.labelDim)
+                        }
+                        .padding(.vertical, 10)
+                        if i < book.count - 1 { Divider().overlay(RFDesign.hairline) }
+                    }
+                }
+            }
+            .padding(.top, RFDesign.lg)
         }
     }
 

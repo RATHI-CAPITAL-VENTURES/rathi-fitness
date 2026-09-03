@@ -14,149 +14,68 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.5.1 — 2026-09-02
+## 0.6.0 — 2026-09-02
 
-Three things one screenshot showed: a header reading **"workout 3"** on a day
-with one workout, **"438 min in"** seven hours after the last set, and six of
-seven rows showing a weight already beaten by 5 lb.
-
-### Fixed
-
-- **An undone set left its workout behind.** A session is created by logging a
-  set; `undoLast` deleted the set and nothing looked at the session, so one
-  mis-tap left a record with **zero sets** and a start and end a second apart.
-  Today counted it, so the header said "workout 3" on a day with one workout —
-  and `Rotation.index` counts sessions, so an empty one advanced the rotation
-  past a workout that was never done.
-
-  `Sessions.pruneEmpty` removes them, on undo and at launch so the ones already
-  on disk go too. It flushes pending changes first, because until it does,
-  SwiftData still hands back the set you just deleted and the session looks
-  occupied — the first version of this fix did nothing for exactly that reason,
-  and a test caught it.
-
-- **"438 min in" was measuring the wrong thing from the wrong end.** It took
-  `Date.now.timeIntervalSince(todaysSets.last!.date)` — the variable was named
-  `first` while taking `.last`, and only got the right end because `allSets`
-  happens to sort descending. So it counted wall clock from your first set to
-  **now**, for ever. A workout finished at 08:49 read "438 min in" at half past
-  three.
-
-  A finished workout has a duration and a live one has an elapsed time. It says
-  whichever is true: **"45 min"** once you are done, "45 min in" while you are
-  not.
-
-### Changed
-
-- **The plan keeps up with what you actually lift.** `PlanItem.targetWeight`
-  never moved, so the row showed the plan while the set screen suggested
-  beating it: "try 50, you hit every rep", you do 50, and the checklist goes on
-  saying 45 for ever. Six of seven rows were understating a real session by 5 lb
-  while `working_weight` in the snapshot already knew better.
-
-  A working set that **hits the rep target** at a harder weight now advances the
-  target. Evidence you own it, not evidence you tried it — five reps at a
-  heavier weight is a hard set, not a new working weight, and moves nothing. A
-  warm-up never moves it, and it never goes backwards.
-
-  Harder runs the other way on an assisted machine: 75 lb of help advances a
-  plan asking for 80, and needing *more* help never becomes the new plan.
-
-  **This is the app editing your programme, which it otherwise refuses to do** —
-  "Apply rest to the whole plan" is a confirmed, counted, explicit act for
-  exactly that reason. The difference is that this only ever records something
-  you already did, in the direction you already went, and the alternative was a
-  checklist that lies quietly for months. See `docs/DECISIONS.md`.
-
-## 0.5.0 — 2026-09-02
-
-Everything here came from two weeks of actually using the app. Nine reports,
-and the pattern in them is worth naming: **five were features that existed,
-worked in isolation, had tests, and were wired up wrong or answered the wrong
-question.** None was found by the suite.
-
-### Fixed
-
-- **The pull-up assist told you to add help for a good session.** `Tally.nextTarget`
-  took `assisted` as a parameter defaulting to `false`, and `SetView` never
-  passed it — so three of this plan's exercises got the loaded-machine branch
-  and progressed the wrong way, every session, since assisted machines shipped.
-
-  The logic was right the whole time; the call site dropped the flag. It is
-  **derived from the sets** now and cannot be passed at all. `Tally.Set` has
-  carried `assisted` since v0.2.0 for exactly this reason — "no caller can
-  forget to apply it" — and there was already a test named
-  `testTheConverterCarriesTheFlagSoNoCallSiteCanForgetIt`, passing, while the
-  call site forgot it.
-
-- **Assisted work counted for nothing in tonnage.** It was excluded outright to
-  kill a worse bug (counting the *help* as the load, so more help read as a
-  better session). The old note called converting it "the same invention that
-  keeps push-ups out of tonnage".
-
-  Half right. Guessing is still refused — **no weigh-in, no tonnage** — but
-  where a weigh-in exists there is nothing to guess: an assisted pull-up moves
-  **bodyweight − help**, measured. Valued at the most recent weigh-in *on or
-  before that set*, so last month's tonnage does not move when you step on the
-  scale today.
-
-- **"Moved today" compared against the wrong thing**, three ways at once: it
-  grouped past sets by calendar **day** rather than by `Session` — the exact
-  unit v0.3.1 established everywhere else — matched them by exercise *slug*, so
-  Push B's bench counted as "last time you did Push A", and excluded everything
-  dated today, leaving the second half of a two-a-day nothing to compare with.
-
-- **Workouts never reached Apple Health.** `sessionsReadyToExport` skipped
-  anything dated today, on the reasoning that you might still be in the gym.
-  Right question, wrong gate: a workout finished at 09:00 is finished, and the
-  only caller ran at **cold launch**, so it landed only if you happened to cold-
-  start the app on some later day. The gate is `endedAt != nil` now, and
-  finishing a workout syncs immediately.
-
-- **Health synced once per cold launch and never again.** No `scenePhase`
-  observer, nothing on finishing a workout — which is why two weigh-ins were on
-  record against a scale that writes daily. Both directions now run on
-  foreground and on finish, as one `syncNow`.
-
-- **The Mac could not read the snapshot.** The write was `.atomic` into an
-  iCloud ubiquity container with **no `NSFileCoordinator`** — atomic replace
-  makes a new inode every time, which iCloud sees as delete-then-create, and
-  uncoordinated that leaves the other end holding a stale reference or an
-  unmaterialised placeholder. Coordinated now. `gym` also handles an evicted
-  file instead of reporting it as missing: it finds the `.icloud` stub, runs
-  `brctl download`, waits, and says which of the two it actually is.
-
-### Changed
-
-- **Showing up measures coverage, not attendance.** v0.4.0 counted sessions
-  against a target derived from the schedule's training weekdays, which on a
-  four-workout plan answered a question nobody asked and sat near half of
-  whatever you did. It now asks the question you would ask: **how many of your
-  workouts did you get round to this week.** Distinct workouts, against the size
-  of the plan. Shoulders twice on a Tuesday is one of four — you have not done
-  Leg Day by doing Shoulders again — and which weekday you did it on is not a
-  fact about consistency.
-
-- **Body weight is a Trends number.** It sat under the workout on Today, where
-  it is not something you act on while deciding what to put on the bar. Logging
-  a weigh-in moved with it.
+Three things a competitor does well, built in this app's voice rather than
+copied: a reason for the tonnage number to mean something, a calendar, and a
+record book.
 
 ### Added
 
-- **Cardio progresses like the weights do.** "Try 2.1 mi — you covered the
-  distance last time." Overload stopped at the barbell; a treadmill slot showed
-  the same prescription for ever.
+- **Everything you have lifted.** Lifetime tonnage against a ladder of things
+  that weigh a known amount — a grand piano at 1,000 lb, a rhinoceros at 5,000,
+  an African elephant at 13,000, a blue whale at 330,000, the Statue of Liberty
+  at 450,000, a Space Shuttle at launch at 4.5 million.
 
-  **One dimension at a time.** A treadmill offers four ways to be harder, and
-  raising several at once is a different workout rather than progression —
-  nothing could be attributed to any of them. It pushes what the plan measures
-  you by: distance, else duration, else speed, else grade. Increments are what a
-  console actually offers — 0.1 mi, a minute, 0.1 mph, 0.5% — because a
-  suggestion you cannot dial in is one you ignore. Miss the target and it
-  repeats it rather than raising it.
+  **A number this large means nothing on its own.** "184,800 lb" is not a
+  feeling; "past a blue whale, 40 tons short of the Statue of Liberty" is. The
+  masses are real and rounded, which is the honest version of a game mechanic —
+  330,000 lb is a blue whale because a blue whale weighs about that, not because
+  it made a nice curve.
+
+  A registry, not a tier per branch: adding one is a row, and what you have
+  passed, what is next and how far are all computed from the table. Progress is
+  measured **between** tiers rather than from zero — from 875,000 toward
+  2,000,000 a fraction-of-target bar would sit at 44% for a year and look broken.
+
+- **Lifetime totals**: workouts, reps, records.
+
+- **Every day you trained.** Twenty-six weeks as squares, shaded by how much you
+  moved, four steps rather than a gradient because a 10pt square cannot carry
+  one. **Deliberately not a streak** — `docs/RESEARCH.md` refused those and the
+  consistency band replaced them. This shows the same history without a counter
+  that resets, so a blank fortnight is visible and is not a failure state.
+
+- **The records you have set, kept.** `records(for:history:)` answers "did this
+  set beat anything" at the moment you log it, and then the answer was thrown
+  away — the app could tell you something was a record and never mention it
+  again. `recordBook` replays history per lift, asking the same question of each
+  set against only what came before it.
+
+  **A first-ever set is not a record**, which is a deliberate departure from what
+  `records` says in the moment. With no history there is nothing heavier, so it
+  reports a best — fine when you are standing there, wrong in a book, where it
+  would make adding an exercise worth a badge and a fresh install worth
+  thirty-seven of them. Same argument as the tie rule already in `records`: a
+  record you get for free teaches you to disbelieve the rest.
+
+### Fixed
+
+- **Counts were formatted as weights.** `Fmt.weight` was doing duty for reps and
+  workouts; it is fine at 2,990 and renders twelve thousand as "12300".
+  `Fmt.count` groups them.
+
+### Not built, on purpose
+
+- **A streak.** Asked for and declined for the third time — see
+  `docs/RESEARCH.md` and the v0.4.0 retro. The heatmap is the honest version.
+- **A strength score** ("Intermediate I"). It needs published strength standards
+  by bodyweight to mean anything, and a curve invented here would be a number
+  with a confident face and nothing behind it.
 
 ## Earlier
 
+- [0.5](./docs/changelog/0.5.md)
 - [0.4](./docs/changelog/0.4.md)
 - [0.3](./docs/changelog/0.3.md)
 - [0.2](./docs/changelog/0.2.md)

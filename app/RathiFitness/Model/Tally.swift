@@ -610,6 +610,180 @@ enum Tally {
         return harder ? set.weight : nil
     }
 
+    // MARK: - Everything you have ever lifted
+
+    /// A thing that weighs a known amount, for the tonnage ladder.
+    ///
+    /// A **registry, not a branch per tier**: adding one is a row, and every
+    /// derived thing — what you have passed, what is next, how far — is
+    /// computed from the table rather than written out again.
+    ///
+    /// The masses are real and rounded, which is the honest version of a game
+    /// mechanic: 330,000 lb is a blue whale because a blue whale weighs about
+    /// that, not because it made a nice curve. Where a figure is a range in the
+    /// real world the ladder takes a representative adult, and says so here
+    /// rather than implying a precision it does not have.
+    struct Milestone: Equatable, Identifiable {
+        let pounds: Double
+        let name: String
+        /// SF Symbol. No illustration set to commission or ship.
+        let symbol: String
+
+        var id: String { name }
+    }
+
+    /// Roughly doubling each step, so the ladder keeps giving you something to
+    /// reach without a gap that takes a year to cross.
+    static let milestones: [Milestone] = [
+        .init(pounds: 250, name: "A grand piano's lid", symbol: "pianokeys"),
+        .init(pounds: 1_000, name: "A grand piano", symbol: "pianokeys"),
+        .init(pounds: 2_000, name: "A horse", symbol: "hare.fill"),
+        .init(pounds: 2_900, name: "A Honda Civic", symbol: "car.fill"),
+        .init(pounds: 5_000, name: "A rhinoceros", symbol: "tortoise.fill"),
+        .init(pounds: 8_000, name: "A hippopotamus", symbol: "tortoise.fill"),
+        .init(pounds: 13_000, name: "An African elephant", symbol: "tortoise.fill"),
+        .init(pounds: 25_000, name: "A school bus", symbol: "bus.fill"),
+        .init(pounds: 66_000, name: "A humpback whale", symbol: "fish.fill"),
+        .init(pounds: 140_000, name: "An M1 Abrams tank", symbol: "shield.fill"),
+        .init(pounds: 330_000, name: "A blue whale", symbol: "fish.fill"),
+        .init(pounds: 450_000, name: "The Statue of Liberty", symbol: "figure.stand"),
+        .init(pounds: 875_000, name: "A Boeing 747", symbol: "airplane"),
+        .init(pounds: 2_000_000, name: "The Eiffel Tower's iron", symbol: "antenna.radiowaves.left.and.right"),
+        .init(pounds: 4_500_000, name: "A Space Shuttle at launch", symbol: "flame.fill"),
+    ]
+
+    /// Where you are on the ladder.
+    struct Legacy: Equatable {
+        let total: Double
+        /// Everything you have already lifted past, oldest first.
+        let passed: [Milestone]
+        /// The next one, or `nil` when the ladder is finished.
+        let next: Milestone?
+
+        /// 0…1 between the last one passed and the next. Measured from the
+        /// milestone you passed rather than from zero, so late on the ladder
+        /// the bar still moves — from 875,000 to 2,000,000 as a fraction of
+        /// 2,000,000 would sit at 44% for a year.
+        var fraction: Double {
+            guard let next else { return 1 }
+            let floor = passed.last?.pounds ?? 0
+            let span = next.pounds - floor
+            guard span > 0 else { return 0 }
+            return min(max((total - floor) / span, 0), 1)
+        }
+
+        var remaining: Double? { next.map { max(0, $0.pounds - total) } }
+    }
+
+    static func legacy(total: Double,
+                       ladder: [Milestone] = Tally.milestones) -> Legacy {
+        let sorted = ladder.sorted { $0.pounds < $1.pounds }
+        let passed = sorted.filter { $0.pounds <= total }
+        let next = sorted.first { $0.pounds > total }
+        return Legacy(total: total, passed: passed, next: next)
+    }
+
+    /// The numbers that only mean anything cumulatively.
+    struct Lifetime: Equatable {
+        let workouts: Int
+        let volume: Double
+        let reps: Int
+        let records: Int
+    }
+
+    // MARK: - The record book
+
+    /// A record, as it happened.
+    struct Milestoned: Equatable, Identifiable {
+        let date: Date
+        let exercise: String
+        let record: Record
+
+        var id: String { "\(date.timeIntervalSince1970)-\(exercise)-\(record.headline)" }
+    }
+
+    /// Every record you have ever set, newest first.
+    ///
+    /// `records(for:history:)` answers "did THIS set beat anything", which is
+    /// the question at the moment you log it — and then the answer is thrown
+    /// away. Nothing kept a list, so the app could tell you a set was a record
+    /// and never mention it again.
+    ///
+    /// Replays history per exercise in order, asking the same question of each
+    /// set against only what came before it. One entry per set: the ranked best
+    /// of what it beat, for the same reason `headline` picks one — three badges
+    /// on one set is confetti.
+    static func recordBook(_ sets: [(date: Date, exercise: String, set: Set)],
+                           limit: Int = 50) -> [Milestoned] {
+        var out: [Milestoned] = []
+        let byExercise = Dictionary(grouping: sets, by: \.exercise)
+        for (name, entries) in byExercise {
+            let ordered = entries.sorted { $0.date < $1.date }
+            var history: [Set] = []
+            for entry in ordered {
+                // The first set of a lift beats nothing, and `records` says
+                // otherwise: with no history there is nothing heavier, so it
+                // reports a personal best. That is fine at the moment you log
+                // it — it IS your best — and wrong in a book, where it would
+                // make adding an exercise worth a badge and a fresh install
+                // worth thirty-seven of them. Same argument as the tie rule
+                // already in `records`: a record you get for free teaches you
+                // to disbelieve the rest.
+                if !history.isEmpty,
+                   let best = records(for: entry.set, history: history)
+                    .min(by: { $0.rank < $1.rank }) {
+                    out.append(Milestoned(date: entry.date, exercise: name, record: best))
+                }
+                history.append(entry.set)
+            }
+        }
+        return Array(out.sorted { $0.date > $1.date }.prefix(limit))
+    }
+
+    // MARK: - The calendar
+
+    /// One day on the activity grid.
+    struct ActiveDay: Equatable, Identifiable {
+        let day: Date
+        let volume: Double
+        var id: Date { day }
+    }
+
+    /// Volume per day over the last `weeks` weeks, oldest first, every day
+    /// present — including the empty ones, because the gaps are the point.
+    ///
+    /// This is the honest version of a streak: it shows the shape of your
+    /// training without a counter that resets, which `docs/RESEARCH.md` refused
+    /// and this does not reintroduce. A blank fortnight is visible and is not
+    /// a failure state.
+    static func activity(_ sets: [(date: Date, volume: Double)],
+                         weeks: Int = 26,
+                         now: Date = .now,
+                         calendar: Calendar = .current) -> [ActiveDay] {
+        guard weeks > 0,
+              let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now),
+              let start = calendar.date(byAdding: .weekOfYear, value: -(weeks - 1),
+                                        to: thisWeek.start)
+        else { return [] }
+
+        var totals: [Date: Double] = [:]
+        for entry in sets {
+            let day = calendar.startOfDay(for: entry.date)
+            guard day >= start else { continue }
+            totals[day, default: 0] += entry.volume
+        }
+
+        var days: [ActiveDay] = []
+        var cursor = start
+        let end = calendar.date(byAdding: .weekOfYear, value: 1, to: thisWeek.start) ?? now
+        while cursor < end {
+            days.append(ActiveDay(day: cursor, volume: totals[cursor] ?? 0))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return days
+    }
+
     /// One workout, as done — which one, and when.
     ///
     /// The name matters because the question is coverage, not attendance.
