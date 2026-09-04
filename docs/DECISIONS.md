@@ -1448,3 +1448,32 @@ Per **session**, not per set: a tier crossed mid-workout belongs to that
 workout. Dating it to the individual set that tipped it would be arithmetically
 truer and practically useless — nobody remembers which set of Tuesday's session
 was the one.
+
+## 2026-09-04 — A ladder that ends is a ladder with an expiry date
+
+**Chosen: extend to twenty tiers ending four thousand years out. Rejected: a
+generated tail counting multiples of the last one.**
+
+The ladder stopped at a Space Shuttle. Measured against this plan's actual rate
+— ~2.7M lb a year — that is about **eighteen months**, and nine of the fifteen
+tiers were already passed after two weeks. The screen would then have said "you
+have lifted everything on the list" for the rest of a training life, which turns
+the best thing on the Trends page into a dead end on a known date.
+
+The obvious infinite answer is a generated tail: past the last named object,
+count in multiples. "Two Great Pyramids." It is provably endless and it is
+filler — a made-up rung in a ladder whose entire premise is that every rung is a
+real measured thing. And nobody arrives to see it either way, so the property it
+buys is theoretical.
+
+Real objects instead, far past a lifetime. The Great Pyramid is ~5.9 million
+tonnes; at 2.7M lb a year it is roughly four millennia away. It never ends in
+practice and every rung stays honest, which is the trade this app makes
+everywhere else.
+
+**The bug that prompted it is the more useful finding.** Asking "what happens
+after the fifteenth" surfaced that the Eiffel Tower was entered at 2,000,000 lb
+— about an eighth of its real iron mass — and therefore sat *below* the Space
+Shuttle. The ordering test passed, because the list was internally consistent
+and externally wrong. Nothing automatic catches a plausible number in the right
+order; only asking what a figure actually refers to does.

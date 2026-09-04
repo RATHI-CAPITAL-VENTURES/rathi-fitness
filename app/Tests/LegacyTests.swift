@@ -53,8 +53,13 @@ final class LegacyTests: XCTestCase {
         XCTAssertEqual(l.fraction, 0.5, accuracy: 0.001)
     }
 
+    /// Past the top rung. The number has to come from the ladder rather than a
+    /// literal — this test used 9,000,000 and started failing the moment the
+    /// ladder was extended past a Space Shuttle, which is the test being stale
+    /// rather than the code being wrong.
     func testFinishingTheLadderHasNoNext() {
-        let l = Tally.legacy(total: 9_000_000)
+        let beyond = (Tally.milestones.map(\.pounds).max() ?? 0) + 1
+        let l = Tally.legacy(total: beyond)
         XCTAssertNil(l.next)
         XCTAssertNil(l.remaining)
         XCTAssertEqual(l.fraction, 1)
@@ -291,6 +296,46 @@ final class LegacyTests: XCTestCase {
         XCTAssertEqual(Tally.volumeText(140_000), "70 tons", "no .0 on a whole one")
         XCTAssertEqual(Tally.volumeText(12_830), "12,830 lb", "under a ton stays in pounds")
         XCTAssertEqual(Tally.volumeText(0), "nothing yet")
+    }
+
+    // MARK: the ladder does not end
+
+    /// **The rule the ladder exists to keep.** It stopped at a Space Shuttle,
+    /// which at four sessions a week is about eighteen months — after which the
+    /// screen said "you have lifted everything on the list" and had nothing
+    /// further to say, for the rest of your training life.
+    ///
+    /// 2.7M lb a year is this plan's measured rate. Fifty years of it should
+    /// not exhaust the ladder, and should not come close.
+    func testALifetimeOfTrainingDoesNotFinishTheLadder() {
+        let aYear = 2_700_000.0
+        let aLifetime = aYear * 50
+        let top = Tally.milestones.map(\.pounds).max() ?? 0
+        XCTAssertGreaterThan(top, aLifetime * 10,
+                             "the top tier must be out of reach by an order of magnitude")
+        XCTAssertNotNil(Tally.legacy(total: aLifetime).next,
+                        "fifty years in there must still be something ahead")
+    }
+
+    /// The specific error that prompted the extension: entered eight times too
+    /// light, and therefore in the wrong place.
+    func testTheEiffelTowerIsHeavierThanASpaceShuttle() {
+        let shuttle = Tally.milestones.first { $0.name.contains("Space Shuttle") }
+        let eiffel = Tally.milestones.first { $0.name.contains("Eiffel") }
+        XCTAssertNotNil(shuttle); XCTAssertNotNil(eiffel)
+        XCTAssertGreaterThan(eiffel!.pounds, shuttle!.pounds,
+                             "7,300 tonnes of iron outweighs a 2,030-tonne launch stack")
+    }
+
+    /// No gap so large that a tier stops being something to reach for. Each
+    /// step may be a big jump at the top, where they are decades apart anyway,
+    /// but nothing should be more than ~10x its predecessor low down.
+    func testTheStepsStayReachableWhereYouActuallyAre() {
+        let rungs = Tally.milestones.map(\.pounds).sorted()
+        for (a, b) in zip(rungs, rungs.dropFirst()) where a < 1_000_000 {
+            XCTAssertLessThan(b / a, 10,
+                              "a jump from \(a) to \(b) is too big to aim at")
+        }
     }
 
 }

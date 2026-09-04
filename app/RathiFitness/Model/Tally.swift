@@ -662,8 +662,20 @@ enum Tally {
         var id: String { name }
     }
 
-    /// Roughly doubling each step, so the ladder keeps giving you something to
-    /// reach without a gap that takes a year to cross.
+    /// Roughly doubling each step at the bottom, so the ladder keeps giving you
+    /// something to reach without a gap that takes a year to cross — and then
+    /// running far past a lifetime at the top, because **it must never end.**
+    ///
+    /// The first fifteen tiers stopped at a Space Shuttle, which at four
+    /// sessions a week is about eighteen months of training. After that the
+    /// screen said "you have lifted everything on the list" and had nothing
+    /// left to say, for ever.
+    ///
+    /// The heavy end is deliberately absurd and still **real**: at 2.7M lb a
+    /// year the Great Pyramid is some four thousand years away. Nobody reaches
+    /// it, which is the point — the alternative was a generated tail counting
+    /// "two Great Pyramids, three Great Pyramids", and a made-up rung is
+    /// exactly what this ladder refuses to be. See `docs/LADDER.md`.
     static let milestones: [Milestone] = [
         .init(pounds: 250, name: "A grand piano's lid", art: "grand-piano-lid"),
         .init(pounds: 1_000, name: "A grand piano", art: "grand-piano"),
@@ -678,8 +690,25 @@ enum Tally {
         .init(pounds: 330_000, name: "A blue whale", art: "blue-whale"),
         .init(pounds: 450_000, name: "The Statue of Liberty", art: "statue-of-liberty"),
         .init(pounds: 875_000, name: "A Boeing 747", art: "airliner"),
-        .init(pounds: 2_000_000, name: "The Eiffel Tower's iron", art: "eiffel-tower"),
         .init(pounds: 4_500_000, name: "A Space Shuttle at launch", art: "space-shuttle"),
+        // ---- past a year and a half of training, at four sessions a week ----
+        //
+        // The ladder used to end here, and ending is the one thing it must not
+        // do: at ~2.7M lb a year the fifteenth tier was about eighteen months
+        // out, and "you have lifted everything on the list" is a dead screen
+        // for the rest of your training life.
+        //
+        // The Eiffel Tower also moved. It was entered at 2,000,000 lb and sat
+        // BELOW the Shuttle; the tower's puddle iron is about 7,300 tonnes,
+        // which is roughly eight times that and belongs above it. A ladder
+        // whose whole premise is that the masses are real cannot carry a
+        // figure that wrong.
+        .init(pounds: 16_000_000, name: "The Eiffel Tower's iron", art: "eiffel-tower"),
+        .init(pounds: 117_000_000, name: "The Titanic", art: "titanic"),
+        .init(pounds: 224_000_000, name: "A Nimitz-class carrier", art: "aircraft-carrier"),
+        .init(pounds: 730_000_000, name: "The Empire State Building", art: "empire-state-building"),
+        .init(pounds: 1_770_000_000, name: "The Golden Gate Bridge", art: "golden-gate-bridge"),
+        .init(pounds: 13_000_000_000, name: "The Great Pyramid of Giza", art: "great-pyramid"),
     ]
 
     /// A tier, and the day you went past it.
