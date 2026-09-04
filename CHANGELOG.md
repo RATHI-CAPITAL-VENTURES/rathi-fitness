@@ -14,6 +14,21 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.8.1 — 2026-09-04
+
+### Fixed
+
+- **The auto-update agent could collide with itself.** launchd fires on a
+  schedule whether or not the last run finished, and an Xcode build outruns a
+  ten-minute tick easily. Two instances shared a derived-data path and
+  `xcodebuild` died with *"database is locked … two concurrent builds running in
+  the same filesystem location"* — reported as `APPLY FAILED` for v0.8.0, which
+  was a perfectly good commit.
+
+  Fixed upstream (RIA template **1.0.1 → 1.0.2**, RIA v2.41.4): an atomic lock
+  holding the owner's pid, so a second instance stands down quietly and a stale
+  one is taken over rather than blocking the agent for ever.
+
 ## 0.8.0 — 2026-09-04
 
 ### Added
