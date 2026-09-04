@@ -87,6 +87,26 @@ should not spend them.
 
 ## Installing on the phone
 
+**Automatically, from `main`.** `make autoinstall-install` turns on a launchd
+agent that polls `origin/main` every ten minutes and, when it moves, builds and
+installs over Wi-Fi. `make autoinstall-uninstall` turns it off,
+`make autoinstall-status` says what it last did, and the log is at
+`~/Library/Logs/rathi-fitness/autoinstall.log`.
+
+This is the `app/` half of what RIA's auto-deploy does for the server, and it
+exists because that one deliberately does not touch native faces: an `app/`
+change could be merged, green in CI, and still not on the phone for weeks.
+
+It never interrupts a workout — if the app is open on the phone it skips and
+tries again later, because installing over a running app terminates it. It also
+only acts on a clean `main`, refuses a diverged remote rather than resetting
+anything, and builds before it touches the device, so a broken commit leaves the
+phone with the build it already had. `make autoinstall-test` runs its sixteen
+cases against a throwaway repo and stub tools.
+
+### By hand
+
+
 Two builds, and the difference matters.
 
 **Full build — needs an Apple ID signed into Xcode.** This is the one that

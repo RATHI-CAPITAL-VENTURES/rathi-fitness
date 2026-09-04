@@ -14,6 +14,51 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.6.1 — 2026-09-04
+
+### Changed
+
+- **The training week starts on Monday.** Both the heatmap and the consistency
+  band took `Calendar.current`, which is Sunday-first in the US — so the week
+  was cut through the middle of a weekend and a Saturday-and-Sunday pair landed
+  in two different weeks. Nobody thinks about their training week that way.
+
+  Forced inside `Tally.activity` and `Tally.consistency` rather than left to the
+  caller, because the failure is silent: hand either one a plain `Calendar` and
+  everything still computes, against the wrong seven days. Only `firstWeekday`
+  is overridden — the timezone and locale that come in are the user's.
+
+  **Showing Up percentages will shift slightly**, because the weeks they are
+  counted in have moved.
+
+- **The heatmap says which row is which day** — M T W T F S S down the side. A
+  grid of squares with no labels is a texture: you cannot tell "always trains
+  Monday" from "always trains Thursday" by looking at it.
+
+### Added
+
+- **Auto-install to the phone.** `make autoinstall-install` turns on a launchd
+  agent that polls `origin/main` every ten minutes and, when it moves, builds
+  and installs over Wi-Fi.
+
+  This is the `app/` half of what RIA's auto-deploy does for the server, and it
+  exists because that one deliberately does not touch native faces — an `app/`
+  change could be merged, green, and still not on the phone.
+
+  **It never interrupts a workout.** If the app is open on the phone it skips
+  and tries again: installing over a running app terminates it, and losing a set
+  to a background job is a much worse bug than being one commit behind. It acts
+  only on a clean `main`, refuses a diverged remote rather than resetting, and
+  builds before touching the device so a broken commit leaves the phone with the
+  build it had.
+
+  Sixteen self-tests against a throwaway repo and stub tools —
+  `make autoinstall-test`. Two of them found real bugs while being written: the
+  running-app check grepped for the bundle id, which `devicectl` never prints
+  (it lists executable paths), so the guard could not fire; and the script's
+  hardcoded launchd `PATH` made everything past `xcodegen` unreachable from a
+  test.
+
 ## 0.6.0 — 2026-09-02
 
 Three things a competitor does well, built in this app's voice rather than

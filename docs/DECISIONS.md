@@ -1286,3 +1286,62 @@ on purpose, and the disagreement is written where both can be seen.
 published standards by bodyweight, age and sex to mean anything. A curve
 invented here would be a number with a confident face and nothing behind it,
 sitting next to a screen where every other figure is measured.
+
+## 2026-09-04 — The training week starts on Monday
+
+**Chosen: `firstWeekday = 2`, forced inside the two functions that group by
+week. Rejected: `Calendar.current`, and rejected leaving it to the caller.**
+
+`Calendar.current` is Sunday-first in the US, so both the heatmap and the
+consistency band cut the week through the middle of a weekend: a Saturday
+session and the Sunday after it counted as two different weeks. Nobody plans
+training that way, and on the heatmap it put the two weekend rows at opposite
+ends of the column.
+
+Forced inside `Tally.activity` and `Tally.consistency` rather than passed in,
+because the failure is silent — hand either a plain `Calendar` and it still
+computes, just against the wrong seven days. Only `firstWeekday` is overridden;
+the timezone and locale that arrive are the user's and none of this function's
+business.
+
+The cost is real and worth stating: **Showing Up percentages move**, because the
+weeks they are counted in have moved. A week that was 3-of-4 can become 2-of-4
+and a neighbouring one 4-of-4. Nothing is wrong with the old numbers or the new
+ones — they answer the same question about different seven-day spans — but a
+number changing under you with no other explanation is worth having written
+down.
+
+## 2026-09-04 — Auto-install, and the one thing it must never do
+
+**Chosen: a launchd agent that builds and installs when `origin/main` moves.
+Rejected: TestFlight, and rejected installing whenever a new commit exists.**
+
+RIA's auto-deploy ships the server and deliberately never touches the native
+faces, which leaves a real gap: an `app/` change is merged, green in CI, and
+still not on the phone until someone runs two `xcodebuild` commands. Every
+release in this repo so far has ended exactly that way.
+
+Two facts made the local approach the right one rather than TestFlight: the
+provisioning profile is a paid-account one good for a year (not the seven days a
+free account gets), and the phone is paired over `localNetwork`, so `devicectl`
+reaches it without a cable. TestFlight would work anywhere rather than on one
+Wi-Fi, but costs an App Store Connect record and ten minutes of processing per
+build to solve a problem that is "the Mac and the phone are in the same house".
+
+**The guard that matters is not interrupting a workout.** Installing over a
+running app terminates it. A background job that kills the app between sets —
+and loses one — would be far worse than being a commit behind, and it would
+happen precisely when the app is most in use. So a running app means skip and
+try later, forever if necessary.
+
+Writing the tests found two bugs in the thing being tested, which is the whole
+argument for having them:
+
+- the running-app check grepped for the **bundle id**, and
+  `devicectl device info processes` prints executable paths — it never contains
+  `com.rathi.fitness`, so the guard could not fire. Found by running the command
+  while the app happened to be open.
+- the script hardcodes `PATH` because launchd gives a job almost none, and a
+  hardcoded `PATH` cannot be stubbed, so no test could reach any branch past
+  `xcodegen`. RIA's deploy script hit the same wall and solved it one variable
+  at a time; one variable for the whole `PATH` is the same fix, smaller.
