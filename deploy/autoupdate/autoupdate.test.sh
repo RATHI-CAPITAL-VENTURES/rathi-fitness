@@ -72,6 +72,7 @@ run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
     AU_APPLY="${APPLY_OVERRIDE:-$IOS}" \
     AU_PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
+    AU_LOCK="$TMP/lock" \
     AU_IOS_PROJECT="Thing.xcodeproj" AU_IOS_SCHEME="Thing" \
     AU_IOS_ECID="E" AU_IOS_DEVICE="D" AU_IOS_APP_PROCESS="/Thing.app/" \
     AU_IOS_DERIVED="$TMP/derived" AU_IOS_DEVELOPER_DIR="/usr" \
@@ -151,6 +152,38 @@ setup
   run > /dev/null; : > "$LOG"
   run > /dev/null
   quiet "a second run with nothing new does nothing"
+teardown
+
+echo "autoupdate — one at a time"
+
+# launchd fires on a schedule whether or not the last run finished, and an
+# Xcode build outruns a ten-minute tick easily. Two instances sharing a
+# derived-data path made xcodebuild die with "database is locked", logged as
+# APPLY FAILED for a perfectly good commit.
+setup
+  new_commit; export STUB_REACHABLE=1
+  mkdir -p "$TMP/lock"; echo $$ > "$TMP/lock/pid"      # a live holder: this shell
+  run > /dev/null
+  quiet "a second instance stands down while one is running"
+  ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and applies nothing"
+teardown
+
+setup
+  new_commit; export STUB_REACHABLE=1
+  mkdir -p "$TMP/lock"; echo 999999 > "$TMP/lock/pid"  # holder is long gone
+  run > /dev/null
+  says "APPLIED" "a stale lock is taken over rather than obeyed for ever"
+  says "clearing a stale lock" "and it says so"
+teardown
+
+setup
+  new_commit; export STUB_REACHABLE=1
+  run > /dev/null
+  if [ -d "$TMP/lock" ]; then
+      FAIL=$((FAIL+1)); echo "  FAIL the lock is released when the run finishes"
+  else
+      PASS=$((PASS+1)); echo "  ok   the lock is released when the run finishes"
+  fi
 teardown
 
 echo "autoupdate — config reaches the hook"

@@ -62,6 +62,34 @@ mkdir -p "$(dirname "$LOG")" 2>/dev/null
 say() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG"; }
 
 [ -n "$REPO" ] || { say "no AU_REPO configured"; exit 1; }
+
+# ------------------------------------------------------------ one at a time
+#
+# launchd fires on a schedule regardless of whether the last run finished, and
+# an apply can take minutes — an Xcode build easily outruns a ten-minute tick,
+# and a human running it by hand overlaps trivially. Two instances then share a
+# derived-data path and xcodebuild dies with "unable to attach DB: database is
+# locked. Possibly there are two concurrent builds running in the same
+# filesystem location", which is logged as APPLY FAILED for a commit that was
+# perfectly good.
+#
+# `mkdir` because it is atomic on every filesystem this runs on; the PID inside
+# is so a killed run does not lock the thing out for ever.
+LOCK="${AU_LOCK:-/tmp/autoupdate-$(basename "$REPO").lock}"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    holder=$(cat "$LOCK/pid" 2>/dev/null || echo "")
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+        exit 0                      # genuinely still running. Normal, and quiet.
+    fi
+    # The holder is gone — killed, rebooted, crashed. Take it over rather than
+    # refusing for ever.
+    say "clearing a stale lock from pid ${holder:-unknown}"
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT INT TERM
+
 [ -n "$APPLY" ] || { say "no AU_APPLY configured"; exit 1; }
 cd "$REPO" 2>/dev/null || { say "no repo at $REPO"; exit 1; }
 
