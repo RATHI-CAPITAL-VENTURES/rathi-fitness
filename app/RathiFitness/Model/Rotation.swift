@@ -40,6 +40,40 @@ enum Rotation {
         var everyNDays: Int = 2
     }
 
+    /// How many workouts a week this schedule asks for.
+    ///
+    /// Each mode answers differently because each means a different thing: a
+    /// weekday split does every day it has, a rotation does its chosen days,
+    /// and every-N-days does not think in weeks at all so it takes the floor —
+    /// `every 2 days` is 3.5 a week and a 3-session week must not be a failure.
+    ///
+    /// Capped at the number of workouts in the plan: a schedule asking for four
+    /// days a week against a three-workout plan is asking for a fourth workout
+    /// that does not exist, and a week could never be complete.
+    static func weeklyTarget(_ config: Config, plannedWorkouts: Int) -> Int {
+        let fromSchedule: Int
+        switch config.mode {
+        case .weekday:     fromSchedule = config.trainingWeekdays.count
+        case .rotation:    fromSchedule = config.trainingWeekdays.count
+        case .everyNDays:  fromSchedule = max(1, 7 / max(1, config.everyNDays))
+        }
+        guard plannedWorkouts > 0 else { return fromSchedule }
+        return min(fromSchedule, plannedWorkouts)
+    }
+
+    /// The schedule in words, for the history list. "Tue, Thu, Sat".
+    static func summary(_ config: Config, calendar: Calendar = .current) -> String {
+        switch config.mode {
+        case .everyNDays:
+            return "every \(config.everyNDays) days"
+        case .weekday, .rotation:
+            let names = calendar.shortWeekdaySymbols
+            return config.trainingWeekdays.sorted()
+                .compactMap { names.indices.contains($0 - 1) ? names[$0 - 1] : nil }
+                .joined(separator: ", ")
+        }
+    }
+
     /// Is `date` a day you intend to train?
     ///
     /// For `everyNDays` this needs the last session, because "every 2 days"

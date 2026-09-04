@@ -41,6 +41,44 @@ enum Sessions {
         return session
     }
 
+    /// Record the schedule as it is now, if it has changed.
+    ///
+    /// Append-only, and idempotent: calling it twice with the same target adds
+    /// nothing. The point is that a week is scored by what was being asked of
+    /// you while it was happening — see `ScheduleEpoch`.
+    @discardableResult
+    static func recordSchedule(target: Int, note: String,
+                               in context: ModelContext,
+                               now: Date = .now) -> Bool {
+        guard target > 0 else { return false }
+        let existing = (try? context.fetch(
+            FetchDescriptor<ScheduleEpoch>(
+                sortBy: [SortDescriptor(\.startedAt, order: .forward)]))) ?? []
+        if existing.last?.weeklyTarget == target { return false }
+        context.insert(ScheduleEpoch(startedAt: now, weeklyTarget: target, note: note))
+        return true
+    }
+
+    /// Give a store with no schedule history one entry, dated at the first
+    /// workout, so weeks before the feature existed are scored by something
+    /// rather than nothing.
+    ///
+    /// It uses the CURRENT schedule, which is the only thing on disk — so a
+    /// change made before this shipped is invisible and the earliest epoch may
+    /// be wrong. That is why Settings lets you correct it: it is the one target
+    /// nothing could have recorded.
+    @discardableResult
+    static func seedScheduleHistory(target: Int, note: String,
+                                    in context: ModelContext) -> Bool {
+        let existing = (try? context.fetchCount(FetchDescriptor<ScheduleEpoch>())) ?? 0
+        guard existing == 0, target > 0 else { return false }
+        let first = (try? context.fetch(
+            FetchDescriptor<Session>(sortBy: [SortDescriptor(\.startedAt, order: .forward)])))?
+            .first?.startedAt ?? .now
+        context.insert(ScheduleEpoch(startedAt: first, weeklyTarget: target, note: note))
+        return true
+    }
+
     /// Delete sessions that hold no sets.
     ///
     /// A session is created by logging a set — and left behind by undoing it.

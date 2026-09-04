@@ -199,7 +199,7 @@ final class LegacyTests: XCTestCase {
         let grid = Tally.activity([], weeks: 1, now: now, calendar: sundayFirst)
         let band = Tally.consistency(
             sessions: [Tally.Done(date: day(2026, 8, 24), workout: "Leg Day")],
-            plannedWorkouts: 4, weeks: 2, now: now, calendar: sundayFirst)
+            targets: Tally.Targets(constant: 4), weeks: 2, now: now, calendar: sundayFirst)
 
         XCTAssertEqual(grid.first?.day, band.weeks.last?.start,
                        "the current week starts on the same day in both")
@@ -214,7 +214,7 @@ final class LegacyTests: XCTestCase {
         let band = Tally.consistency(
             sessions: [Tally.Done(date: saturday, workout: "Leg Day"),
                        Tally.Done(date: sunday, workout: "Chest and Abs")],
-            plannedWorkouts: 4, weeks: 4,
+            targets: Tally.Targets(constant: 4), weeks: 4,
             now: day(2026, 9, 2), calendar: sundayFirst)
         let scored = band.weeks.filter { !$0.inProgress && $0.done > 0 }
         XCTAssertEqual(scored.count, 1, "both fell in one week")
