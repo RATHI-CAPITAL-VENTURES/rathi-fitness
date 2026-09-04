@@ -13,6 +13,7 @@ struct TodayView: View {
     @Query(sort: \WeighIn.date, order: .reverse) private var weighIns: [WeighIn]
     @Query private var schedules: [Schedule]
     @Query(sort: \Session.startedAt) private var sessions: [Session]
+    @Query(sort: \ScheduleEpoch.startedAt) private var epochs: [ScheduleEpoch]
 
     @State private var overrideDay: PlannedDay?
     @State private var showingSettings = false
@@ -269,11 +270,26 @@ struct TodayView: View {
     @ViewBuilder private var consistency: some View {
         let band = Tally.consistency(
             sessions: sessions.map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
-            plannedWorkouts: days.count,
+            targets: weeklyTargets,
             calendar: calendar)
         if !band.isEmpty {
             ConsistencyBand(consistency: band)
         }
+    }
+
+    /// The weekly target as it was, week by week.
+    ///
+    /// Read from the recorded schedule history rather than the live schedule,
+    /// because changing your schedule today must not turn last month's finished
+    /// weeks into misses. Falls back to the current schedule when there is no
+    /// history yet — a fresh install has nothing to remember.
+    private var weeklyTargets: Tally.Targets {
+        let recorded = epochs
+            .sorted { $0.startedAt < $1.startedAt }
+            .map { (from: $0.startedAt, weekly: $0.weeklyTarget) }
+        guard recorded.isEmpty else { return Tally.Targets(recorded) }
+        return Tally.Targets(constant:
+            Rotation.weeklyTarget(config, plannedWorkouts: days.count))
     }
 
     private var roomHue: Double {

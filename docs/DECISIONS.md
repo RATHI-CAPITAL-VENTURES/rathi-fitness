@@ -1345,3 +1345,51 @@ argument for having them:
   hardcoded `PATH` cannot be stubbed, so no test could reach any branch past
   `xcodegen`. RIA's deploy script hit the same wall and solved it one variable
   at a time; one variable for the whole `PATH` is the same fix, smaller.
+
+## 2026-09-04 — The target is a fact about the past, not a setting
+
+**Chosen: record the weekly target as an append-only history. Rejected: reading
+it live from the schedule, which is what shipped.**
+
+"Showing up" scores each finished week against a target, and that target was
+read from the one live `Schedule` — so changing the schedule changed *every*
+week ever scored. Moving from three days a week to four turned weeks that had
+been trained, completed and left behind into 3-of-4 misses. A number that gets
+worse because of a setting changed afterwards is not a record of anything.
+
+`ScheduleEpoch` is append-only, and each week is scored by whatever was in force
+while it was happening.
+
+**Only the weekly count is stored.** Showing up is day-agnostic on purpose — a
+plan you finished on the wrong days is a plan you finished — so *which* three
+days is not a fact the metric needs, and storing it would invite scoring against
+it later.
+
+**The oldest entry is editable, and that is load-bearing.** A schedule changed
+before this feature existed was never recorded, so the migration must guess it
+from whatever is on disk — which is the *new* schedule, exactly the wrong one
+for anybody who just changed it. There is no way for code to know. Settings
+shows the history and lets that value be corrected, because a guess presented as
+a record is worse than no record.
+
+## 2026-09-04 — The schedule says how often, the plan says what
+
+**Chosen: `min(schedule days, plan size)`. Rejected: the plan size alone, which
+is what v0.5.0 shipped.**
+
+v0.5.0 moved the denominator to the number of workouts in the plan, because the
+question was "did I get round to each of my workouts". The coverage half of that
+was right — Shoulders twice on a Tuesday is one of four — and the denominator
+was wrong.
+
+They are different quantities. A rotation cycles N workouts across M training
+days a week, and N ≠ M in general. Four workouts trained three days a week made
+a full week **unreachable**, so the number could only ever be 75%.
+
+Capped by the plan in the other direction too, because the mistake is symmetric:
+a schedule asking for four days against a three-workout plan is asking for a
+workout that does not exist.
+
+Found by using it, not by reading it — and the v0.5.0 change was made on a plan
+where the two numbers happened to be equal, which is exactly the shape of data
+that hides this.

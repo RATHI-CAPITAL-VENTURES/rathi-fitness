@@ -837,15 +837,50 @@ enum Tally {
     /// - Parameter sessions: one entry per workout — `Session.startedAt` and
     ///   `Session.dayName`.
     /// - Parameter plannedWorkouts: how many workouts the plan contains.
+    /// The weekly target as it was, week by week.
+    ///
+    /// One entry per schedule you have had, oldest first. A week is scored by
+    /// whichever was in force while it was happening — see `ScheduleEpoch` for
+    /// why that has to be historical rather than read live.
+    struct Targets: Equatable {
+        /// `(from:, weekly:)`, ascending by date.
+        private let epochs: [(from: Date, weekly: Int)]
+
+        init(_ epochs: [(from: Date, weekly: Int)]) {
+            self.epochs = epochs.sorted { $0.from < $1.from }
+        }
+
+        /// A single unchanging target — the shape every caller had before
+        /// schedules could change.
+        init(constant: Int) { self.epochs = [(from: .distantPast, weekly: constant)] }
+
+        /// What was being asked of you in the week starting `date`.
+        ///
+        /// The LAST epoch that had started by then. Falls back to the earliest
+        /// known target for weeks before any epoch, because the alternative is
+        /// scoring your oldest weeks against zero and calling them perfect.
+        func weekly(on date: Date) -> Int {
+            if let live = epochs.last(where: { $0.from <= date }) { return live.weekly }
+            return epochs.first?.weekly ?? 0
+        }
+
+        var isEmpty: Bool { epochs.isEmpty }
+        var highest: Int { epochs.map(\.weekly).max() ?? 0 }
+
+        static func == (a: Targets, b: Targets) -> Bool {
+            a.epochs.count == b.epochs.count
+                && zip(a.epochs, b.epochs).allSatisfy { $0.from == $1.from && $0.weekly == $1.weekly }
+        }
+    }
+
     static func consistency(sessions: [Done],
-                            plannedWorkouts: Int,
+                            targets: Targets,
                             weeks limit: Int = 12,
                             now: Date = .now,
                             calendar rawCalendar: Calendar = .current) -> Consistency {
         let calendar = trainingWeek(rawCalendar)
         let empty = Consistency(weeks: [], adherence: nil, credited: 0, planned: 0)
-        let target = plannedWorkouts
-        guard target > 0,
+        guard !targets.isEmpty, targets.highest > 0,
               limit > 0,
               let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)
         else { return empty }
@@ -876,7 +911,8 @@ enum Tally {
             // something quite different from a count of distinct names.
             let done = Swift.Set(sessions.filter { $0.date >= start && $0.date < end }
                                          .map(\.workout)).count
-            return Week(start: start, planned: target, done: done,
+            // The target THIS week was asked to meet, not today's.
+            return Week(start: start, planned: targets.weekly(on: start), done: done,
                         inProgress: start == thisWeek.start)
         }
 

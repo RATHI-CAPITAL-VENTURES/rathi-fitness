@@ -23,6 +23,7 @@ struct SettingsView: View {
     @Query private var schedules: [Schedule]
     @Query private var planDefaults: [PlanDefaults]
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
+    @Query(sort: \ScheduleEpoch.startedAt) private var epochs: [ScheduleEpoch]
 
     private var demoCount: Int {
         allSets.filter(\.isDemo).count + allWeighIns.filter(\.isDemo).count
@@ -35,6 +36,7 @@ struct SettingsView: View {
                 statusSection
                 healthSection
                 scheduleSection
+                scheduleHistorySection
                 defaultsSection
                 soundSection
                 handsFreeSection
@@ -320,6 +322,21 @@ struct SettingsView: View {
         (try? PlanDefaults.slotsTakingPlanRest(in: context).count) ?? 0
     }
 
+    /// Write down what the schedule just became.
+    ///
+    /// Append-only and idempotent — see `ScheduleEpoch`. Without it, moving
+    /// from three days a week to four rewrites every finished week on Today
+    /// into a miss, retroactively.
+    private func recordSchedule() {
+        guard let config = schedules.first?.config else { return }
+        let target = Rotation.weeklyTarget(config, plannedWorkouts: days.count)
+        if Sessions.recordSchedule(target: target,
+                                   note: Rotation.summary(config),
+                                   in: context) {
+            context.saveOrReport("recording your schedule")
+        }
+    }
+
     private func defaultsRow() -> PlanDefaults { PlanDefaults.current(in: context) }
 
     private func defaultsBinding<V>(_ keyPath: ReferenceWritableKeyPath<PlanDefaults, V>,
@@ -471,6 +488,49 @@ struct SettingsView: View {
         }
     }
 
+    /// What you were asking of yourself, and when.
+    ///
+    /// Editable, and it has to be: a schedule you changed **before** this
+    /// existed was never recorded, so the earliest entry is a guess made from
+    /// whatever was on disk at migration. It is the one target nothing could
+    /// have known, and getting it wrong scores months of finished weeks against
+    /// a schedule you were not on.
+    ///
+    /// Later entries are written down as they happen and should not need
+    /// touching — but they are editable too, because a read-only history you
+    /// can see is worse than one you can fix.
+    @ViewBuilder private var scheduleHistorySection: some View {
+        if !epochs.isEmpty {
+            SettingsSection(
+                title: "What you were asking of yourself",
+                footer: "Showing up scores each week against the schedule you were on "
+                      + "at the time, so changing it today does not turn finished weeks "
+                      + "into misses.\n\n"
+                      + "The oldest entry is a guess — it was read from whatever was set "
+                      + "when this feature arrived, because nothing was recording it "
+                      + "before. Correct it here if you were training a different number "
+                      + "of days a week back then."
+            ) {
+                ForEach(Array(epochs.enumerated()), id: \.element.persistentModelID) { i, epoch in
+                    StepperRow(label: epochLabel(epoch),
+                               value: epoch.weeklyTarget,
+                               unit: epoch.weeklyTarget == 1 ? "workout / wk" : "workouts / wk",
+                               range: 1...14,
+                               showsDivider: i < epochs.count - 1) { value in
+                        epoch.weeklyTarget = value
+                        context.saveOrReport("correcting your schedule history")
+                        snapshots.setNeedsWrite(context)
+                    }
+                }
+            }
+        }
+    }
+
+    private func epochLabel(_ epoch: ScheduleEpoch) -> String {
+        let when = Fmt.shortDate(epoch.startedAt)
+        return epoch.note.isEmpty ? "From \(when)" : "From \(when) · \(epoch.note)"
+    }
+
     private var modeBinding: Binding<Rotation.Mode> {
         Binding(
             get: { schedules.first?.config.mode ?? .weekday },
@@ -482,6 +542,7 @@ struct SettingsView: View {
                 config.mode = mode
                 schedule.config = config
                 context.saveOrReport("changing your schedule")
+                recordSchedule()
                 snapshots.setNeedsWrite(context)
             })
     }
@@ -492,6 +553,7 @@ struct SettingsView: View {
             set: { value in
                 schedules.first?.everyNDays = value
                 context.saveOrReport("changing how often you train")
+                recordSchedule()
                 snapshots.setNeedsWrite(context)
             })
     }
@@ -506,6 +568,7 @@ struct SettingsView: View {
                 else { config.trainingWeekdays.remove(number) }
                 schedule.config = config
                 context.saveOrReport("changing your training days")
+                recordSchedule()
                 snapshots.setNeedsWrite(context)
             })
     }

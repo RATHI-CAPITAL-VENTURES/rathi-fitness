@@ -89,6 +89,24 @@ struct RathiFitnessApp: App {
                     reportingFailure("grouping your history into workouts") {
                         try Sessions.backfill(in: context)
                     }
+                    // AFTER the backfill, because it dates the first epoch at
+                    // your first workout and the backfill is what creates them.
+                    //
+                    // One entry, from the schedule on disk, so weeks predating
+                    // schedule history are scored by something rather than
+                    // nothing. It cannot know about a change made before this
+                    // shipped — Settings can correct that one value.
+                    if let config = (try? context.fetch(FetchDescriptor<Schedule>()))?
+                        .first?.config {
+                        let plannedWorkouts = (try? context.fetchCount(
+                            FetchDescriptor<PlannedDay>())) ?? 0
+                        Sessions.seedScheduleHistory(
+                            target: Rotation.weeklyTarget(config,
+                                                          plannedWorkouts: plannedWorkouts),
+                            note: Rotation.summary(config),
+                            in: context)
+                        context.saveOrReport("recording your schedule")
+                    }
                     context.saveOrReport("grouping your history into workouts")
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and

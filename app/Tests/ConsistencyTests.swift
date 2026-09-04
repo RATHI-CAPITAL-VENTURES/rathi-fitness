@@ -42,10 +42,10 @@ final class ConsistencyTests: XCTestCase {
     }
 
     private func band(_ sessions: [Tally.Done],
-                      plannedWorkouts: Int = 4,
+                      target: Int = 4,
                       weeks: Int = 12) -> Tally.Consistency {
         Tally.consistency(sessions: sessions,
-                          plannedWorkouts: plannedWorkouts,
+                          targets: Tally.Targets(constant: target),
                           weeks: weeks,
                           now: now,
                           calendar: cal)
@@ -141,7 +141,7 @@ final class ConsistencyTests: XCTestCase {
     }
 
     func testAPlanWithNoWorkoutsHasNothingToMeasureAgainst() {
-        XCTAssertTrue(band([did(date(2026, 8, 24), "Leg Day")], plannedWorkouts: 0).isEmpty)
+        XCTAssertTrue(band([did(date(2026, 8, 24), "Leg Day")], target: 0).isEmpty)
     }
 
     /// A workout you have since deleted from the plan still happened, and still
@@ -153,4 +153,67 @@ final class ConsistencyTests: XCTestCase {
         XCTAssertEqual(finished?.fraction, 1.0, "five covered against four is a full week")
         XCTAssertEqual(band(week).adherence, 1.0, "and not more than full")
     }
+    // MARK: the target as it was
+
+    /// **The one this was rebuilt for.** Going from three days a week to four
+    /// turned every finished week into a miss, retroactively: weeks already
+    /// trained and already complete became 3-of-4 because of a setting changed
+    /// afterwards.
+    func testChangingYourScheduleDoesNotRewriteFinishedWeeks() {
+        let week = [did(date(2026, 8, 24), plan[0]),
+                    did(date(2026, 8, 25), plan[1]),
+                    did(date(2026, 8, 27), plan[2])]
+        let targets = Tally.Targets([(from: date(2026, 8, 1), weekly: 3),
+                                     (from: date(2026, 8, 31), weekly: 4)])
+        let b = Tally.consistency(sessions: week, targets: targets,
+                                  weeks: 4, now: now, calendar: cal)
+        let finished = b.weeks.last { !$0.inProgress }
+        XCTAssertEqual(finished?.planned, 3, "that week was asked for three")
+        XCTAssertTrue(finished?.met ?? false, "and three is what it got")
+    }
+
+    func testTheNewTargetAppliesToTheWeeksAfterIt() {
+        let targets = Tally.Targets([(from: date(2026, 8, 1), weekly: 3),
+                                     (from: date(2026, 8, 31), weekly: 4)])
+        XCTAssertEqual(targets.weekly(on: date(2026, 8, 24)), 3)
+        XCTAssertEqual(targets.weekly(on: date(2026, 8, 31)), 4, "on the day it starts")
+        XCTAssertEqual(targets.weekly(on: date(2026, 9, 7)), 4)
+    }
+
+    /// A week older than any recorded schedule takes the earliest known target
+    /// rather than zero — zero would score every ancient week as perfect.
+    func testWeeksOlderThanAnyRecordedScheduleTakeTheEarliestTarget() {
+        let targets = Tally.Targets([(from: date(2026, 8, 31), weekly: 4)])
+        XCTAssertEqual(targets.weekly(on: date(2026, 1, 1)), 4)
+    }
+
+    func testEpochsAreSortedWhateverOrderTheyArriveIn() {
+        let targets = Tally.Targets([(from: date(2026, 8, 31), weekly: 4),
+                                     (from: date(2026, 8, 1), weekly: 3)])
+        XCTAssertEqual(targets.weekly(on: date(2026, 8, 24)), 3)
+    }
+
+    // MARK: the target comes from the schedule, not the plan
+
+    /// **The bug found in use.** Four workouts in the plan and three days a
+    /// week is not a 75% week — the fourth workout was never going to happen,
+    /// because there is no fourth day to do it on.
+    func testAFourWorkoutPlanTrainedThreeDaysCanBeAFullWeek() {
+        let config = Rotation.Config(mode: .rotation, trainingWeekdays: [3, 5, 7])
+        XCTAssertEqual(Rotation.weeklyTarget(config, plannedWorkouts: 4), 3)
+    }
+
+    /// And the other way: a schedule asking for four days against a
+    /// three-workout plan is asking for a workout that does not exist.
+    func testAScheduleCannotAskForMoreWorkoutsThanThePlanHas() {
+        let config = Rotation.Config(mode: .rotation, trainingWeekdays: [2, 3, 5, 7])
+        XCTAssertEqual(Rotation.weeklyTarget(config, plannedWorkouts: 3), 3)
+    }
+
+    func testEveryNDaysTakesTheFloor() {
+        let config = Rotation.Config(mode: .everyNDays, everyNDays: 2)
+        XCTAssertEqual(Rotation.weeklyTarget(config, plannedWorkouts: 10), 3,
+                       "every 2 days is 3.5 a week; a 3-session week is not a failure")
+    }
+
 }

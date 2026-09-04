@@ -557,6 +557,36 @@ final class Schedule {
     }
 }
 
+/// How many workouts a week you were asking of yourself, and from when.
+///
+/// **Because changing your schedule must not rewrite your past.** "Showing up"
+/// scores each week against a target, and the target used to be read from the
+/// one live `Schedule` — so moving from three days a week to four turned every
+/// finished week into a miss, retroactively. Weeks you had already trained, and
+/// already completed, became 3-of-4 because of a setting changed afterwards.
+///
+/// Append-only. Editing the schedule adds a row rather than replacing one, and
+/// a week is scored against whatever was in force while it was happening.
+///
+/// Only the weekly *count* is kept, because that is all the metric uses —
+/// "showing up" is deliberately day-agnostic, so which three days is not a fact
+/// it needs. `note` exists for a human reading the list, not for arithmetic.
+@Model
+final class ScheduleEpoch {
+    /// When this became the schedule. Weeks on or after it are scored by it.
+    var startedAt: Date = Date.now
+    /// Workouts a week it asks for.
+    var weeklyTarget: Int = 3
+    /// "Tue, Thu, Sat" — what it was, in words, for the history list.
+    var note: String = ""
+
+    init(startedAt: Date = .now, weeklyTarget: Int, note: String = "") {
+        self.startedAt = startedAt
+        self.weeklyTarget = weeklyTarget
+        self.note = note
+    }
+}
+
 /// What a new exercise opens on.
 ///
 /// Every new plan slot was hardcoded to 3 × 10 at 90 seconds, which is a fine
