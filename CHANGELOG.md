@@ -14,6 +14,27 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.6.2 — 2026-09-04
+
+### Changed
+
+- **`make test` uses two parallel workers, not four.** Four was measured on a
+  quiet machine (4:40) and then flaked on a real one: a UI test that takes 21s
+  alone took **67s** under four simulator clones and blew its
+  `waitForExistence`, and three different tests failed across two runs. Two
+  workers ran green twice at 5:19 and 5:21 on a Mac also running a camera app,
+  a browser and Spotlight — which is what this machine actually looks like.
+
+  A suite that flakes costs more than the three minutes it saves: every red run
+  has to be re-run to find out whether it meant anything, and shipping v0.5.x
+  spent two doing exactly that. The default is the number that is reliable under
+  load, and `WORKERS=4` is still there for a quiet machine.
+
+- **Shipping guards upgraded to template 1.1.0** (RIA `templates/ci`). This
+  project's copy was the source of the fix — `pr-title` printed a `✓` and
+  checked nothing outside CI — and is now identical to the template again
+  rather than a fork of it. `guards.conf` is untouched; only shared logic moved.
+
 ## 0.6.1 — 2026-09-04
 
 ### Changed
