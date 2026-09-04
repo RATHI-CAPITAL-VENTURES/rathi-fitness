@@ -21,13 +21,24 @@ SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 # Test runners. `test` is the gate; `test-unit` is the one you actually run
 # while working — the unit bundle is 2.5 SECONDS of testing, and lived behind
 # eight minutes of UI tests until v0.4.3 because there was only one target.
-WORKERS ?= 4
+# Two, not four. Four was measured on a quiet machine (4:40) and then flaked on
+# a busy one: a UI test that takes 21s alone took 67s under four clones and blew
+# its `waitForExistence`, and three different tests failed across two runs. Two
+# green runs at 2 workers, 5:19 and 5:21, on a machine also running a camera
+# app, a browser and Spotlight — which is what this Mac actually looks like.
+#
+# A suite that flakes costs more than the three minutes it saves: every red run
+# has to be re-run to find out whether it meant anything, and this session spent
+# two doing exactly that.
+WORKERS ?= 2
 # Parallel UI testing is a property of the MACHINE, not of the suite, so it is
 # a knob with a measured default rather than a setting someone believed in.
 #
 # Measured, on the whole suite:
 #
-#   this Mac, 10 cores:   7:54 serial  ->  5:39 with the split and 4 workers
+#   this Mac, 10 cores:   7:54 serial  ->  5:19 with the split and 2 workers
+#                         (4 workers hit 4:40 on a quiet machine and flaked on
+#                          a busy one — see WORKERS below)
 #   macos-15 runner, ~3:  the UI step alone took 19:26 with 3 workers, against
 #                         a whole job of about 16:00 before this change
 #
