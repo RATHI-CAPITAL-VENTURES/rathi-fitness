@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import RathiFitness
 
 /// The lifetime numbers: the ladder, the record book, and the calendar.
@@ -61,8 +62,8 @@ final class LegacyTests: XCTestCase {
     }
 
     func testAnUnsortedLadderIsSortedRatherThanTrusted() {
-        let scrambled = [Tally.Milestone(pounds: 100, name: "b", symbol: "x"),
-                         Tally.Milestone(pounds: 10, name: "a", symbol: "x")]
+        let scrambled = [Tally.Milestone(pounds: 100, name: "b", art: "x"),
+                         Tally.Milestone(pounds: 10, name: "a", art: "x")]
         let l = Tally.legacy(total: 50, ladder: scrambled)
         XCTAssertEqual(l.passed.map(\.name), ["a"])
         XCTAssertEqual(l.next?.name, "b")
@@ -219,6 +220,77 @@ final class LegacyTests: XCTestCase {
         let scored = band.weeks.filter { !$0.inProgress && $0.done > 0 }
         XCTAssertEqual(scored.count, 1, "both fell in one week")
         XCTAssertEqual(scored.first?.done, 2)
+    }
+
+    // MARK: the journey
+
+    private func workout(_ d: Date, _ v: Double) -> (date: Date, volume: Double) {
+        (date: d, volume: v)
+    }
+
+    /// A tier is crossed by the SESSION that took you past it, not by the day
+    /// you happened to open the app.
+    func testATierIsDatedToTheWorkoutThatCrossedIt() {
+        let j = Tally.journey(sessionVolumes: [
+            workout(day(2026, 8, 1), 600),      // under 1,000
+            workout(day(2026, 8, 8), 600),      // 1,200 — crosses the piano
+        ])
+        let piano = j.first { $0.milestone.pounds == 1_000 }
+        XCTAssertEqual(piano?.crossedOn, day(2026, 8, 8))
+    }
+
+    func testTiersStillAheadHaveNoDate() {
+        let j = Tally.journey(sessionVolumes: [workout(day(2026, 8, 1), 1_200)])
+        XCTAssertNil(j.first { $0.milestone.pounds == 5_000 }?.crossedOn)
+        XCTAssertFalse(j.first { $0.milestone.pounds == 5_000 }?.isPassed ?? true)
+    }
+
+    /// One big session can clear several at once, and each of them is dated to
+    /// that session rather than only the last one counting.
+    func testOneSessionCanCrossSeveralTiers() {
+        let j = Tally.journey(sessionVolumes: [workout(day(2026, 8, 1), 6_000)])
+        let passed = j.filter(\.isPassed)
+        XCTAssertEqual(passed.count, 5, "250, 1,000, 2,000, 2,900 and 5,000")
+        XCTAssertTrue(passed.allSatisfy { $0.crossedOn == day(2026, 8, 1) })
+    }
+
+    func testTheLadderComesBackWholeOldestFirst() {
+        let j = Tally.journey(sessionVolumes: [workout(day(2026, 8, 1), 1_200)])
+        XCTAssertEqual(j.count, Tally.milestones.count, "locked tiers are still listed")
+        XCTAssertEqual(j.map(\.milestone.pounds), j.map(\.milestone.pounds).sorted())
+    }
+
+    func testWorkoutsOutOfOrderAreStillDatedCorrectly() {
+        let j = Tally.journey(sessionVolumes: [
+            workout(day(2026, 8, 8), 600),
+            workout(day(2026, 8, 1), 600),
+        ])
+        XCTAssertEqual(j.first { $0.milestone.pounds == 1_000 }?.crossedOn,
+                       day(2026, 8, 8), "the later session is the one that crossed it")
+    }
+
+    func testNothingLiftedCrossesNothing() {
+        XCTAssertTrue(Tally.journey(sessionVolumes: []).allSatisfy { !$0.isPassed })
+    }
+
+    /// Every tier names an image that is actually in the bundle. A typo here is
+    /// a blank badge, and nothing else would notice.
+    func testEveryMilestoneHasItsArtwork() {
+        for m in Tally.milestones {
+            XCTAssertFalse(m.art.isEmpty, "\(m.name) has no artwork name")
+            XCTAssertNotNil(UIImage(named: m.art), "\(m.name) names missing art '\(m.art)'")
+        }
+    }
+
+    /// A tenth of a ton is 200 lb — real precision at 184.8, and a decimal
+    /// point pretending to mean something at "2250.0".
+    func testTonnageDropsPrecisionNobodyHas() {
+        XCTAssertEqual(Tally.volumeText(369_600), "184.8 tons")
+        XCTAssertEqual(Tally.volumeText(4_500_000), "2,250 tons")
+        XCTAssertEqual(Tally.volumeText(2_000_000), "1,000 tons")
+        XCTAssertEqual(Tally.volumeText(140_000), "70 tons", "no .0 on a whole one")
+        XCTAssertEqual(Tally.volumeText(12_830), "12,830 lb", "under a ton stays in pounds")
+        XCTAssertEqual(Tally.volumeText(0), "nothing yet")
     }
 
 }

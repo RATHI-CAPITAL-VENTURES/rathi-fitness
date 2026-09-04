@@ -109,7 +109,16 @@ enum Tally {
             let whole = Int(pounds.rounded())
             return "\(grouped(whole)) lb"
         }
-        return String(format: "%.1f tons", pounds / 2000)
+        // A tenth of a ton is 200 lb and reads as precision nobody has. Keep it
+        // under a thousand, where it is a real distinction — "184.8 tons" — and
+        // drop it above, where "2250.0 tons" is a decimal point pretending to
+        // mean something and "2,250 tons" is the same number, read faster.
+        let tons = pounds / 2000
+        if tons >= 1_000 { return "\(grouped(Int(tons.rounded()))) tons" }
+        let rounded = (tons * 10).rounded() / 10
+        return rounded == rounded.rounded()
+            ? "\(grouped(Int(rounded))) tons"
+            : String(format: "%.1f tons", rounded)
     }
 
     static func grouped(_ n: Int) -> String {
@@ -645,8 +654,10 @@ enum Tally {
     struct Milestone: Equatable, Identifiable {
         let pounds: Double
         let name: String
-        /// SF Symbol. No illustration set to commission or ship.
-        let symbol: String
+        /// Asset name in `Assets.xcassets/Milestones`. Generated artwork rather
+        /// than an SF Symbol: a badge you have earned should look like a badge,
+        /// and `tortoise.fill` was standing in for three different animals.
+        let art: String
 
         var id: String { name }
     }
@@ -654,22 +665,58 @@ enum Tally {
     /// Roughly doubling each step, so the ladder keeps giving you something to
     /// reach without a gap that takes a year to cross.
     static let milestones: [Milestone] = [
-        .init(pounds: 250, name: "A grand piano's lid", symbol: "pianokeys"),
-        .init(pounds: 1_000, name: "A grand piano", symbol: "pianokeys"),
-        .init(pounds: 2_000, name: "A horse", symbol: "hare.fill"),
-        .init(pounds: 2_900, name: "A Honda Civic", symbol: "car.fill"),
-        .init(pounds: 5_000, name: "A rhinoceros", symbol: "tortoise.fill"),
-        .init(pounds: 8_000, name: "A hippopotamus", symbol: "tortoise.fill"),
-        .init(pounds: 13_000, name: "An African elephant", symbol: "tortoise.fill"),
-        .init(pounds: 25_000, name: "A school bus", symbol: "bus.fill"),
-        .init(pounds: 66_000, name: "A humpback whale", symbol: "fish.fill"),
-        .init(pounds: 140_000, name: "An M1 Abrams tank", symbol: "shield.fill"),
-        .init(pounds: 330_000, name: "A blue whale", symbol: "fish.fill"),
-        .init(pounds: 450_000, name: "The Statue of Liberty", symbol: "figure.stand"),
-        .init(pounds: 875_000, name: "A Boeing 747", symbol: "airplane"),
-        .init(pounds: 2_000_000, name: "The Eiffel Tower's iron", symbol: "antenna.radiowaves.left.and.right"),
-        .init(pounds: 4_500_000, name: "A Space Shuttle at launch", symbol: "flame.fill"),
+        .init(pounds: 250, name: "A grand piano's lid", art: "grand-piano-lid"),
+        .init(pounds: 1_000, name: "A grand piano", art: "grand-piano"),
+        .init(pounds: 2_000, name: "A horse", art: "horse"),
+        .init(pounds: 2_900, name: "A Honda Civic", art: "car"),
+        .init(pounds: 5_000, name: "A rhinoceros", art: "rhinoceros"),
+        .init(pounds: 8_000, name: "A hippopotamus", art: "hippopotamus"),
+        .init(pounds: 13_000, name: "An African elephant", art: "elephant"),
+        .init(pounds: 25_000, name: "A school bus", art: "school-bus"),
+        .init(pounds: 66_000, name: "A humpback whale", art: "humpback-whale"),
+        .init(pounds: 140_000, name: "An M1 Abrams tank", art: "tank"),
+        .init(pounds: 330_000, name: "A blue whale", art: "blue-whale"),
+        .init(pounds: 450_000, name: "The Statue of Liberty", art: "statue-of-liberty"),
+        .init(pounds: 875_000, name: "A Boeing 747", art: "airliner"),
+        .init(pounds: 2_000_000, name: "The Eiffel Tower's iron", art: "eiffel-tower"),
+        .init(pounds: 4_500_000, name: "A Space Shuttle at launch", art: "space-shuttle"),
     ]
+
+    /// A tier, and the day you went past it.
+    struct Crossing: Equatable, Identifiable {
+        let milestone: Milestone
+        /// `nil` while it is still ahead of you.
+        let crossedOn: Date?
+        var isPassed: Bool { crossedOn != nil }
+        var id: String { milestone.name }
+    }
+
+    /// The whole ladder, with the date each passed tier was crossed.
+    ///
+    /// Walks your workouts in order and watches the running total go past each
+    /// line. The date is the **session that took you past it**, which is the
+    /// only honest answer — a tier is not crossed on the day you happened to
+    /// look at the screen.
+    ///
+    /// Sessions, not sets, because a tier crossed mid-workout belongs to that
+    /// workout. Splitting a session across a boundary would date a milestone to
+    /// a set nobody remembers.
+    static func journey(sessionVolumes: [(date: Date, volume: Double)],
+                        ladder: [Milestone] = Tally.milestones) -> [Crossing] {
+        let sorted = ladder.sorted { $0.pounds < $1.pounds }
+        let workouts = sessionVolumes.sorted { $0.date < $1.date }
+        var running: Double = 0
+        var crossedAt: [String: Date] = [:]
+        var next = 0
+        for workout in workouts {
+            running += workout.volume
+            while next < sorted.count, sorted[next].pounds <= running {
+                crossedAt[sorted[next].name] = workout.date
+                next += 1
+            }
+        }
+        return sorted.map { Crossing(milestone: $0, crossedOn: crossedAt[$0.name]) }
+    }
 
     /// Where you are on the ladder.
     struct Legacy: Equatable {
