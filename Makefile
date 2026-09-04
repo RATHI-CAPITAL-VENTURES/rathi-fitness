@@ -103,26 +103,30 @@ test-ui: project
 		-parallel-testing-enabled $(PARALLEL) \
 		-maximum-parallel-testing-workers $(WORKERS) test
 
-## The auto-installer's own tests. Stubs the device and Xcode, so it runs in
-## milliseconds and never touches the phone.
+## The auto-updater's own tests. Stubs the device and Xcode, so it runs in
+## milliseconds and never touches the phone. The spine is shared — it comes
+## from RIA's templates/autoupdate, so a fix here belongs upstream.
 autoinstall-test:
-	bash bin/rf-autoinstall.test.sh
+	bash deploy/autoupdate/autoupdate.test.sh
 
 ## Turn on auto-install: every ~10 min, if origin/main has moved and the app is
 ## NOT open on the phone, build and install it.
 autoinstall-install:
 	mkdir -p ~/Library/Logs/rathi-fitness
-	cp deploy/com.rathi.fitness.autoinstall.plist ~/Library/LaunchAgents/
+	cp deploy/autoupdate/com.rathi.fitness.autoupdate.plist ~/Library/LaunchAgents/
 	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null || true
-	launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.rathi.fitness.autoinstall.plist
-	@echo "on — tail ~/Library/Logs/rathi-fitness/autoinstall.log"
+	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoupdate 2>/dev/null || true
+	launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.rathi.fitness.autoupdate.plist
+	@echo "on — tail ~/Library/Logs/rathi-fitness/autoupdate.log"
 
 autoinstall-uninstall:
 	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null || true
+	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoupdate 2>/dev/null || true
 	rm -f ~/Library/LaunchAgents/com.rathi.fitness.autoinstall.plist
+	rm -f ~/Library/LaunchAgents/com.rathi.fitness.autoupdate.plist
 	@echo "off"
 
 autoinstall-status:
-	@launchctl print gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null \
+	@launchctl print gui/$$(id -u)/com.rathi.fitness.autoupdate 2>/dev/null \
 		| grep -E "state|last exit" || echo "not loaded"
-	@tail -5 ~/Library/Logs/rathi-fitness/autoinstall.log 2>/dev/null || true
+	@tail -5 ~/Library/Logs/rathi-fitness/autoupdate.log 2>/dev/null || true

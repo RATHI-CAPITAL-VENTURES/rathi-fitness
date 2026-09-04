@@ -14,6 +14,27 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.6.3 — 2026-09-04
+
+### Changed
+
+- **Auto-update now comes from the shared template.** v0.6.1 built it here; the
+  generic half is upstream in RIA's `templates/autoupdate` (v2.41.2), so this
+  repo keeps `autoupdate.conf` — its device ids, its scheme, its log path — and
+  nothing else. `bin/rf-autoinstall.sh` and its test are gone.
+
+  The split the template makes: the **spine** is the git safety, the logging and
+  the record of what is live, identical in every project. What "apply" means is
+  a hook. `apply.d/ios.sh` builds and installs to a paired device and returns
+  **"not now"** when the device is away or the app is open, and the spine
+  believes it — same refusal as before, now written once.
+
+  Verified on a second project on the way: `rathi-budgeting` took the same
+  template and installed to the phone on its first run.
+
+  `make autoinstall-install` / `-uninstall` / `-status` / `-test` are unchanged.
+  The log moved to `~/Library/Logs/rathi-fitness/autoupdate.log`.
+
 ## 0.6.2 — 2026-09-04
 
 ### Changed
