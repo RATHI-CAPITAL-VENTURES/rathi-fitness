@@ -14,6 +14,48 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.8.2 — 2026-09-04
+
+### Fixed
+
+- **The Eiffel Tower was eight times too light, and in the wrong place.**
+  Entered at 2,000,000 lb and sitting *below* the Space Shuttle. The tower's
+  puddle iron is about 7,300 tonnes — roughly **16 million lb** — so it belongs
+  above it. A ladder whose whole premise is that the masses are real cannot
+  carry a figure that wrong.
+
+### Changed
+
+- **The ladder no longer ends.** It stopped at a Space Shuttle, which at four
+  sessions a week is about **eighteen months** — after which the screen said
+  "you have lifted everything on the list" and had nothing further to say, for
+  the rest of your training life. Measured against this plan's real rate of
+  ~2.7M lb a year, nine of the fifteen tiers were already passed and the top was
+  a year and a half out.
+
+  Five more, and the heavy end is deliberately absurd and still real: the
+  Titanic, a Nimitz-class carrier, the Empire State Building, the Golden Gate
+  Bridge, and the Great Pyramid of Giza — some four thousand years away at that
+  rate. Nobody reaches it, which is the point.
+
+  **Rejected: a generated tail.** Once the named tiers ran out it could have
+  counted in multiples — "two Great Pyramids", "three Great Pyramids" —
+  provably infinite and pure filler. A made-up rung is exactly what this ladder
+  refuses to be, and nobody gets there to see it either way.
+
+  Five new badges in the locked style.
+
+### Added
+
+- **`docs/LADDER.md`** — the three rules (every mass is real, it never ends, it
+  only ever climbs), how to add a tier, the badge prompt and why the artwork
+  must be post-processed to transparency, and the full table with what each
+  figure actually refers to.
+
+  Also three new tests: fifty years of training must not exhaust the ladder, the
+  Eiffel Tower must outweigh a Space Shuttle, and no step below a million pounds
+  may be more than a 10× jump — a rung you cannot aim at is not a rung.
+
 ## 0.8.1 — 2026-09-04
 
 ### Fixed
