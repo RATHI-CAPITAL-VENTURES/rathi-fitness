@@ -57,7 +57,11 @@ struct TrendsView: View {
             .map { ex in (ex, allSets.filter { $0.exercise?.slug == ex.slug }.count) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
-            .prefix(3)
+            // ALL of them. This was `.prefix(3)`, so a plan with 24 logged
+            // lifts offered four tiles — Body and the three most-used — and
+            // twenty were unreachable while the working-weight table below
+            // listed every one of them. The row is a horizontal ScrollView; it
+            // was always able to hold them.
             .map(\.0)
     }
 
@@ -147,6 +151,18 @@ struct TrendsView: View {
         Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
     }
 
+    /// The ladder with the date each tier was crossed. Per SESSION, because a
+    /// tier crossed mid-workout belongs to that workout.
+    private var journey: [Tally.Crossing] {
+        let log = bodyWeightLog
+        return Tally.journey(sessionVolumes: sessions.map { session in
+            (date: session.startedAt,
+             volume: Tally.volume(session.orderedSets.map {
+                 $0.tally(bodyWeight: log.pounds(on: $0.date))
+             }))
+        })
+    }
+
     private var lifetime: Tally.Lifetime {
         let tallies = allSets.map { $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date)) }
         return Tally.Lifetime(
@@ -182,9 +198,10 @@ struct TrendsView: View {
 
                 if let next = band.next {
                     HStack(spacing: 8) {
-                        Image(systemName: next.symbol)
-                            .font(.system(size: 13))
-                            .foregroundStyle(RFDesign.ready)
+                        Image(next.art)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
                         Text(next.name)
                             .font(RFDesign.uiMedium(14))
                             .foregroundStyle(RFDesign.speech)
@@ -202,11 +219,23 @@ struct TrendsView: View {
                         .foregroundStyle(RFDesign.labelDim)
                 }
 
-                if let last = band.passed.last {
-                    Text("Past \(last.name.lowercased())")
-                        .font(RFDesign.ui(12.5))
-                        .foregroundStyle(RFDesign.labelDim)
+                NavigationLink {
+                    JourneyView(total: life.volume, crossings: journey)
+                } label: {
+                    HStack(spacing: 6) {
+                        if let last = band.passed.last {
+                            Text("Past \(last.name.lowercased())")
+                        } else {
+                            Text("See the whole ladder")
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.ready)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
 
                 lifetimeTiles(life)
             }

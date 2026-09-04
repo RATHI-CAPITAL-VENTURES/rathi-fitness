@@ -14,50 +14,51 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.7.0 — 2026-09-04
-
-### Fixed
-
-- **Showing up counted against the wrong thing, and changing your schedule
-  rewrote your past.** Two bugs; the second only became visible because the
-  first was reported.
-
-  **The target came from the plan, not the schedule.** v0.5.0 made it the number
-  of workouts in your plan. On a rotation those are different quantities: you
-  cycle N workouts across however many days you train, and with four workouts
-  trained three days a week **a full week was unreachable** — the fourth was
-  never going to happen, because there is no fourth day to do it on. The number
-  could only ever be 75%.
-
-  It comes from the schedule again, capped by the plan, so neither can ask for
-  the impossible: four training days against a three-workout plan targets three,
-  not a fourth workout that does not exist.
-
-- **A schedule change re-scored every finished week.** Moving from three days a
-  week to four turned weeks you had already trained *and already completed* into
-  3-of-4 misses, because the target was read live from the one `Schedule`.
-
-  `ScheduleEpoch` records what you were asking of yourself and from when,
-  append-only, and each week is scored against whatever was in force while it
-  was happening. Editing the schedule writes a row rather than replacing one.
-
-  Only the weekly **count** is kept, because that is all the metric uses —
-  showing up is deliberately day-agnostic, so *which* three days is not a fact
-  it needs.
+## 0.8.0 — 2026-09-04
 
 ### Added
 
-- **Settings › What you were asking of yourself** — the recorded history, each
-  target editable.
+- **Your journey — the whole ladder, and when you crossed each tier.** Tap the
+  legacy line on Trends. Passed tiers are lit with **the date you passed them**;
+  the next one says how far; the rest are dimmed.
 
-  Editable is load-bearing, not a convenience: a schedule changed *before* this
-  shipped was never recorded, so the oldest entry is a guess made from whatever
-  was on disk at migration — which is the new schedule, i.e. exactly the wrong
-  one for anybody who just changed it. Nothing in code can know, so it can be
-  corrected.
+  The date is the **session that took you past it**, which is the only honest
+  answer — a tier is not crossed on the day you happened to open the app.
+  Sessions rather than sets, because a tier crossed mid-workout belongs to that
+  workout, and splitting a session across the line would date a milestone to a
+  set nobody remembers.
+
+  Locked tiers are dimmed rather than hidden or silhouetted: seeing what a Space
+  Shuttle badge looks like is most of the reason to want one. Only the *next*
+  one quotes a distance — every locked tier naming how far away it is turns a
+  ladder into a list of things you have failed to do.
+
+- **Fifteen generated badges**, one per tier, replacing the SF Symbols —
+  `tortoise.fill` had been standing in for a rhinoceros, a hippopotamus and an
+  elephant.
+
+  Drawn to one prompt so they read as a set, then post-processed: the model was
+  asked for pure black and gave several a faint grey field, so anything that
+  dark is clamped and **made transparent**. Opaque black would have been worse
+  than the symbols — the app's background is a tinted `RoomBackground`, so each
+  badge drew its own black square on top of it. That is exactly what shipped in
+  the first pass, and it is visible in a screenshot in a way no test would catch.
+
+### Fixed
+
+- **The Trends picker offered four tiles when there were twenty-four lifts.**
+  `featured` was `.prefix(3)` plus Body, so all but three logged exercises were
+  unreachable — while the working-weight table below listed every one of them.
+  The row is a horizontal `ScrollView`; it could always have held them.
+
+- **`2250.0 tons`.** A tenth of a ton is 200 lb. It is a real distinction at
+  184.8 and a decimal point pretending to mean something at 2,250, so tonnage
+  keeps one place under a thousand tons and drops it above — and never renders a
+  whole number as `70.0`.
 
 ## Earlier
 
+- [0.7](./docs/changelog/0.7.md)
 - [0.6](./docs/changelog/0.6.md)
 - [0.5](./docs/changelog/0.5.md)
 - [0.4](./docs/changelog/0.4.md)

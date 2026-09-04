@@ -1393,3 +1393,58 @@ workout that does not exist.
 Found by using it, not by reading it — and the v0.5.0 change was made on a plan
 where the two numbers happened to be equal, which is exactly the shape of data
 that hides this.
+
+## 2026-09-04 — Generated badges, and why they had to be transparent
+
+**Chosen: fifteen generated illustrations, post-processed to transparency.
+Rejected: SF Symbols, and rejected the opaque black the model produced.**
+
+The ladder shipped with SF Symbols because there was no illustration set to
+commission. It showed: `tortoise.fill` stood in for a rhinoceros, a hippopotamus
+*and* an elephant, and `fish.fill` for both whales. A badge you have earned
+should not be the same picture as the one below it.
+
+One prompt, reused verbatim for all fifteen, so they read as a set rather than
+fifteen different illustrators. The first attempt asked for a black background
+and got a teal bloom filling the frame; the second asked explicitly for no glow,
+no bloom, no halo and got flat black.
+
+**Flat black was still wrong, and only a screenshot showed it.** This app's
+background is a tinted `RoomBackground`, not `#000`, so an opaque black PNG
+draws its own square on top of it — fifteen visible boxes down a list. The
+badges are clamped to transparent below a luminance threshold, with the
+anti-aliased rim feathered by brightness so the hexagon keeps a clean edge.
+
+Worth stating plainly: **no test would have caught that.** `UIImage(named:)`
+returned a perfectly good image, the layout was correct, and the screen looked
+wrong. The test that exists checks every tier names artwork that resolves —
+which catches a typo, not a design mistake.
+
+## 2026-09-04 — Only the next tier says how far
+
+**Chosen: passed tiers show a date, the next shows a distance, the rest show
+nothing. Rejected: a distance on every locked tier.**
+
+Every locked tier quoting "2,065 tons to go" turns a ladder into a list of
+things you have failed to do — fourteen reminders of distance for one reminder
+of progress. The next one is the only one you can act on.
+
+Locked tiers are **dimmed, not hidden or silhouetted**: seeing what a Space
+Shuttle badge looks like is most of the reason to want one, and blanking it out
+is a worse tease than a faded picture of the real thing.
+
+Newest first, because what you just crossed is what you came to look at.
+
+## 2026-09-04 — A tier is crossed by the session that crossed it
+
+**Chosen: date each milestone to the workout whose volume took the running
+total past it. Rejected: the day it was first displayed, and rejected splitting
+a session at the boundary.**
+
+The running total is the sum of your sessions, so the question "when did I pass
+a blue whale" has an exact answer that was already in the data and never asked.
+
+Per **session**, not per set: a tier crossed mid-workout belongs to that
+workout. Dating it to the individual set that tipped it would be arithmetically
+truer and practically useless — nobody remembers which set of Tuesday's session
+was the one.
