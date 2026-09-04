@@ -10,3 +10,5 @@ DerivedData/
 __pycache__/
 *.pyc
 .rf-installed-commit
+.autoupdate-applied
+deploy/autoupdate/autoupdate.conf.example

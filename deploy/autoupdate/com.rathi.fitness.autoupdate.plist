@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rathi.fitness.autoupdate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ishan/RIA/projects/rathi-fitness/deploy/autoupdate/autoupdate.sh</string>
+    </array>
+
+    <!-- Ten minutes, not two. A server deploy is a pull and a restart; an app
+         build is a compile, and polling hard would put one on the machine every
+         couple of minutes for nothing. The cheap check (git fetch) still runs
+         each tick and exits in milliseconds when there is nothing new. -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- A background update should never be what makes the Mac stutter. -->
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ishan/Library/Logs/rathi-fitness/autoupdate.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ishan/Library/Logs/rathi-fitness/autoupdate.err.log</string>
+</dict>
+</plist>
