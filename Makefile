@@ -15,7 +15,8 @@ DEVELOPER_DIR ?= /Applications/Xcode-beta.app/Contents/Developer
 export DEVELOPER_DIR
 SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 
-.PHONY: guards guards-test changelog-archive test test-unit test-ui project
+.PHONY: guards guards-test changelog-archive test test-unit test-ui project \
+	autoinstall-test autoinstall-install autoinstall-uninstall autoinstall-status
 
 # Test runners. `test` is the gate; `test-unit` is the one you actually run
 # while working — the unit bundle is 2.5 SECONDS of testing, and lived behind
@@ -90,3 +91,27 @@ test-ui: project
 	$(XCTEST) -only-testing:RathiFitnessUITests \
 		-parallel-testing-enabled $(PARALLEL) \
 		-maximum-parallel-testing-workers $(WORKERS) test
+
+## The auto-installer's own tests. Stubs the device and Xcode, so it runs in
+## milliseconds and never touches the phone.
+autoinstall-test:
+	bash bin/rf-autoinstall.test.sh
+
+## Turn on auto-install: every ~10 min, if origin/main has moved and the app is
+## NOT open on the phone, build and install it.
+autoinstall-install:
+	mkdir -p ~/Library/Logs/rathi-fitness
+	cp deploy/com.rathi.fitness.autoinstall.plist ~/Library/LaunchAgents/
+	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null || true
+	launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.rathi.fitness.autoinstall.plist
+	@echo "on — tail ~/Library/Logs/rathi-fitness/autoinstall.log"
+
+autoinstall-uninstall:
+	launchctl bootout gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null || true
+	rm -f ~/Library/LaunchAgents/com.rathi.fitness.autoinstall.plist
+	@echo "off"
+
+autoinstall-status:
+	@launchctl print gui/$$(id -u)/com.rathi.fitness.autoinstall 2>/dev/null \
+		| grep -E "state|last exit" || echo "not loaded"
+	@tail -5 ~/Library/Logs/rathi-fitness/autoinstall.log 2>/dev/null || true

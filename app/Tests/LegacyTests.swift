@@ -173,4 +173,52 @@ final class LegacyTests: XCTestCase {
         XCTAssertEqual(days.filter { $0.volume > 0 }.count, 0)
         XCTAssertEqual(days.count, 14)
     }
+    // MARK: the week starts on Monday
+
+    /// `Calendar.current` is Sunday-first in the US, which cut the week through
+    /// the middle of a weekend: Saturday and Sunday landed in different weeks
+    /// on both the heatmap and the consistency band.
+    func testTheGridStartsOnMondayEvenOnASundayFirstCalendar() {
+        var sundayFirst = cal
+        sundayFirst.firstWeekday = 1
+        // 2 September 2026 is a Wednesday.
+        let days = Tally.activity([], weeks: 1,
+                                  now: day(2026, 9, 2), calendar: sundayFirst)
+        let first = try? XCTUnwrap(days.first?.day)
+        XCTAssertEqual(Tally.trainingWeek(cal).component(.weekday, from: first!), 2,
+                       "the first square of a week must be a Monday")
+    }
+
+    /// The two screens that group by week have to agree about which seven days
+    /// a week is, whatever calendar they are handed.
+    func testConsistencyAndTheGridAgreeAboutTheWeek() {
+        var sundayFirst = cal
+        sundayFirst.firstWeekday = 1
+        let now = day(2026, 9, 2)
+
+        let grid = Tally.activity([], weeks: 1, now: now, calendar: sundayFirst)
+        let band = Tally.consistency(
+            sessions: [Tally.Done(date: day(2026, 8, 24), workout: "Leg Day")],
+            plannedWorkouts: 4, weeks: 2, now: now, calendar: sundayFirst)
+
+        XCTAssertEqual(grid.first?.day, band.weeks.last?.start,
+                       "the current week starts on the same day in both")
+    }
+
+    /// A Saturday and the Sunday after it are the same training week.
+    func testAWeekendIsNotSplitInTwo() {
+        var sundayFirst = cal
+        sundayFirst.firstWeekday = 1
+        let saturday = day(2026, 8, 29)
+        let sunday = day(2026, 8, 30)
+        let band = Tally.consistency(
+            sessions: [Tally.Done(date: saturday, workout: "Leg Day"),
+                       Tally.Done(date: sunday, workout: "Chest and Abs")],
+            plannedWorkouts: 4, weeks: 4,
+            now: day(2026, 9, 2), calendar: sundayFirst)
+        let scored = band.weeks.filter { !$0.inProgress && $0.done > 0 }
+        XCTAssertEqual(scored.count, 1, "both fell in one week")
+        XCTAssertEqual(scored.first?.done, 2)
+    }
+
 }

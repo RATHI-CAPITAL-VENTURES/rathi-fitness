@@ -610,6 +610,25 @@ enum Tally {
         return harder ? set.weight : nil
     }
 
+    /// The week a training log runs on: **Monday first, always.**
+    ///
+    /// Not `Calendar.current.firstWeekday`, which is Sunday in the US — so the
+    /// heatmap and the consistency band both cut the week in the middle of a
+    /// weekend, and a Saturday-and-Sunday pair landed in two different weeks.
+    /// Nobody thinks of their training week that way.
+    ///
+    /// Applied INSIDE the two functions that group by week rather than left to
+    /// the caller, because the failure is silent: pass a plain `Calendar` and
+    /// everything still computes, just against the wrong seven days.
+    /// `firstWeekday` is the only thing overridden — the timezone and the
+    /// locale that came in are the user's and are none of this function's
+    /// business.
+    static func trainingWeek(_ calendar: Calendar) -> Calendar {
+        var c = calendar
+        c.firstWeekday = 2          // Monday
+        return c
+    }
+
     // MARK: - Everything you have ever lifted
 
     /// A thing that weighs a known amount, for the tonnage ladder.
@@ -759,7 +778,8 @@ enum Tally {
     static func activity(_ sets: [(date: Date, volume: Double)],
                          weeks: Int = 26,
                          now: Date = .now,
-                         calendar: Calendar = .current) -> [ActiveDay] {
+                         calendar rawCalendar: Calendar = .current) -> [ActiveDay] {
+        let calendar = trainingWeek(rawCalendar)
         guard weeks > 0,
               let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now),
               let start = calendar.date(byAdding: .weekOfYear, value: -(weeks - 1),
@@ -821,7 +841,8 @@ enum Tally {
                             plannedWorkouts: Int,
                             weeks limit: Int = 12,
                             now: Date = .now,
-                            calendar: Calendar = .current) -> Consistency {
+                            calendar rawCalendar: Calendar = .current) -> Consistency {
+        let calendar = trainingWeek(rawCalendar)
         let empty = Consistency(weeks: [], adherence: nil, credited: 0, planned: 0)
         let target = plannedWorkouts
         guard target > 0,

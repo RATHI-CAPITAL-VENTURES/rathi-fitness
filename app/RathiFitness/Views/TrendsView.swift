@@ -257,25 +257,43 @@ struct TrendsView: View {
                     Spacer()
                     Text("26 weeks").rfEyebrow()
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 3) {
-                        ForEach(Array(stride(from: 0, to: days.count, by: 7)), id: \.self) { i in
-                            VStack(spacing: 3) {
-                                ForEach(days[i..<min(i + 7, days.count)]) { day in
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(shade(day.volume, peak: peak))
-                                        .frame(width: 10, height: 10)
+                HStack(alignment: .top, spacing: 6) {
+                    // Which row is which day. A grid of squares with no
+                    // labels is a texture; you cannot tell "always trains
+                    // Monday" from "always trains Thursday" by looking at it.
+                    VStack(spacing: 3) {
+                        ForEach(Array(Self.weekdayInitials.enumerated()), id: \.offset) { _, letter in
+                            Text(letter)
+                                .font(RFDesign.ui(8.5))
+                                .foregroundStyle(RFDesign.labelDim)
+                                .frame(width: 9, height: 10)
+                        }
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 3) {
+                            ForEach(Array(stride(from: 0, to: days.count, by: 7)), id: \.self) { i in
+                                VStack(spacing: 3) {
+                                    ForEach(days[i..<min(i + 7, days.count)]) { day in
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(shade(day.volume, peak: peak))
+                                            .frame(width: 10, height: 10)
+                                    }
                                 }
                             }
                         }
                     }
+                    .scrollClipDisabled()
+                    .defaultScrollAnchor(.trailing)
                 }
-                .scrollClipDisabled()
-                .defaultScrollAnchor(.trailing)
             }
             .padding(.top, RFDesign.lg)
         }
     }
+
+    /// Monday first, to match `Tally.trainingWeek`. Two Ts and two Ss are
+    /// ambiguous in isolation and completely clear in order — which is how
+    /// every calendar prints them.
+    private static let weekdayInitials = ["M", "T", "W", "T", "F", "S", "S"]
 
     private func shade(_ volume: Double, peak: Double) -> Color {
         guard volume > 0 else { return Color.white.opacity(0.06) }

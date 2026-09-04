@@ -9,3 +9,4 @@ DerivedData/
 .omc/
 __pycache__/
 *.pyc
+.rf-installed-commit
