@@ -14,6 +14,20 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.6.4 — 2026-09-04
+
+### Fixed
+
+- **The auto-update agent could not read its own config.** The spine sources
+  `autoupdate.conf` and runs the apply hook as a **child process**, and a plain
+  `.` leaves values set but not exported — so every `AU_IOS_*` value stayed in
+  the spine's shell. The hook died on its first required variable and the agent
+  logged `APPLY FAILED` for v0.6.3, which was a perfectly good commit.
+
+  Fixed upstream in RIA's template (**1.0.0 → 1.0.1**, RIA v2.41.3) and pulled
+  in here, which is the point of it being a template. Caught within the hour, by
+  the agent it was written for, on its first real run.
+
 ## 0.6.3 — 2026-09-04
 
 ### Changed

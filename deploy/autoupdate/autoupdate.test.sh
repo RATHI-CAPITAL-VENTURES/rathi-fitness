@@ -153,6 +153,35 @@ setup
   quiet "a second run with nothing new does nothing"
 teardown
 
+echo "autoupdate — config reaches the hook"
+
+# The path every real project takes. The other cases pass AU_IOS_* as an env
+# prefix, which a child process inherits for free — so they could not have
+# caught a conf whose values never left this shell, which is exactly what
+# shipped once.
+setup
+  new_commit; export STUB_REACHABLE=1
+  cat > "$TMP/conf" <<CONF
+AU_REPO="$CLONE"
+AU_LOG="$LOG"
+AU_STATE="$STATE"
+AU_APPLY="$IOS"
+AU_PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin"
+AU_IOS_PROJECT="Thing.xcodeproj"
+AU_IOS_SCHEME="Thing"
+AU_IOS_ECID="E"
+AU_IOS_DEVICE="D"
+AU_IOS_APP_PROCESS="/Thing.app/"
+AU_IOS_DERIVED="$TMP/derived"
+AU_IOS_DEVELOPER_DIR="/usr"
+AU_XCRUN="$BIN/xcrun"
+AU_XCODEBUILD="$BIN/xcodebuild"
+CONF
+  AU_CONF="$TMP/conf" bash "$SPINE" > /dev/null
+  says "APPLIED" "values from autoupdate.conf reach the apply hook"
+  ok "$(cd "$CLONE" && git rev-parse HEAD)" "$(cat "$STATE")" "and the commit is recorded"
+teardown
+
 echo "autoupdate — the hook contract"
 
 setup

@@ -35,7 +35,17 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF="${AU_CONF:-$HERE/autoupdate.conf}"
+# `set -a` so everything the conf defines is EXPORTED, not merely set.
+#
+# The hook runs as a child process, so a plain `. conf` left every AU_IOS_*
+# value in this shell and out of the hook's environment — it died on its first
+# `${AU_IOS_PROJECT:?}` and the agent logged APPLY FAILED for a change that was
+# perfectly good. The self-test missed it because the harness passes those
+# values as an env prefix, which IS inherited; the conf-file path that every
+# real project uses was never exercised. There is a case for it now.
+set -a
 [ -f "$CONF" ] && . "$CONF"
+set +a
 
 REPO="${AU_REPO:-}"
 LOG="${AU_LOG:-$HOME/Library/Logs/autoupdate.log}"
