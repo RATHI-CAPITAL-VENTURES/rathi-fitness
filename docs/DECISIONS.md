@@ -1477,3 +1477,41 @@ after the fifteenth" surfaced that the Eiffel Tower was entered at 2,000,000 lb
 Shuttle. The ordering test passed, because the list was internally consistent
 and externally wrong. Nothing automatic catches a plausible number in the right
 order; only asking what a figure actually refers to does.
+
+## 2026-09-05 — A holiday is not a failure to train
+
+**Chosen: a declared trip removes the week from the reckoning entirely.
+Rejected: marking it met, and rejected pro-rating the target.**
+
+Reserved in v0.4.0 rather than invented here. That entry rejected "a weekly
+streak with a declarable week off" and kept the week-off half in reserve — "if
+the band turns out to motivate nothing, this is the next thing to try" — priced
+at a model, a snapshot field and a CLI read. That is exactly what it cost.
+
+Until now a fortnight abroad was indistinguishable from a fortnight of not
+bothering, and the percentage carried it for three months.
+
+**Not counted as met.** The tempting version marks the week complete so the
+number stays pretty. "You did your four workouts" is a claim about something
+that did not happen, and a band full of invented full weeks is worth less than
+one with honest gaps. It leaves the numerator *and* the denominator.
+
+**Per week, not pro-rated by days.** The band's unit is the week. Scaling a
+target that counts whole workouts by days-away produces "2.3 workouts asked
+for", and a half-scored week is harder to explain than one that plainly does not
+count. So any week the trip touches is set aside.
+
+**Training on holiday shows and does not score.** Asked for directly, and right:
+it cannot move a number that has been taken out of the reckoning, and doing it
+anyway deserves to be visible. Away weeks are drawn grey rather than left empty
+— empty reads as "you missed it", which is the one thing declaring a trip exists
+to stop the band saying.
+
+**The caption names the weeks that were set aside.** Otherwise the denominator
+quietly shrinks and the percentage moves for a reason nothing on screen
+explains, which is how a number stops being believed.
+
+**Declarable late.** A trip the app has already scored you down for can be
+declared afterwards, for the same reason `ScheduleEpoch` is editable: the app
+cannot know what it was never told, and a guess presented as a record is worse
+than no record.

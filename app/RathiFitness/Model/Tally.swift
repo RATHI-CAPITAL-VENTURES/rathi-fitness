@@ -569,6 +569,16 @@ enum Tally {
         /// that reads "0 of 3" is the app telling you off for not having
         /// finished a week that has barely started.
         let inProgress: Bool
+        /// You declared yourself away for some part of this week.
+        ///
+        /// Left out of the percentage entirely — neither credited nor
+        /// penalised. NOT counted as met: "you did your four workouts" is a
+        /// claim about something that did not happen, and a band full of
+        /// invented full weeks is worth less than one with honest gaps.
+        ///
+        /// `done` is still populated, because training on holiday should be
+        /// visible. It simply cannot move a number that has been set aside.
+        var isAway: Bool = false
 
         var id: Date { start }
 
@@ -949,8 +959,37 @@ enum Tally {
         }
     }
 
+    /// A stretch you were away for, as the band needs it.
+    struct Away: Equatable {
+        let from: Date
+        let to: Date
+
+        init(from: Date, to: Date) {
+            // Tolerate a range entered backwards rather than silently covering
+            // nothing — a date picker makes this easy to do and impossible to
+            // see.
+            self.from = min(from, to)
+            self.to = max(from, to)
+        }
+
+        /// Does this touch the week `[start, end)`?
+        ///
+        /// **Any overlap sets the week aside**, because the unit of this metric
+        /// is the week. Pro-rating a target that counts whole workouts would
+        /// produce "2.3 workouts asked for", and a half-scored week is harder to
+        /// explain than one that plainly does not count.
+        func covers(weekFrom start: Date, to end: Date, calendar: Calendar) -> Bool {
+            // `endedAt` is inclusive, so a trip ending on the Sunday covers the
+            // Sunday.
+            let last = calendar.date(byAdding: .day, value: 1,
+                                     to: calendar.startOfDay(for: to)) ?? to
+            return from < end && last > start
+        }
+    }
+
     static func consistency(sessions: [Done],
                             targets: Targets,
+                            away: [Away] = [],
                             weeks limit: Int = 12,
                             now: Date = .now,
                             calendar rawCalendar: Calendar = .current) -> Consistency {
@@ -987,12 +1026,17 @@ enum Tally {
             // something quite different from a count of distinct names.
             let done = Swift.Set(sessions.filter { $0.date >= start && $0.date < end }
                                          .map(\.workout)).count
+            let isAway = away.contains { $0.covers(weekFrom: start, to: end,
+                                                   calendar: calendar) }
             // The target THIS week was asked to meet, not today's.
             return Week(start: start, planned: targets.weekly(on: start), done: done,
-                        inProgress: start == thisWeek.start)
+                        inProgress: start == thisWeek.start, isAway: isAway)
         }
 
-        let finished = weeks.filter { !$0.inProgress }
+        // Away weeks leave the reckoning entirely — out of the numerator AND
+        // the denominator, so a fortnight abroad neither flatters nor damages
+        // the percentage.
+        let finished = weeks.filter { !$0.inProgress && !$0.isAway }
         let planned = finished.reduce(0) { $0 + $1.planned }
         // Credited per week, capped at that week's target: a big week must not
         // pay for a missed one. Six sessions one week and none the next is not

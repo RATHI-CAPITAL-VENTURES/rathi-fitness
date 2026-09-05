@@ -39,7 +39,7 @@ struct Snapshot: Codable {
     /// tonnage, and a reader that averages it in is reporting a fiction.
     /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
     /// where the seat goes.
-    static let currentSchema = 5
+    static let currentSchema = 6
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -50,6 +50,11 @@ struct Snapshot: Codable {
     var plan: [PlanDay]
     var passes: [PassSummary]
     var sessions: [Session]
+    /// Stretches he declared himself away for. The Mac needs these for the same
+    /// reason the band does: a fortnight abroad is not a fortnight of not
+    /// bothering, and anything reading `sessions[]` to judge consistency will
+    /// draw the wrong conclusion without them.
+    var timeAway: [Away]
 
     struct BodyWeight: Codable {
         var unit: String = "lb"
@@ -240,6 +245,13 @@ struct Snapshot: Codable {
         var hasCode: Bool
     }
 
+    /// A declared trip. `to` is INCLUSIVE — a one-day trip has `from == to`.
+    struct Away: Codable {
+        let from: String
+        let to: String
+        let note: String?
+    }
+
     struct Session: Codable {
         var date: String
         var day: String?
@@ -287,6 +299,8 @@ enum SnapshotBuilder {
             FetchDescriptor<Session>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)]))
         let allSets = try context.fetch(
             FetchDescriptor<SetEntry>(sortBy: [SortDescriptor(\.date, order: .forward)]))
+        let trips = try context.fetch(
+            FetchDescriptor<TimeAway>(sortBy: [SortDescriptor(\.startedAt, order: .forward)]))
 
         // Built once. Assisted work is valued at bodyweight minus the help,
         // and every section that reports tonnage has to agree about it — the
@@ -313,7 +327,11 @@ enum SnapshotBuilder {
             sessions: sessions(sessionRecords,
                                orphans: allSets.filter { $0.session == nil },
                                bodyWeightLog: bodyWeightLog,
-                               cal: cal))
+                               cal: cal),
+            timeAway: trips.map {
+                Snapshot.Away(from: Fmt.day($0.startedAt), to: Fmt.day($0.endedAt),
+                              note: $0.note.isEmpty ? nil : $0.note)
+            })
     }
 
     // MARK: pieces

@@ -587,6 +587,37 @@ final class ScheduleEpoch {
     }
 }
 
+/// A stretch you were away for.
+///
+/// A holiday is not a failure to train, and until this existed the band had no
+/// way to say so: two weeks abroad read exactly like two weeks of not bothering,
+/// and the percentage carried that for three months.
+///
+/// **Per week, and it neither helps nor hurts.** A week the break touches is
+/// set aside — left out of the percentage entirely rather than counted as met,
+/// because "you did your four workouts" is a claim about something that did not
+/// happen. Training while away still shows on the band, because doing it on
+/// holiday deserves to be visible; it just cannot move a number that has been
+/// taken out of the reckoning.
+///
+/// Declarable before OR after: you can set a trip up in advance, and you can
+/// tell the app about one it has already scored you down for. Past breaks stay
+/// editable for the same reason `ScheduleEpoch` does — the history is the point.
+@Model
+final class TimeAway {
+    var startedAt: Date = Date.now
+    /// Inclusive. A one-day trip has `startedAt` and `endedAt` on the same day.
+    var endedAt: Date = Date.now
+    /// "Japan", "flu" — for the list, never for the arithmetic.
+    var note: String = ""
+
+    init(startedAt: Date, endedAt: Date, note: String = "") {
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.note = note
+    }
+}
+
 /// What a new exercise opens on.
 ///
 /// Every new plan slot was hardcoded to 3 × 10 at 90 seconds, which is a fine

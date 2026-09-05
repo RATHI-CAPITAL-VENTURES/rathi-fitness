@@ -14,6 +14,7 @@ struct TodayView: View {
     @Query private var schedules: [Schedule]
     @Query(sort: \Session.startedAt) private var sessions: [Session]
     @Query(sort: \ScheduleEpoch.startedAt) private var epochs: [ScheduleEpoch]
+    @Query(sort: \TimeAway.startedAt) private var timeAway: [TimeAway]
 
     @State private var overrideDay: PlannedDay?
     @State private var showingSettings = false
@@ -271,6 +272,7 @@ struct TodayView: View {
         let band = Tally.consistency(
             sessions: sessions.map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
             targets: weeklyTargets,
+            away: timeAway.map { Tally.Away(from: $0.startedAt, to: $0.endedAt) },
             calendar: calendar)
         if !band.isEmpty {
             ConsistencyBand(consistency: band)

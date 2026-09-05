@@ -23,6 +23,7 @@ CLI can exist at all.
 | 1 | The original contract. |
 | 2 | Set kinds. `volume`, `top_weight` and `sets` mean **working** sets — warm-ups contribute to none of them and are counted separately as `warmup_sets`. Each performed set carries `kind`, `rpe` (nullable — not recorded is not "easy") and `note`. Each exercise carries `primary_muscle` and `secondary_muscles`. |
 | 4 | Assisted machines. `assisted: true` on an exercise **inverts what its numbers mean**: `working_weight` is how much help you needed, so lower is better and a negative `change_30d` is progress; `best` is the least help ever needed; assistance is excluded from `volume` and from `top_lifts`. A reader that does not know the flag will congratulate you for getting weaker, which is why this is a bump and not an addition. |
+| 6 | **Time away.** `time_away[]` records stretches he declared himself away for — `from`, `to` (both `YYYY-MM-DD`, `to` **inclusive**) and an optional `note`. Anything reading `sessions[]` to judge consistency must subtract these first: a fortnight abroad is not a fortnight of not bothering, and the app's own band leaves those weeks out of its percentage entirely rather than counting them as met. |
 | 5 | **Sessions, not days.** A `sessions[]` entry is one *workout*, not one date, so **two entries can share a `date`** — a reader that keys on `date` alone will merge a two-a-day back together, or overwrite one with the other. `started_at` and `ended_at` (`HH:mm`, 24-hour; `ended_at` absent while a workout is in progress) and `ordinal` (which workout of that day, from 1) are what tell them apart. `day` is now the workout's **recorded** name rather than a guess from the weekday, so it is right on a day you trained out of order. |
 | 3 | Cardio and machine settings. Two additions and one **changed meaning**, which is what forces the bump: an exercise may be `modality: "cardio"`, and on one of those `volume`, `working_weight` and `best` are absent or zero and **mean nothing** — a treadmill has no tonnage. Cardio numbers live in `cardio` blocks (`bouts`, `seconds`, `distance`, `average_incline`, `average_speed`) and in `sessions[].cardio_minutes`. `machine_settings[]` on an exercise says where the seat goes. |
 
@@ -74,6 +75,7 @@ the build if that stops being true.
 | Key | What |
 | --- | --- |
 | `schema`, `generated_at`, `app_version` | provenance |
+| `time_away[]` | declared trips: `from`, `to` (inclusive), optional `note` |
 | `body_weight` | `current`, `current_date`, `change_30d`, `trend_per_week`, `history[]` |
 | `today` | the day's plan and what has been done — **absent on a rest day**, not empty |
 | `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |

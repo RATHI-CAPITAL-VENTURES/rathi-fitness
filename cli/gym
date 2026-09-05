@@ -39,7 +39,7 @@ from pathlib import Path
 # which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
 # numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
 # See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 5
+SCHEMA_SUPPORTED = 6
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"

@@ -114,12 +114,17 @@ final class SnapshotTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        XCTAssertEqual(object["schema"] as? Int, Snapshot.currentSchema)
-        // Pinned as a literal on purpose, and it is the ONLY place that is.
-        // The CLI refuses a version it does not know, so bumping the app's
-        // schema without bumping `SCHEMA_SUPPORTED` in `cli/gym` makes RIA go
-        // blind until someone notices. Failing here is the reminder.
-        XCTAssertEqual(Snapshot.currentSchema, 5)
+        XCTAssertEqual(object["schema"] as? Int, Snapshot.currentSchema,
+                       "the encoded value must be the constant, not a copy of it")
+        // The literal `5` that used to sit here is gone. It was a reminder to
+        // bump `SCHEMA_SUPPORTED` in `cli/gym`, and it worked by breaking on
+        // every schema change — so the fix was always to retype the number,
+        // which leaves a test that can only agree with whoever edited it last.
+        //
+        // That reminder is now a real check in two places that compare the two
+        // sides rather than restate one: `ci-guards.sh snapshot-schema` (app,
+        // CLI and docs) and `test_the_supported_schema_is_the_one_the_app_writes`
+        // in the CLI suite, which reads `currentSchema` out of this Swift.
         // The CLI reads these exact keys. Renaming one is a schema bump.
         for key in ["generated_at", "body_weight", "exercises", "plan", "passes", "sessions"] {
             XCTAssertNotNil(object[key], "missing top-level key \(key)")

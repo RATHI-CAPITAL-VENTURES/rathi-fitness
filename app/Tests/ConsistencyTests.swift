@@ -216,4 +216,101 @@ final class ConsistencyTests: XCTestCase {
                        "every 2 days is 3.5 a week; a 3-session week is not a failure")
     }
 
+    // MARK: time away
+
+    private func away(_ from: Date, _ to: Date) -> Tally.Away {
+        Tally.Away(from: from, to: to)
+    }
+
+    /// The band spans weeks from your FIRST workout onward, so every case needs
+    /// one to anchor it — `[]` produces an empty band and nothing to inspect.
+    /// 17 Aug is a Monday, in a week none of these trips touch.
+    private var anchorSession: Tally.Done { did(date(2026, 8, 17), plan[0]) }
+
+    private func band(_ sessions: [Tally.Done], away: [Tally.Away],
+                      target: Int = 4, weeks: Int = 12) -> Tally.Consistency {
+        Tally.consistency(sessions: sessions, targets: Tally.Targets(constant: target),
+                          away: away, weeks: weeks, now: now, calendar: cal)
+    }
+
+    /// **The whole point.** A fortnight abroad used to read exactly like a
+    /// fortnight of not bothering, and the percentage carried it for months.
+    func testAWeekYouWereAwayIsLeftOutOfThePercentage() {
+        let scored = band([did(date(2026, 8, 17), plan[0])], away: [])
+        let setAside = band([did(date(2026, 8, 17), plan[0])],
+                            away: [away(date(2026, 8, 24), date(2026, 8, 30))])
+        XCTAssertGreaterThan(setAside.adherence ?? 0, scored.adherence ?? 0,
+                             "the missed week should stop counting against you")
+        XCTAssertLessThan(setAside.planned, scored.planned,
+                          "and leave the denominator too")
+    }
+
+    /// NOT counted as met. "You did your four workouts" is a claim about
+    /// something that did not happen.
+    func testAnAwayWeekIsNotCreditedAsDone() {
+        let b = band([anchorSession], away: [away(date(2026, 8, 24), date(2026, 8, 30))])
+        XCTAssertEqual(b.credited, 1, "only the anchor week is scored")
+        let week = b.weeks.first { $0.isAway }
+        XCTAssertNotNil(week)
+        XCTAssertFalse(week?.met ?? true, "an away week is set aside, not won")
+    }
+
+    /// Training on holiday shows, and changes nothing. A bonus, not a score.
+    func testTrainingWhileAwayShowsButDoesNotScore() {
+        let trip = [away(date(2026, 8, 24), date(2026, 8, 30))]
+        let idle = band([anchorSession], away: trip)
+        let trained = band([anchorSession,
+                            did(date(2026, 8, 25), plan[1]),
+                            did(date(2026, 8, 26), plan[2])], away: trip)
+        XCTAssertEqual(trained.credited, idle.credited, "it cannot help the number")
+        XCTAssertEqual(trained.planned, idle.planned, "or move the denominator")
+        XCTAssertEqual(trained.weeks.first { $0.isAway }?.done, 2,
+                       "but the band still knows you trained")
+    }
+
+    /// Per week, because that is the unit the band measures in. A Thursday-to-
+    /// Sunday trip takes the week; pro-rating a target that counts whole
+    /// workouts would ask for 2.3 of them.
+    func testAnyDayAwaySetsTheWholeWeekAside() {
+        let b = band([anchorSession], away: [away(date(2026, 8, 27), date(2026, 8, 30))])
+        XCTAssertEqual(b.weeks.filter(\.isAway).count, 1)
+    }
+
+    func testATripSpanningTwoWeeksSetsBothAside() {
+        let b = band([anchorSession], away: [away(date(2026, 8, 20), date(2026, 8, 26))])
+        XCTAssertEqual(b.weeks.filter(\.isAway).count, 2)
+    }
+
+    /// `endedAt` is inclusive — a trip ending on the Sunday covers the Sunday,
+    /// not up to the Sunday.
+    func testTheLastDayOfATripIsPartOfIt() {
+        // 30 Aug 2026 is a Sunday: the last day of the Monday-first week.
+        let b = band([anchorSession], away: [away(date(2026, 8, 30), date(2026, 8, 30))])
+        XCTAssertEqual(b.weeks.filter(\.isAway).count, 1,
+                       "a one-day trip on the Sunday still covers that week")
+    }
+
+    /// A range entered backwards covers the same days rather than none — easy
+    /// to do on a date picker and impossible to see.
+    func testABackwardsRangeStillCoversItsDays() {
+        let b = band([anchorSession], away: [away(date(2026, 8, 30), date(2026, 8, 24))])
+        XCTAssertEqual(b.weeks.filter(\.isAway).count, 1)
+    }
+
+    func testNoTripsChangesNothing() {
+        let sessions = [did(date(2026, 8, 24), plan[0]), did(date(2026, 8, 26), plan[1])]
+        XCTAssertEqual(band(sessions, away: []).adherence,
+                       Tally.consistency(sessions: sessions,
+                                         targets: Tally.Targets(constant: 4),
+                                         weeks: 12, now: now, calendar: cal).adherence)
+    }
+
+    /// Every week away is not a divide by zero and not 0%.
+    func testAwayForEveryWeekHasNoPercentageRatherThanZero() {
+        let b = band([did(date(2026, 8, 17), plan[0])],
+                     away: [away(date(2026, 8, 1), date(2026, 9, 30))])
+        XCTAssertNil(b.adherence, "nothing was scored, so there is no score")
+        XCTAssertEqual(b.planned, 0)
+    }
+
 }
