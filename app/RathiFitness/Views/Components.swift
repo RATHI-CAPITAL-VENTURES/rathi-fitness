@@ -298,7 +298,13 @@ struct ConsistencyBand: View {
         guard consistency.adherence != nil else {
             return "first week under way"
         }
-        return "\(consistency.credited) of \(consistency.planned) planned workouts"
+        let base = "\(consistency.credited) of \(consistency.planned) planned workouts"
+        // Say the weeks were set aside. Otherwise the denominator quietly
+        // shrinks and the percentage moves for a reason nothing on screen
+        // explains — which is how a number stops being believed.
+        let away = consistency.weeks.filter(\.isAway).count
+        guard away > 0 else { return base }
+        return base + (away == 1 ? " · 1 week away" : " · \(away) weeks away")
     }
 
     private var rangeLabel: String {
@@ -322,7 +328,22 @@ struct ConsistencyBand: View {
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.white.opacity(0.07))
-                    if week.inProgress {
+                    if week.isAway {
+                        // Away weeks are grey rather than empty. Empty reads as
+                        // "you missed it", which is the one thing declaring a
+                        // trip is meant to stop the band saying.
+                        //
+                        // A session on holiday still fills the mark — greyed,
+                        // because it cannot move a number that has been set
+                        // aside, but visible, because doing it anyway deserves
+                        // to be. A bonus, not a score.
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white.opacity(week.done > 0 ? 0.30 : 0.13))
+                            .frame(height: week.done > 0
+                                   ? max(geo.size.height * week.fraction,
+                                         geo.size.height / 3)
+                                   : geo.size.height)
+                    } else if week.inProgress {
                         RoundedRectangle(cornerRadius: 2)
                             .strokeBorder(RFDesign.ready.opacity(0.45), lineWidth: 1)
                     } else if week.done > 0 {

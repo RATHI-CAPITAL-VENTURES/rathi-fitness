@@ -31,6 +31,7 @@ reader distrust the rest of the file.)
 | Everything you have lifted | Trends — lifetime tonnage against a ladder of things that weigh a known amount (a grand piano, a rhinoceros, a blue whale, the Statue of Liberty), plus workouts, reps and records as lifetime totals. Tap it for **the whole journey**: every tier, the date you crossed it, and what is still ahead. |
 | Every day you trained | Trends — twenty-six weeks as squares, shaded by how much you moved. Deliberately **not** a streak: nothing resets, and a blank fortnight is visible rather than a failure state. |
 | Records, kept | Trends — the records you have actually set, newest first. The app used to tell you a set was a record and never mention it again. |
+| Time away | Settings → Time away. Declare a trip and any week it touches leaves showing up entirely — **not counted as done, not counted as missed.** Training on holiday still shows on the band, greyed: it cannot move a number that has been set aside, and doing it anyway deserves to be visible. |
 | Showing up | Today, under the workout — twelve weeks as twelve marks, and how much of your plan you **covered** each week. Four workouts in the plan, four to get round to; which weekday you did them on is not the question. Deliberately not a streak: nothing resets. |
 
 ## Shape

@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var confirmingWipe = false
     @State private var wipeResult: String?
     @State private var confirmingRestApply = false
+    @State private var declaringAway = false
     @State private var restApplyResult: String?
     @State private var exportFiles: [URL]?
 
@@ -24,6 +25,7 @@ struct SettingsView: View {
     @Query private var planDefaults: [PlanDefaults]
     @Query(sort: \PlannedDay.order) private var days: [PlannedDay]
     @Query(sort: \ScheduleEpoch.startedAt) private var epochs: [ScheduleEpoch]
+    @Query(sort: \TimeAway.startedAt, order: .reverse) private var timeAway: [TimeAway]
 
     private var demoCount: Int {
         allSets.filter(\.isDemo).count + allWeighIns.filter(\.isDemo).count
@@ -37,6 +39,7 @@ struct SettingsView: View {
                 healthSection
                 scheduleSection
                 scheduleHistorySection
+                timeAwaySection
                 defaultsSection
                 soundSection
                 handsFreeSection
@@ -58,6 +61,13 @@ struct SettingsView: View {
                 Button("Keep them", role: .cancel) {}
             } message: {
                 Text("Your plan, exercises and passes are kept. This cannot be undone.")
+            }
+            .sheet(isPresented: $declaringAway) {
+                TimeAwaySheet { from, to, note in
+                    context.insert(TimeAway(startedAt: from, endedAt: to, note: note))
+                    context.saveOrReport("declaring time away")
+                    snapshots.setNeedsWrite(context)
+                }
             }
             .confirmationDialog("Set every rest to \(Fmt.clock(planRest))?",
                                 isPresented: $confirmingRestApply, titleVisibility: .visible) {
@@ -488,6 +498,45 @@ struct SettingsView: View {
         }
     }
 
+    /// Trips, illness, anything that took a week out.
+    ///
+    /// A holiday is not a failure to train, and without this the band had no
+    /// way to tell the difference: two weeks abroad read exactly like two weeks
+    /// of not bothering.
+    @ViewBuilder private var timeAwaySection: some View {
+        SettingsSection(
+            title: "Time away",
+            footer: "A week you were away is left out of showing up entirely — not "
+                  + "counted as done, not counted as missed. Whole weeks, because that "
+                  + "is the unit the band measures in.\n\n"
+                  + "Training while you are away still shows on the band, greyed. It "
+                  + "cannot move a number that has been set aside, and doing it anyway "
+                  + "deserves to be visible.\n\n"
+                  + "Add one before you go or after you are back — a trip the app has "
+                  + "already scored you down for can be declared late."
+        ) {
+            ForEach(timeAway) { away in
+                ActionRow(label: awayLabel(away),
+                          detail: "Remove",
+                          symbol: "airplane",
+                          tint: RFDesign.speech) {
+                    context.delete(away)
+                    context.saveOrReport("removing a trip")
+                    snapshots.setNeedsWrite(context)
+                }
+            }
+            ActionRow(label: "I am going away", symbol: "plus.circle.fill",
+                      showsDivider: false) { declaringAway = true }
+        }
+    }
+
+    private func awayLabel(_ away: TimeAway) -> String {
+        let span = Calendar.current.isDate(away.startedAt, inSameDayAs: away.endedAt)
+            ? Fmt.shortDate(away.startedAt)
+            : "\(Fmt.shortDate(away.startedAt)) – \(Fmt.shortDate(away.endedAt))"
+        return away.note.isEmpty ? span : "\(span) · \(away.note)"
+    }
+
     /// What you were asking of yourself, and when.
     ///
     /// Editable, and it has to be: a schedule you changed **before** this
@@ -586,5 +635,61 @@ struct SettingsView: View {
         await health.exportWorkouts(from: context)
         snapshots.setNeedsWrite(context)
         working = false
+    }
+}
+
+/// Declaring a trip. Two dates and an optional word about what it was.
+struct TimeAwaySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var from = Date.now
+    @State private var to = Date.now
+    @State private var note = ""
+    var onSave: (Date, Date, String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: RFDesign.md) {
+                DatePicker("From", selection: $from, displayedComponents: .date)
+                // `in: from...` so a range cannot be entered backwards. The
+                // model tolerates it anyway — a date picker makes that mistake
+                // easy to make and impossible to see — but the UI should not
+                // offer it in the first place.
+                DatePicker("Back on", selection: $to, in: from..., displayedComponents: .date)
+                HStack {
+                    Text("What was it").rfEyebrow()
+                    Spacer()
+                    TextField("Japan", text: $note)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.plain)
+                        .font(RFDesign.ui(15))
+                        .foregroundStyle(RFDesign.speech)
+                }
+                Text("Any week these dates touch is left out of showing up — "
+                     + "neither done nor missed.")
+                    .font(RFDesign.ui(12.5))
+                    .foregroundStyle(RFDesign.labelDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            .tint(RFDesign.ready)
+            .font(RFDesign.ui(15))
+            .foregroundStyle(RFDesign.speech)
+            .padding(.horizontal, SettingsKit.margin)
+            .padding(.top, RFDesign.md)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoomBackground())
+            .navigationTitle("Time away")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(from, to, note.trimmingCharacters(in: .whitespaces))
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(340)])
     }
 }

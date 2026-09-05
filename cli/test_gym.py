@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import pathlib
+import re
 import unittest
 from pathlib import Path
 
@@ -20,7 +22,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 5,
+    "schema": 6,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -110,6 +112,9 @@ FIXTURE = {
     ],
     # Schema 5: an entry is one WORKOUT, so two can share a date. 2026-08-19 is
     # a two-a-day, which is the shape a reader keying on `date` alone gets wrong.
+    "time_away": [
+        {"from": "2026-08-10", "to": "2026-08-16", "note": "Japan"},
+    ],
     "sessions": [
         {"date": "2026-08-19", "day": "Legs", "started_at": "18:40",
          "ended_at": "19:25", "ordinal": 2, "exercises": 4, "sets": 12,
@@ -568,8 +573,24 @@ class SchemaGate(unittest.TestCase):
         self.assertNotEqual(code, 0, "an unreadable schema must not look like success")
 
     def test_the_supported_schema_is_the_one_the_app_writes(self):
-        # Bumping one without the other is how the CLI goes blind for a week.
-        self.assertEqual(gym.SCHEMA_SUPPORTED, 5)
+        """Read the app's constant rather than restating it.
+
+        This asserted a literal `5`, which meant every schema bump broke it and
+        the fix was to retype the number — a test that can only ever agree with
+        whoever edited it last. It now reads `Snapshot.currentSchema` out of the
+        Swift, so bumping one side without the other actually fails, which is
+        the thing it was written to prevent. (`ci-guards.sh snapshot-schema`
+        checks the same contract across app, CLI and docs; this catches it
+        without leaving the CLI's own suite.)
+        """
+        swift = (pathlib.Path(__file__).resolve().parent.parent
+                 / "app" / "RathiFitness" / "Model" / "Snapshot.swift")
+        if not swift.exists():
+            self.skipTest("running outside the repo; the guard covers this too")
+        m = re.search(r"currentSchema\s*=\s*(\d+)", swift.read_text())
+        self.assertIsNotNone(m, "Snapshot.swift no longer declares currentSchema")
+        self.assertEqual(gym.SCHEMA_SUPPORTED, int(m.group(1)),
+                         "the CLI and the app disagree about the snapshot schema")
 
 
 class Assisted(unittest.TestCase):

@@ -312,6 +312,12 @@ final class AssistedSnapshotTests: XCTestCase {
         // A reader on schema 3 seeing `working_weight: 70` on this row would
         // congratulate him for getting weaker. Refusing is the correct response,
         // and `cli/gym` refuses anything it does not know.
-        XCTAssertEqual(Snapshot.currentSchema, 5)
+        //
+        // `>=`, not `==`. The claim this test actually makes is "we are at or
+        // past the version where `working_weight` changed meaning for assisted
+        // machines" — which stays true for ever. Pinning the exact number made
+        // a test about pull-up assists fail every time an unrelated field was
+        // added to the snapshot.
+        XCTAssertGreaterThanOrEqual(Snapshot.currentSchema, 5)
     }
 }
