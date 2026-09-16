@@ -1515,3 +1515,42 @@ explains, which is how a number stops being believed.
 declared afterwards, for the same reason `ScheduleEpoch` is editable: the app
 cannot know what it was never told, and a guess presented as a record is worse
 than no record.
+
+## 2026-09-16 — The row reads what the set screen will say
+
+**Chosen: a Today row shows `Tally.shownWeight` — today's working weight if
+there is one, else the set screen's suggestion, else the plan. Rejected:
+keeping `PlanItem.targetWeight` as the row's number and trusting the log path
+to move it.**
+
+This amends 2026-09-02 ("The plan follows the barbell"), which rejected showing
+a derived number on the row on the grounds that it would leave the programme
+stale underneath. The programme still advances exactly as decided there; what
+changed is that the row stopped reading it.
+
+One screenshot, abdominal crunch: the row said **120**, the history under it
+said **125 · 8, 8, 8**, and the set screen said **"try 130"**. Three numbers
+for one exercise, and the row was the one you plan the session from.
+
+Two causes, and the fix has to cover both:
+
+- **The plan only moves through the log path.** The 125 session was logged on
+  a phone build that predated v0.5.1 — auto-install arrived on 2026-09-04 —
+  so nothing advanced it, and nothing ever would until a heavier set was
+  logged. A row that understates you is precisely what stops you logging one.
+  Any exercise last done before the update was stuck the same way.
+- **Even when it moves, the plan is one step behind on purpose.** It records
+  what you have *shown you own*; the set screen says what to *try*, which is
+  the next step. So a working plan still reads 125 where the set screen reads
+  130, and "does the home page know I went up?" is answered no every week.
+
+`shownWeight` is a pure rule in `Tally` with the suggestion computed by the
+same `nextTarget` call on the same `lastSession` the set screen uses — that
+helper moved out of `SetView` into an `Array<SetEntry>` extension so there is
+one definition of "the last day you did this". Once a working set is logged
+today the row shows that weight, matching how the set screen primes; a warm-up
+relabels nothing.
+
+Why the stored target stays and still advances: it is the fallback with no
+history, the number the plan editor edits, and what the snapshot exports as
+`working_weight`. It is the programme. The row is what you are about to do.

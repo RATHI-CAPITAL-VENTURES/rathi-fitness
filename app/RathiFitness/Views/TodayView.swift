@@ -553,10 +553,32 @@ struct TodayView: View {
         return working(item).count >= item.targetSets
     }
 
+    /// What the set screen will say to try, from the last day this lift was
+    /// done. The same call the set screen makes, on the same sets.
+    private func suggestion(for item: PlanItem, exercise: Exercise) -> Tally.Suggestion? {
+        let mine = allSets.filter { $0.exercise?.slug == exercise.slug }
+        return Tally.nextTarget(
+            lastSession: mine.lastSession(calendar: calendar).map { $0.tally(bodyWeight: nil) },
+            target: item.targetReps)
+    }
+
+    /// The weight a row reads. Not `item.targetWeight`: that is what the plan
+    /// records you owning, which lags the set screen's "try 130" by a step
+    /// and stays stale for any session the log path never saw. The row shows
+    /// the same number the set screen opens on — see `Tally.shownWeight`.
+    private func shownWeight(for item: PlanItem, exercise: Exercise) -> Double {
+        Tally.shownWeight(plan: item.targetWeight,
+                          suggestion: suggestion(for: item, exercise: exercise),
+                          // Oldest first: `allSets` is newest-first, and the
+                          // rule reads the LAST working set as what you are on.
+                          today: performed(item).sorted { $0.date < $1.date }
+                              .map { $0.tally(bodyWeight: nil) })
+    }
+
     /// The number on the right of a row: the weight for a lift, the time for
     /// cardio. It is the thing you are about to go and do either way.
     private func trailing(for item: PlanItem, exercise: Exercise) -> String {
-        guard exercise.isCardio else { return Fmt.weight(item.targetWeight) }
+        guard exercise.isCardio else { return Fmt.weight(shownWeight(for: item, exercise: exercise)) }
         if item.targetSeconds > 0 { return Fmt.minutes(item.targetSeconds) }
         if item.targetDistance > 0 { return "\(Fmt.distance(item.targetDistance)) mi" }
         return "—"
@@ -571,11 +593,13 @@ struct TodayView: View {
 
     /// The plan and the deviation in the same breath.
     private func meta(for item: PlanItem) -> String {
-        if item.exercise?.isCardio == true { return cardioMeta(for: item) }
+        guard let exercise = item.exercise else { return "" }
+        if exercise.isCardio { return cardioMeta(for: item) }
         let done = working(item)
         let warmups = performed(item).count - done.count
-        let unit = item.exercise?.weightUnit ?? "lb"
-        let plan = "\(item.targetSets) × \(item.targetReps) · \(Fmt.weight(item.targetWeight)) \(unit)"
+        let unit = exercise.weightUnit
+        let weight = Fmt.weight(shownWeight(for: item, exercise: exercise))
+        let plan = "\(item.targetSets) × \(item.targetReps) · \(weight) \(unit)"
         if done.isEmpty {
             return warmups > 0 ? "\(plan) · \(warmups) warm-up done" : plan
         }

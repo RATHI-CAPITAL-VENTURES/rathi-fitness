@@ -14,6 +14,23 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.9.1 — 2026-09-16
+
+### Fixed
+
+- **The Today row now shows the weight the set screen will suggest.** It read
+  `targetWeight`, which only moves when a heavier set is logged — so an
+  exercise last done on a build from before that rule shipped sat stale for
+  ever, and even a plan that had moved lagged the set screen by one step: the
+  row said 120, the history under it said 125 × 8, 8, 8, and the set screen
+  said "try 130". Now the row derives its number the way the set screen does
+  (`Tally.shownWeight`): what you are lifting once a working set is logged,
+  otherwise the suggestion, otherwise the plan. `lastSession` moved out of
+  `SetView` into a shared `[SetEntry]` extension so both screens read one
+  definition of "the last day you did this". The stored target still advances
+  on evidence, unchanged — it is the programme; the row is what you are about
+  to do. See `docs/DECISIONS.md` 2026-09-16.
+
 ## 0.9.0 — 2026-09-05
 
 ### Added

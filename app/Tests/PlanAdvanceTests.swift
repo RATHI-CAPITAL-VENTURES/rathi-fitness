@@ -55,6 +55,87 @@ final class PlanAdvanceTests: XCTestCase {
                      "needing more help must never become the new plan")
     }
 
+    // MARK: the row reads the same number as the set screen
+
+    /// The screenshot: plan 120, last time 125 × 8, 8, 8, set screen says
+    /// "try 130". The row said 120. Now it says what the set screen says.
+    func testTheRowShowsTheSuggestionNotTheStalePlan() {
+        let last = [Tally.Set(weight: 125, reps: 8), .init(weight: 125, reps: 8),
+                    .init(weight: 125, reps: 8)]
+        let suggestion = Tally.nextTarget(lastSession: last, target: 8)
+        XCTAssertEqual(suggestion?.weight, 130)
+        XCTAssertEqual(Tally.shownWeight(plan: 120, suggestion: suggestion, today: []), 130)
+    }
+
+    func testWithNoHistoryTheRowShowsThePlan() {
+        XCTAssertEqual(Tally.shownWeight(plan: 120, suggestion: nil, today: []), 120)
+    }
+
+    /// Once you are lifting, the row says what you are lifting — even when the
+    /// suggestion wanted more. The set screen primes the same way.
+    func testOnceAWorkingSetIsLoggedTheRowShowsThatWeight() {
+        let suggestion = Tally.Suggestion(weight: 130, reps: 8, because: "x")
+        let today = [Tally.Set(weight: 125, reps: 8)]
+        XCTAssertEqual(Tally.shownWeight(plan: 120, suggestion: suggestion, today: today), 125)
+    }
+
+    func testTheLastWorkingSetTodayWins() {
+        let today = [Tally.Set(weight: 125, reps: 8), .init(weight: 130, reps: 8)]
+        XCTAssertEqual(Tally.shownWeight(plan: 120, suggestion: nil, today: today), 130)
+    }
+
+    func testAWarmUpDoesNotRelabelTheRow() {
+        let suggestion = Tally.Suggestion(weight: 130, reps: 8, because: "x")
+        let today = [Tally.Set(weight: 45, reps: 10, kind: .warmup)]
+        XCTAssertEqual(Tally.shownWeight(plan: 120, suggestion: suggestion, today: today), 130,
+                       "a bar warm-up is not what you are doing today")
+    }
+
+    /// Less help is the suggestion's direction on an assisted machine, and
+    /// the row follows it without knowing why.
+    func testAnAssistedRowFollowsTheSuggestionDown() {
+        let last = [Tally.Set(weight: 80, reps: 8, assisted: true),
+                    .init(weight: 80, reps: 8, assisted: true)]
+        let suggestion = Tally.nextTarget(lastSession: last, target: 8)
+        XCTAssertEqual(Tally.shownWeight(plan: 80, suggestion: suggestion, today: []), 75)
+    }
+
+    // MARK: one definition of "last session"
+
+    func testLastSessionIsTheMostRecentPreviousDayInSetOrder() throws {
+        let context = context()
+        let exercise = Exercise(name: "Abdominal Crunch")
+        context.insert(exercise)
+        let calendar = Calendar.current
+        let now = Date.now
+        let twoWeeks = calendar.date(byAdding: .day, value: -14, to: now)!
+        let lastWeek = calendar.date(byAdding: .day, value: -7, to: now)!
+        var entries: [SetEntry] = []
+        for (date, weight) in [(twoWeeks, 120.0), (lastWeek, 125.0), (now, 130.0)] {
+            let second = SetEntry(exercise: exercise, weight: weight, reps: 8, setIndex: 2)
+            second.date = date.addingTimeInterval(120)
+            let first = SetEntry(exercise: exercise, weight: weight, reps: 8, setIndex: 1)
+            first.date = date
+            context.insert(second); context.insert(first)
+            entries += [second, first]
+        }
+        try context.save()
+
+        let last = entries.lastSession(before: now, calendar: calendar)
+        XCTAssertEqual(last.map(\.weight), [125, 125], "today is excluded; the newest prior day wins")
+        XCTAssertEqual(last.map(\.setIndex), [1, 2], "set order, whatever order the query returned")
+    }
+
+    func testLastSessionIsEmptyWhenOnlyTodayExists() throws {
+        let context = context()
+        let exercise = Exercise(name: "Abdominal Crunch")
+        context.insert(exercise)
+        let entry = SetEntry(exercise: exercise, weight: 130, reps: 8, setIndex: 1)
+        context.insert(entry)
+        try context.save()
+        XCTAssertTrue([entry].lastSession().isEmpty)
+    }
+
     // MARK: sessions that hold nothing
 
     /// The one from the screenshot: 08:54 → 08:54, zero sets, counted as a
