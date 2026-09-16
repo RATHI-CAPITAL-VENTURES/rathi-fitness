@@ -629,6 +629,33 @@ enum Tally {
         return harder ? set.weight : nil
     }
 
+    /// The weight a Today row shows — **the same number the set screen opens
+    /// on**, so the two can never disagree.
+    ///
+    /// `advancedTarget` moves the plan when you log a heavier set. That keeps
+    /// the programme honest and is still not what the row should read, for
+    /// two reasons found on one screenshot (2026-09-16, abdominal crunch):
+    ///
+    ///  - the plan only moves through the log path, so a session done on a
+    ///    build that predates v0.5.1 — or on any path that skipped it — leaves
+    ///    the row stale until a heavier set is logged, and a row that
+    ///    understates you is exactly what stops you logging one;
+    ///  - even when it moves, the plan records what you **own** while the set
+    ///    screen says what to **try** — one step further. So the row read 120,
+    ///    the history under it read 125, and the set screen said "try 130".
+    ///    Three numbers for one exercise.
+    ///
+    /// The rule: once a working set is logged today, the row shows what you
+    /// are lifting; before that, the suggestion; with no history, the plan.
+    /// Warm-ups do not relabel the row — a 45 lb bar before a 130 lb set is
+    /// not what you are doing today.
+    static func shownWeight(plan: Double,
+                            suggestion: Suggestion?,
+                            today: [Set]) -> Double {
+        if let lifting = today.last(where: \.counts)?.weight { return lifting }
+        return suggestion?.weight ?? plan
+    }
+
     /// The week a training log runs on: **Monday first, always.**
     ///
     /// Not `Calendar.current.firstWeekday`, which is Sunday in the US — so the
@@ -1095,5 +1122,22 @@ extension SetEntry {
         Tally.Set(weight: weight, reps: reps, kind: setKind,
                   assisted: exercise?.assisted ?? false,
                   bodyWeight: bodyWeight)
+    }
+}
+
+extension Array where Element == SetEntry {
+    /// The most recent day these sets were done that ISN'T today, in set
+    /// order — the input `Tally.nextTarget` reads.
+    ///
+    /// **One definition, shared by the set screen and the Today row.** The set
+    /// screen had this privately and the row derived nothing, which is how the
+    /// row came to show a number the set screen contradicted one tap later.
+    /// A second copy here would drift the same way.
+    func lastSession(before now: Date = .now,
+                     calendar: Calendar = .current) -> [SetEntry] {
+        let previous = filter { !calendar.isDate($0.date, inSameDayAs: now) }
+        guard let day = previous.max(by: { $0.date < $1.date })?.date else { return [] }
+        return previous.filter { calendar.isDate($0.date, inSameDayAs: day) }
+            .sorted { $0.setIndex < $1.setIndex }
     }
 }

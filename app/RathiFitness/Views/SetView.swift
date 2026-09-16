@@ -260,8 +260,7 @@ struct SetView: View {
                 // volume. Saying so explicitly beats a default that hides it.
                 $0.tally(bodyWeight: nil)
             },
-            target: item.targetReps,
-            step: exercise.loadingKind.showsPlateMath ? 5 : 5)
+            target: item.targetReps)
         // No `assisted:` here on purpose — `nextTarget` reads it off the sets,
         // which is what stops this call site getting it wrong again.
     }
@@ -414,13 +413,9 @@ struct SetView: View {
 
     // MARK: history
 
-    /// The most recent day this exercise was done that ISN'T today.
-    private var lastSession: [SetEntry] {
-        let previous = mine.filter { !calendar.isDate($0.date, inSameDayAs: .now) }
-        guard let day = previous.first?.date else { return [] }
-        return previous.filter { calendar.isDate($0.date, inSameDayAs: day) }
-            .sorted { $0.setIndex < $1.setIndex }
-    }
+    /// The most recent day this exercise was done that ISN'T today. Shared
+    /// with the Today row, so the row opens on the number this screen shows.
+    private var lastSession: [SetEntry] { mine.lastSession(calendar: calendar) }
 
     private var recentDays: [(date: Date, entries: [SetEntry])] {
         let previous = mine.filter { !calendar.isDate($0.date, inSameDayAs: .now) }

@@ -15,7 +15,7 @@ reader distrust the rest of the file.)
 | --- | --- |
 | Log an exercise + current body weight, see trends over time | Trends tab — body weight chart (and where you log a weigh-in), working weight table |
 | Store QR codes | Pass tab — check-in code at full brightness, plus guest/punch passes. Scan with the camera **or pull the code out of a screenshot you already have**. QR, Code 128, PDF417 and Aztec. |
-| A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time |
+| A checklist for each day showing what to do | Today tab — the day's plan, one live row at a time. Each row's weight is **what the set screen will suggest** (last time's result, moved up if you hit every rep), not a stored target that can go stale. |
 | Look back at past sessions | Swipe left on Today. Read-only summaries, newest first — see below. |
 | Set / cooldown counter per exercise | The set screen, pushed from a Today row |
 | Schedule | Settings → When you train. Fixed weekday, **rotating on chosen days**, or every N days. |
