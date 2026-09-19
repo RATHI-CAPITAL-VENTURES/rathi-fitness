@@ -504,9 +504,11 @@ enum SnapshotBuilder {
     /// The weight a stand-in's row reads on the phone: what he is lifting on
     /// it today once a working set is logged, before that what the set screen
     /// will suggest from its own history, else its empty bar — `shownWeight`,
-    /// fed the same way `TodayView` feeds it, this exercise's sets only. The prescription alone says "0" for a dumbbell you pressed 60
-    /// on last week, and `gym today` printing 0 beside a phone showing 60 is
-    /// the disagreement this file exists to prevent.
+    /// fed the same way `TodayView` feeds it, this exercise's sets only.
+    ///
+    /// The prescription alone says "0" for a dumbbell you pressed 60 on last
+    /// week, and `gym today` printing 0 beside a phone showing 60 is the
+    /// disagreement this file exists to prevent.
     private static func standInWeight(_ exercise: Exercise, target: Swaps.Prescription,
                                       sets: [SetEntry], today: [SetEntry],
                                       now: Date, cal: Calendar) -> Double {

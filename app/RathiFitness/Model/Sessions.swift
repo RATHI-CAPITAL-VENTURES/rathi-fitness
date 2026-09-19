@@ -58,9 +58,11 @@ enum Sessions {
     ///
     /// Only for the entry that opened the session — which means a session with
     /// one set, still open, and so never yet exported: the de-duplication key
-    /// is not moved out from under an export. And never across midnight: the day a workout belongs to is what
-    /// the rotation and "today" both read, and a bout that straddles it is
-    /// still today's.
+    /// is not moved out from under an export.
+    ///
+    /// And never across midnight: the day a workout belongs to is what the
+    /// rotation and "today" both read, and a bout that straddles it is still
+    /// today's.
     static func backdate(_ session: Session, toCover opening: SetEntry,
                          calendar: Calendar = .current) {
         guard opening.seconds > 0 else { return }
@@ -149,8 +151,12 @@ enum Sessions {
     /// End a workout. Idempotent — finishing a finished session does nothing.
     ///
     /// `endedAt` is the last set logged, not the moment you tapped the button,
-    /// so the span Apple Health receives is the workout rather than however long
-    /// the app stayed open afterwards.
+    /// so `sessions[].ended_at` is when the workout ended rather than however
+    /// long the app stayed open afterwards. It is also what makes a session
+    /// READY to export — but it is not what Apple Health is sent: the lifting
+    /// workout is bounded by the lifting sets' own dates, and each bout by its
+    /// own. (This line used to say Health received this span. It never did;
+    /// see DECISIONS 2026-09-19.)
     static func close(_ session: Session, in context: ModelContext) {
         guard session.isOpen else { return }
         session.endedAt = session.orderedSets.last?.date ?? session.startedAt
