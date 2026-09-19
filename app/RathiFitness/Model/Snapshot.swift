@@ -111,6 +111,13 @@ struct Snapshot: Codable {
             var cardioTarget: CardioTarget?
             /// What the console said, summed over the bouts done today.
             var cardio: CardioDone?
+            /// Set when this slot is a stand-in for today: the name and slug of
+            /// the exercise the PLAN has here. `slug`, `name`, the targets and
+            /// everything done all describe what is actually being done; this
+            /// is the only trace of what was meant to be. Absent on a slot
+            /// doing what the plan says — which is nearly all of them.
+            var insteadOf: String?
+            var insteadOfSlug: String?
         }
 
         struct CardioTarget: Codable {
@@ -274,6 +281,12 @@ struct Snapshot: Codable {
         /// absent: "no cardio" is a fact worth stating on a lifting day.
         var cardioMinutes: Double = 0
         var cardioDistance: Double = 0
+        /// Whole minutes from first log to last — `Tally.gymSeconds`, the same
+        /// figure the phone shows. NOT `ended_at − started_at`: those are
+        /// clock times with no date, so a reader subtracting them gets a
+        /// workout that crossed midnight wrong, and both of them miss the
+        /// treadmill a workout opened with. Zero for a single set.
+        var gymMinutes: Int = 0
     }
 }
 
@@ -415,7 +428,11 @@ enum SnapshotBuilder {
         var items: [Snapshot.Today.Item] = []
         var done = 0
         for item in day.orderedItems {
-            guard let ex = item.exercise else { continue }
+            // What is in the slot today, stand-ins included — the phone's
+            // checklist reads the same call, and the two must agree.
+            guard let ex = Swaps.exercise(for: item, on: now, calendar: cal) else { continue }
+            let target = Swaps.prescription(for: item, doing: ex)
+            let planned = Swaps.isStandIn(ex, in: item) ? item.exercise : nil
             let performed = todaysSets
                 .filter { $0.exercise?.slug == ex.slug }
                 .sorted { $0.setIndex < $1.setIndex }
@@ -425,13 +442,13 @@ enum SnapshotBuilder {
             // A cardio slot is done when its bouts are done. Judging it against
             // `targetSets` alone leaves the treadmill permanently unfinished.
             let isDone = ex.isCardio
-                ? performed.count >= max(1, item.targetSets)
-                : working.count >= item.targetSets
+                ? performed.count >= max(1, target.sets)
+                : working.count >= target.sets
             if isDone { done += 1 }
             items.append(.init(
                 slug: ex.slug, name: ex.name,
-                targetSets: item.targetSets, targetReps: item.targetReps,
-                targetWeight: item.targetWeight, restSeconds: item.restSeconds,
+                targetSets: target.sets, targetReps: target.reps,
+                targetWeight: target.weight, restSeconds: target.restSeconds,
                 setsDone: working.count,
                 warmupSets: performed.count - working.count,
                 done: isDone,
@@ -440,8 +457,10 @@ enum SnapshotBuilder {
                 }),
                 performed: performed.map(performedLine),
                 modality: ex.modality,
-                cardioTarget: ex.isCardio ? cardioTarget(item) : nil,
-                cardio: ex.isCardio ? cardioDone(performed) : nil))
+                cardioTarget: ex.isCardio ? cardioTarget(target) : nil,
+                cardio: ex.isCardio ? cardioDone(performed) : nil,
+                insteadOf: planned?.name,
+                insteadOfSlug: planned?.slug))
         }
         // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
@@ -466,13 +485,21 @@ enum SnapshotBuilder {
               heartRate: e.averageHeartRate > 0 ? e.averageHeartRate : nil)
     }
 
+    /// The plan as written — `plan[]`, which a swap never touches.
     private static func cardioTarget(_ item: PlanItem) -> Snapshot.Today.CardioTarget? {
+        guard let exercise = item.exercise else { return nil }
+        return cardioTarget(Swaps.prescription(for: item, doing: exercise))
+    }
+
+    /// The plan as it applies today — `today.items[]`, where a stand-in keeps
+    /// the twenty minutes and drops the treadmill's miles and grade.
+    private static func cardioTarget(_ plan: Swaps.Prescription) -> Snapshot.Today.CardioTarget? {
         let target = Snapshot.Today.CardioTarget(
-            seconds: item.targetSeconds > 0 ? item.targetSeconds : nil,
-            distance: item.targetDistance > 0 ? round1(item.targetDistance) : nil,
-            speed: item.targetSpeed > 0 ? round1(item.targetSpeed) : nil,
-            incline: item.targetIncline > 0 ? round1(item.targetIncline) : nil,
-            resistance: item.targetResistance > 0 ? round1(item.targetResistance) : nil)
+            seconds: plan.seconds > 0 ? plan.seconds : nil,
+            distance: plan.distance > 0 ? round1(plan.distance) : nil,
+            speed: plan.speed > 0 ? round1(plan.speed) : nil,
+            incline: plan.incline > 0 ? round1(plan.incline) : nil,
+            resistance: plan.resistance > 0 ? round1(plan.resistance) : nil)
         // Nothing prescribed at all is `null`, not an object of five nulls.
         if target.seconds == nil, target.distance == nil, target.speed == nil,
            target.incline == nil, target.resistance == nil { return nil }
@@ -685,7 +712,8 @@ enum SnapshotBuilder {
                     cardioMinutes: round1(Tally.cardioMinutes(entries.map {
                         Tally.Bout(seconds: $0.seconds, distance: $0.distance)
                     })),
-                    cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }))
+                    cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }),
+                    gymMinutes: Tally.gymSeconds(entries.map(\.log)) / 60)
             }
             .sorted {
                 $0.date == $1.date ? $0.ordinal > $1.ordinal : $0.date > $1.date

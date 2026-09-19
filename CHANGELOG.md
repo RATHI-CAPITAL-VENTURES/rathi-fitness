@@ -14,70 +14,45 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.9.1 — 2026-09-16
-
-### Fixed
-
-- **The Today row now shows the weight the set screen will suggest.** It read
-  `targetWeight`, which only moves when a heavier set is logged — so an
-  exercise last done on a build from before that rule shipped sat stale for
-  ever, and even a plan that had moved lagged the set screen by one step: the
-  row said 120, the history under it said 125 × 8, 8, 8, and the set screen
-  said "try 130". Now the row derives its number the way the set screen does
-  (`Tally.shownWeight`): what you are lifting once a working set is logged,
-  otherwise the suggestion, otherwise the plan. `lastSession` moved out of
-  `SetView` into a shared `[SetEntry]` extension so both screens read one
-  definition of "the last day you did this". The stored target still advances
-  on evidence, unchanged — it is the programme; the row is what you are about
-  to do. See `docs/DECISIONS.md` 2026-09-16.
-
-## 0.9.0 — 2026-09-05
+## 0.10.0 — 2026-09-19
 
 ### Added
 
-- **Time away.** Settings › Time away: declare a trip, before you go or after
-  you are back, and any week it touches leaves showing up entirely.
-
-  **Neither counted as done nor counted as missed.** Not marked complete —
-  "you did your four workouts" is a claim about something that did not happen,
-  and a band full of invented full weeks is worth less than one with honest
-  gaps. Just taken out of the reckoning, numerator and denominator both.
-
-  Until now a fortnight abroad read exactly like a fortnight of not bothering,
-  and the percentage carried that for three months.
-
-  **Training on holiday still shows, greyed.** It cannot move a number that has
-  been set aside, and doing it anyway deserves to be visible — a bonus, not a
-  score. Away weeks are drawn grey rather than left empty, because empty reads
-  as "you missed it", which is the one thing declaring a trip exists to stop the
-  band saying.
-
-  **Per week**, because that is the unit the band measures in. Pro-rating a
-  target that counts whole workouts would ask for 2.3 of them, and a
-  half-scored week is harder to explain than one that plainly does not count.
-  The caption says how many weeks were set aside, so the denominator never
-  shrinks for a reason nothing on screen explains.
-
-  This was reserved rather than invented: v0.4.0 rejected "a weekly streak with
-  a declarable week off" and noted the week-off half as the next thing to try,
-  costing a model, a snapshot field and a CLI read. That is exactly what it
-  cost.
-
-### Changed
-
-- **Snapshot schema 5 → 6.** `time_away[]` carries the declared trips, so the
-  Mac can subtract them too — anything reading `sessions[]` to judge consistency
-  draws the wrong conclusion without them.
+- **Do something else, today only.** Hold an exercise on Today → *Do something
+  else today*. The treadmills are taken, so you ride the bike: the row becomes
+  the bike "for Treadmill", riding it ticks the slot off, and tomorrow the plan
+  says treadmill again with nothing to undo. Until now the only door was the
+  plan editor, which changes every week from now on. A swap is a dated `Swap`
+  row rather than a field on the slot, so nothing has to run to clear it. The
+  stand-in inherits sets, reps, rest and minutes and **none of the load** —
+  weight, miles, speed and grade were facts about the other machine — and a
+  heavy day on a stand-in no longer writes itself into the plan's target
+  weight. The picker shelves what you usually do instead first, then anything
+  that does the same job, and reaches into the catalogue. Shown on the set
+  screen ("Today, instead of Treadmill") and in `gym today` ("· for
+  Treadmill"); `plan[]` in the snapshot is untouched. See `docs/DECISIONS.md`
+  2026-09-19.
+- **Time in the gym.** First log to last — on every past workout, as a lifetime
+  tile on Trends, as `sessions[].gym_minutes` in the snapshot, and per workout
+  and all told in `gym sessions`. A workout that *opens* with cardio counts the
+  bout's own length: a treadmill is logged when you step off, so the raw span
+  read twenty minutes short on every such day and zero on a cardio-only one.
+- **A 25 lb bar**, and *A different bar* to type the weight of a hex, EZ-curl
+  or Smith bar. The bars moved out of an inline list into `PlateMath.bars`.
 
 ### Fixed
 
-- **A CLI test asserted the schema number as a literal**, so every bump broke it
-  and the fix was to retype the number — a test that could only ever agree with
-  whoever edited it last. It reads `Snapshot.currentSchema` out of the Swift
-  now, so bumping one side without the other actually fails.
+- **Today's elapsed time agrees with everything else.** It was a private
+  computation beside the row; it now reads `Tally.gymSeconds` like the three
+  new places do, so it also counts an opening cardio bout, and past the hour it
+  reads "1 h 12" rather than "72 min".
+- **A bar weight that was not on the menu showed as "—".** That reads as "no
+  bar" while the plate math went on subtracting it. The menu now always
+  includes the bar actually set.
 
 ## Earlier
 
+- [0.9](./docs/changelog/0.9.md)
 - [0.8](./docs/changelog/0.8.md)
 - [0.7](./docs/changelog/0.7.md)
 - [0.6](./docs/changelog/0.6.md)

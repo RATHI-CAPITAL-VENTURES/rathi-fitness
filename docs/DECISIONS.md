@@ -1554,3 +1554,96 @@ relabels nothing.
 Why the stored target stays and still advances: it is the fallback with no
 history, the number the plan editor edits, and what the snapshot exports as
 `working_weight`. It is the programme. The row is what you are about to do.
+
+## 2026-09-19 — A swap is a dated row, not an edit to the plan
+
+**Chosen: `Swap` — one row per plan slot per calendar day naming what is being
+done instead. Rejected: a `standIn` field on `PlanItem`; a list of alternates
+per slot; editing the plan and changing it back.**
+
+The treadmills are all taken, so you get on a bike. The only door the app had
+was the plan editor, which says "bike" for every week from now on and has to be
+undone by hand next Tuesday — which is to say it never is.
+
+- **A field on the slot needs something to clear it** — at midnight, on the
+  next launch, when the session closes. Every one of those is a rule that fails
+  silently the day it does not run, and the failure is the bike staying in the
+  plan for good: the exact thing being avoided. A dated row needs no clearing.
+  Tomorrow it simply does not match (`SwapTests.testTomorrowIsThePlanAgain…`).
+- **Day-scoped, not session-scoped**, because the swap is made *before* the
+  first set and a `Session` does not exist until one is logged.
+- **A list of alternates per slot was the other obvious shape** and is more
+  work for less: you would have to curate it in the plan editor before the day
+  you need it. The old rows give the same result for free — the picker's first
+  shelf is "what you usually do instead", most often first, so the second time
+  the treadmills are taken the bike is one tap.
+
+**The stand-in inherits the shape of the work and none of the load**
+(`Swaps.Prescription`). Sets, reps, rest and minutes carry over; weight, miles,
+speed, grade and resistance do not. 185 lb is a fact about the bench, and two
+miles at 3% is a fact about the treadmill — a bike covers that in a third of
+the time and has no grade. The stand-in opens on its own history instead, or on
+its empty bar if it has none. And the log path's write-back to
+`PlanItem.targetWeight` (2026-09-02, "The plan follows the barbell") is skipped
+for a stand-in: a heavy day on the dumbbells must not become next week's
+barbell target.
+
+**Everything that draws or counts a slot reads `Swaps.exercise(for:)`, never
+`item.exercise`** — Today's rows, its done-state, and `today.items[]` in the
+snapshot. The checklist matches sets to slots by exercise, which is also why an
+exercise already in today's workout cannot stand in: the same lift in two slots
+would tick both off with one set.
+
+Not done, on purpose: swapping from inside the set screen. `SetView` takes its
+exercise as a `let` and primes its weight once; changing the exercise under a
+pushed screen means re-priming state that was designed not to re-prime, and may
+mean replacing `SetView` with `CardioSetView` mid-navigation. The swap lives on
+Today, one long-press before the screen it would have disturbed, with a one-time
+hint because a long-press is invisible until someone says it is there.
+
+## 2026-09-19 — Time in the gym is first log to last, plus the bout you opened with
+
+**Chosen: `Tally.gymSeconds` — the span of a workout's logs, with the first
+log pulled back by its own length when it is a cardio bout. Rejected:
+`endedAt − startedAt`; a start/stop button; the raw span.**
+
+- **Not the stored pair.** `Session.endedAt` is nil while a workout is running,
+  is whatever the backfill guessed for history, and goes stale when an undo
+  removes the last set. The logs are the record; the span is read from them.
+- **Not a button.** A timer you have to remember to start is a number that is
+  wrong on exactly the days you were too busy training to press it. The app's
+  own cardio screen already refused to be a stopwatch for the same reason.
+- **Not the raw span, because of when cardio is logged.** A lift is logged
+  seconds after it happens. A treadmill is logged when you step *off*. On a day
+  that opens with twenty minutes of cardio the first log is twenty minutes into
+  the visit, so the raw span reads twenty minutes short — every time, for ever,
+  and on a cardio-only day it reads zero. The entry carries its own length, so
+  the start is pulled back by it. Only the FIRST log: a finisher is already
+  inside the span and adding it would count those minutes twice.
+
+One definition, four readers — Today's "47 min", the past-workout page, the
+lifetime tile on Trends, `sessions[].gym_minutes` — because the figure this
+replaces on Today was a private computation that had already been wrong once
+(it measured to *now*, so a workout finished at 08:49 read "438 min in" by
+mid-afternoon). The lifetime figure is summed per workout; the span of every
+log at once would count the nights in between.
+
+What it still leaves out, knowingly: the walk from the door to the first set,
+and the shower. Nothing on the phone records either.
+
+## 2026-09-19 — The bars are a registry, and the ones with no standard weight are typed
+
+**Chosen: `PlateMath.bars` (45, 35, 25, 15, none) drives the picker; any other
+weight is typed in. Rejected: adding a 25 to the inline list; adding rows for
+hex, EZ-curl, safety-squat and Smith bars.**
+
+The ask was a 25 lb bar, and the list it was missing from was four tuples
+written inline in `ExerciseEditorView`. Plate math was always generic over the
+bar — the picker was the only thing that could not say 25.
+
+A hex bar is anything from 45 to 70 lb, an EZ-curl 15 to 25, a counterbalanced
+Smith bar as little as 15. A menu row for any of them would be a guess wearing
+a label, and the plate math would subtract the guess. So those are typed
+("A different bar"), and `barOptions(including:)` keeps a typed weight on the
+menu — a menu that cannot find its own current value shows "—", which reads as
+"no bar" while 55 lb is quietly being subtracted underneath.

@@ -275,6 +275,16 @@ def emit(args, payload, text: str) -> None:
 
 # ------------------------------------------------------------------- commands
 
+def stand_in(item) -> str:
+    """' · for Treadmill' on a slot swapped for the day, else nothing.
+
+    `name` is what is actually being done; `instead_of` is what the plan has
+    there. Without the tail, a bike in the treadmill's slot reads as though the
+    plan had been edited.
+    """
+    return f" · for {item['instead_of']}" if item.get("instead_of") else ""
+
+
 def cmd_today(args, data) -> None:
     today = data.get("today")
     body = data.get("body_weight", {})
@@ -295,7 +305,7 @@ def cmd_today(args, data) -> None:
             tail = did or cardio_target_line(item.get("cardio_target") or {})
             target = item.get("cardio_target") or {}
             planned = clock(target.get("seconds")) if target.get("seconds") else "—"
-            lines.append(f"  {mark} {item['name']:<22} {planned:>8}   {tail}")
+            lines.append(f"  {mark} {item['name']:<22} {planned:>8}   {tail}{stand_in(item)}")
             continue
         working = [p for p in item["performed"] if p.get("kind", "working") != "warmup"]
         if item["done"]:
@@ -313,7 +323,8 @@ def cmd_today(args, data) -> None:
             tail = f"set {item['sets_done']} of {item['target_sets']}"
         else:
             mark, tail = "·", f"{item['target_sets']} × {item['target_reps']}"
-        lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb   {tail}")
+        lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb   "
+                     f"{tail}{stand_in(item)}")
     moved = today.get("volume") or 0
     minutes = sum((i.get("cardio") or {}).get("seconds", 0) for i in today["items"])
     if moved or minutes:
@@ -503,9 +514,19 @@ def cmd_sessions(args, data) -> None:
         body = f"{s['exercises']} exercises · {s['sets']} sets · {tonnage(s['volume'])} moved"
         if s.get("cardio_minutes"):
             body += f" · {clock(s['cardio_minutes'] * 60)} cardio"
+        # First log to last, as the phone measures it. Absent from snapshots
+        # written before 0.10.0, and zero for a one-set workout — say nothing
+        # in both cases rather than "0 min".
+        if s.get("gym_minutes"):
+            body += f" · {clock(s['gym_minutes'] * 60)} in the gym"
         lines.append(f"{head} {body}")
         if s.get("top_lifts"):
             lines.append(f"           {' · '.join(s['top_lifts'])}")
+    # Over EVERY session, not the rows shown: `--limit` is how many to list,
+    # and a lifetime figure that shrinks when you ask for fewer rows is not one.
+    total = sum(s.get("gym_minutes") or 0 for s in data.get("sessions", []))
+    if total:
+        lines += ["", f"  {clock(total * 60)} in the gym, all told"]
     emit(args, rows, "Recent sessions\n" + ("\n".join(lines) or "  none yet"))
 
 

@@ -60,6 +60,9 @@ struct PastDayView: View {
         return Tally.volume(entries.map { $0.tally(bodyWeight: log.pounds(on: $0.date)) })
     }
     private var cardioSeconds: Int { entries.reduce(0) { $0 + $1.seconds } }
+    /// First log to last — see `Tally.gymSeconds`. Under a minute is a single
+    /// set, which has no length worth a figure.
+    private var gymSeconds: Int { Tally.gymSeconds(entries.map(\.log)) }
     private var workingSets: Int { entries.filter { $0.setKind.counts && !$0.isCardio }.count }
 
     private var weighIn: WeighIn? {
@@ -118,6 +121,7 @@ struct PastDayView: View {
     /// is history, and history should not glow like the live screen does.
     private var summary: some View {
         HStack(alignment: .firstTextBaseline, spacing: RFDesign.lg) {
+            if gymSeconds >= 60 { figure(Tally.gymTimeText(gymSeconds), "in the gym") }
             if volume > 0 { figure(Tally.volumeText(volume), "moved") }
             if cardioSeconds > 0 { figure(Fmt.minutes(cardioSeconds), "cardio") }
             if workingSets > 0 {

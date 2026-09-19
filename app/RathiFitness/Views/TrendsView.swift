@@ -169,7 +169,12 @@ struct TrendsView: View {
             workouts: sessions.count,
             volume: Tally.volume(tallies),
             reps: Tally.workingSets(tallies).reduce(0) { $0 + $1.reps },
-            records: Tally.recordBook(recordInput, limit: .max).count)
+            records: Tally.recordBook(recordInput, limit: .max).count,
+            // Per workout, then summed. Sets with no session (nothing should
+            // have none after the backfill) are left out rather than guessed
+            // into one.
+            gymSeconds: Tally.gymSeconds(
+                workouts: sessions.map { $0.orderedSets.map(\.log) }))
     }
 
     private var recordInput: [(date: Date, exercise: String, set: Tally.Set)] {
@@ -248,6 +253,9 @@ struct TrendsView: View {
             tile(Fmt.count(life.workouts), "workouts")
             tile(Fmt.count(life.reps), "reps")
             tile(Fmt.count(life.records), life.records == 1 ? "record" : "records")
+            if life.gymSeconds >= 60 {
+                tile(Tally.gymTimeText(life.gymSeconds), "in the gym")
+            }
         }
         .padding(.top, RFDesign.xs)
     }

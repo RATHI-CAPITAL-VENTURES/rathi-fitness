@@ -614,7 +614,17 @@ struct ExercisePickerView: View {
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
 
     @State private var search = ""
+    /// Set when this is choosing a stand-in for one slot, today — see `Swaps`.
+    /// The same picker rather than a second one, because "find an exercise, or
+    /// pull one from the catalogue, or make one" is the same job either way and
+    /// a copy would be a second place to forget the catalogue.
+    var standingInFor: PlanItem?
     var onPick: (Exercise) -> Void
+
+    init(standingInFor: PlanItem? = nil, onPick: @escaping (Exercise) -> Void) {
+        self.standingInFor = standingInFor
+        self.onPick = onPick
+    }
 
     private func row(_ name: String, _ loading: String, _ muscle: MuscleGroup) -> some View {
         HStack {
@@ -636,7 +646,34 @@ struct ExercisePickerView: View {
     /// and a lift picked here arrives knowing what it works and what bar it uses.
     private var catalogueMatches: [Catalogue.Entry] {
         let have = Set(exercises.map(\.slug))
-        return Catalogue.search(search).filter { !have.contains(Exercise.slugify($0.name)) }
+        let found = Catalogue.search(search).filter { !have.contains(Exercise.slugify($0.name)) }
+        // Swapping a treadmill: the bikes and the rower come before ninety
+        // lifts. Stable, so the catalogue's own order survives within each half.
+        guard let planned = standingInFor?.exercise else { return found }
+        let fits: (Catalogue.Entry) -> Bool = {
+            Swaps.alike(modality: $0.modality, primary: $0.primary, to: planned)
+        }
+        return found.filter(fits) + found.filter { !fits($0) }
+    }
+
+    /// The library, shelved for a swap. `nil` when this is the plain picker.
+    private var shelves: Swaps.Candidates? {
+        standingInFor.map { Swaps.candidates(for: $0, among: matches) }
+    }
+
+    @ViewBuilder private func shelf(_ title: String, _ items: [Exercise]) -> some View {
+        if !items.isEmpty {
+            Section(title) {
+                ForEach(items) { exercise in
+                    Button {
+                        onPick(exercise)
+                        dismiss()
+                    } label: {
+                        row(exercise.name, exercise.loadingKind.rawValue, exercise.primary)
+                    }
+                }
+            }
+        }
     }
 
     private var canCreate: Bool {
@@ -667,21 +704,17 @@ struct ExercisePickerView: View {
                     } footer: {
                         Text("Anything already in the catalogue arrives knowing what it "
                              + "works and what bar it uses. Something invented here starts "
-                             + "as a barbell lift — change it on the next screen.")
+                             + "as a barbell lift — change it "
+                             + (standingInFor == nil ? "on the next screen."
+                                                     : "under Edit the plan."))
                     }
                 }
-                if !matches.isEmpty {
-                    Section("In your log") {
-                        ForEach(matches) { exercise in
-                            Button {
-                                onPick(exercise)
-                                dismiss()
-                            } label: {
-                                row(exercise.name, exercise.loadingKind.rawValue,
-                                    exercise.primary)
-                            }
-                        }
-                    }
+                if let shelves {
+                    shelf("What you usually do instead", shelves.usual)
+                    shelf("Does the same job", shelves.alike)
+                    shelf("Anything else in your log", shelves.others)
+                } else {
+                    shelf("In your log", matches)
                 }
                 if !catalogueMatches.isEmpty {
                     Section("Catalogue") {
@@ -702,7 +735,8 @@ struct ExercisePickerView: View {
             .scrollContentBackground(.hidden)
             .background(RFDesign.ground.ignoresSafeArea())
             .searchable(text: $search, prompt: "Search or name a new one")
-            .navigationTitle("Add an exercise")
+            .navigationTitle(standingInFor?.exercise.map { "Instead of \($0.name)" }
+                             ?? "Add an exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -717,6 +751,8 @@ struct ExerciseEditorView: View {
 
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
+
+    @State private var typingBar = false
 
     private func metricBinding(_ metric: CardioMetric) -> Binding<Bool> {
         Binding(
@@ -805,11 +841,16 @@ struct ExerciseEditorView: View {
                     }
                     if exercise.loadingKind.showsPlateMath {
                         ChoiceRow(label: "Bar", value: exercise.barWeight,
-                                  options: [(45.0, "45 lb — standard"),
-                                            (35.0, "35 lb — women's"),
-                                            (15.0, "15 lb — technique"),
-                                            (0.0, "None")],
-                                  showsDivider: false) { exercise.barWeight = $0 }
+                                  options: PlateMath.barOptions(including: exercise.barWeight)
+                                      .map { ($0.pounds, $0.label) }) {
+                            exercise.barWeight = $0
+                        }
+                        // Hex, EZ-curl, safety-squat, Smith: no standard weight,
+                        // so no honest menu row — see `PlateMath.bars`.
+                        ActionRow(label: "A different bar",
+                                  detail: "Type what it weighs",
+                                  symbol: "square.and.pencil",
+                                  showsDivider: false) { typingBar = true }
                     }
                 }
             }
@@ -836,6 +877,11 @@ struct ExerciseEditorView: View {
                         secondaryBinding(muscle).wrappedValue.toggle()
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $typingBar) {
+            WeightSheet(weight: exercise.barWeight, unitLabel: "lb") {
+                exercise.barWeight = max(0, $0)
             }
         }
         .onAppear {

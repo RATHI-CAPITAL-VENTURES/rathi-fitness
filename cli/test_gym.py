@@ -522,6 +522,33 @@ class Cardio(unittest.TestCase):
             _, out = run("sessions")
         self.assertIn("25 min cardio", out)
 
+    def test_sessions_say_how_long_you_were_there(self):
+        data = json.loads(json.dumps(FIXTURE))
+        for s, minutes in zip(data["sessions"], (62, 48)):
+            s["gym_minutes"] = minutes
+        with fixture(data):
+            _, out = run("sessions")
+        self.assertIn("1 h 2 min in the gym", out)
+        self.assertIn("48 min in the gym", out)
+
+    def test_the_total_covers_every_session_not_just_the_rows_listed(self):
+        # `--limit` is how many to LIST. A lifetime figure that shrinks when
+        # you ask for fewer rows is not a lifetime figure.
+        data = json.loads(json.dumps(FIXTURE))
+        for s in data["sessions"]:
+            s["gym_minutes"] = 45
+        total = gym.clock(45 * 60 * len(data["sessions"]))
+        with fixture(data):
+            _, out = run("sessions", "--limit", "1")
+        self.assertIn(f"{total} in the gym, all told", out)
+
+    def test_an_older_snapshot_has_no_gym_time_and_says_nothing(self):
+        # `gym_minutes` is an addition, not a schema bump, so a snapshot from
+        # before it must not print "0 min in the gym" against every workout.
+        with fixture():
+            _, out = run("sessions")
+        self.assertNotIn("in the gym", out)
+
     def test_clock_reads_like_a_person(self):
         self.assertEqual(gym.clock(1320), "22 min")
         self.assertEqual(gym.clock(5400), "1 h 30 min")
@@ -537,6 +564,39 @@ class Cardio(unittest.TestCase):
         # distance clause was emitted at all.
         self.assertNotIn("mi\u0020", line + " ")
         self.assertEqual(line.count("·"), 0)
+
+
+class StandIns(unittest.TestCase):
+    """A slot swapped for the day: the bike, in the treadmill's place."""
+
+    def swapped(self):
+        data = json.loads(json.dumps(FIXTURE))
+        slot = next(i for i in data["today"]["items"] if i["slug"] == "treadmill")
+        slot.update(slug="stationary-bike", name="Stationary Bike",
+                    instead_of="Treadmill", instead_of_slug="treadmill",
+                    cardio_target={"seconds": 1200})
+        return data
+
+    def test_today_names_what_is_being_done_and_whose_place_it_is_in(self):
+        with fixture(self.swapped()):
+            _, out = run("today")
+        line = next(l for l in out.splitlines() if "Stationary Bike" in l)
+        self.assertIn("for Treadmill", line)
+
+    def test_a_slot_doing_what_the_plan_says_carries_no_tail(self):
+        with fixture():
+            _, out = run("today")
+        self.assertNotIn(" · for ", out)
+
+    def test_a_swapped_lift_is_marked_too(self):
+        data = json.loads(json.dumps(FIXTURE))
+        slot = next(i for i in data["today"]["items"] if i["slug"] == "lateral-raise")
+        slot.update(slug="cable-lateral-raise", name="Cable Lateral Raise",
+                    instead_of="Lateral Raise", instead_of_slug="lateral-raise")
+        with fixture(data):
+            _, out = run("today")
+        line = next(l for l in out.splitlines() if "Cable Lateral Raise" in l)
+        self.assertIn("for Lateral Raise", line)
 
 
 class Machines(unittest.TestCase):

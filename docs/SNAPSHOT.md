@@ -30,6 +30,11 @@ CLI can exist at all.
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
   know rather than misreading a field that changed meaning. Bump it whenever a
   field changes meaning; adding a field does not need a bump.
+- **Additions since schema 6, no bump** (a reader that ignores them is not
+  misled, which is the test): `today.items[].instead_of` /
+  `instead_of_slug`, and `sessions[].gym_minutes`. See "Stand-ins" and
+  "Time in the gym" below. Both are absent from a snapshot written before
+  v0.10.0, and `gym` says nothing rather than printing a zero.
 - **Keys are snake_case.** Note `change_30d`: Swift's `convertToSnakeCase`
   splits on capitals and *not* on digits, so this one needs explicit
   `CodingKeys` or it silently ships as `change30d` and every reader sees null.
@@ -81,7 +86,7 @@ the build if that stops being true.
 | `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |
 | `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
-| `sessions[]` | one row per training day: counts, volume, top lifts, `cardio_minutes`, `cardio_distance` |
+| `sessions[]` | one row per workout: counts, volume, top lifts, `cardio_minutes`, `cardio_distance`, `gym_minutes` |
 
 ### Cardio
 
@@ -100,6 +105,36 @@ different fields:
 
 `top_lifts` on a session **excludes cardio**: "Treadmill 0" is what happens
 when it does not.
+
+### Stand-ins
+
+    today.items[].instead_of        "Treadmill"   — absent on almost every slot
+    today.items[].instead_of_slug   "treadmill"
+
+A slot can be swapped **for one day** — the treadmills were taken, so he rode
+the bike. When that has happened, everything else on the item describes what is
+*actually being done*: `slug` and `name` are the bike's, `done` and `cardio`
+count the bike's bouts, and the targets are the slot's as they apply to a
+stand-in — sets, reps, rest and `cardio_target.seconds` carry over, while
+`target_weight` and the rest of `cardio_target` do not, because they were facts
+about the other machine. `instead_of` is the only trace of what the plan has
+there.
+
+`plan[]` is **never** affected. It is the programme; a swap is not an edit to
+it, and tomorrow `today.items[]` is back to matching it with nothing undone.
+
+### Time in the gym
+
+    sessions[].gym_minutes   whole minutes, first log to last
+
+Use this rather than subtracting `started_at` from `ended_at`. Those are
+`HH:mm` with no date, so a workout across midnight subtracts wrong, and both
+are taken from *log* times — a treadmill is logged when you step off, so a
+workout that opens with twenty minutes of cardio has a `started_at` twenty
+minutes late. `gym_minutes` pulls the start back by the opening bout's own
+length; it is the same figure the phone shows. `0` means a single set, which
+has no length. `gym sessions` totals it across **every** session, not just the
+rows `--limit` lists.
 
 ### Assisted machines
 

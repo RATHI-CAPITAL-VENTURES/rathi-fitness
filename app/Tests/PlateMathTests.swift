@@ -56,6 +56,42 @@ final class PlateMathTests: XCTestCase {
         }
     }
 
+    // MARK: bars
+
+    func testTheShortBarIsOnTheRack() {
+        XCTAssertTrue(PlateMath.bars.contains { $0.pounds == 25 })
+    }
+
+    /// 25 + two 10s. The arithmetic was always generic; the picker was the
+    /// thing that could not say 25.
+    func testPlateMathOnTheShortBar() {
+        let l = PlateMath.loadout(target: 45, bar: 25)
+        XCTAssertEqual(l.perSide, [10])
+        XCTAssertTrue(l.isExact)
+    }
+
+    func testTheStepperWalksTheShortBarsGrid() {
+        XCTAssertEqual(PlateMath.step(from: 25, by: 5, bar: 25), 30)
+        XCTAssertEqual(PlateMath.step(from: 25, by: -5, bar: 25), 25)
+    }
+
+    func testBarsAreDistinctAndHeaviestFirst() {
+        let pounds = PlateMath.bars.map(\.pounds)
+        XCTAssertEqual(pounds, pounds.sorted(by: >))
+        XCTAssertEqual(Set(pounds).count, pounds.count)
+    }
+
+    /// A typed-in hex bar is not in the registry, and a menu that cannot find
+    /// its own value shows "—" — "no bar" — while the plate math goes on
+    /// subtracting 55.
+    func testABarYouTypedInIsStillOnTheMenu() {
+        let options = PlateMath.barOptions(including: 55)
+        XCTAssertTrue(options.contains { $0.pounds == 55 })
+        XCTAssertEqual(options.map(\.pounds), options.map(\.pounds).sorted(by: >))
+        XCTAssertEqual(PlateMath.barOptions(including: 25), PlateMath.bars,
+                       "a bar already on the rack is not listed twice")
+    }
+
     func testStepperClampsAtTheBar() {
         XCTAssertEqual(PlateMath.step(from: 45, by: -5, bar: 45), 45)
     }

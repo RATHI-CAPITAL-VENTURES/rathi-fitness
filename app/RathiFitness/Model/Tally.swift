@@ -821,6 +821,61 @@ enum Tally {
         let volume: Double
         let reps: Int
         let records: Int
+        /// Seconds between first and last log, summed per workout. Defaulted so
+        /// a caller that only wants the tonnage does not have to invent one.
+        var gymSeconds: Int = 0
+    }
+
+    // MARK: - Time in the gym
+
+    /// One thing you logged, as far as the clock is concerned.
+    struct Log: Equatable {
+        let date: Date
+        /// How long the thing being logged took, when the log says — a cardio
+        /// bout. Zero on a lift.
+        var seconds: Int = 0
+    }
+
+    /// How long a workout ran: **first log to last log.**
+    ///
+    /// Measured from what you logged rather than from `Session.startedAt` and
+    /// `endedAt`, so it is right for a workout still in progress, for one
+    /// backfilled from before sessions existed, and after an undo moves either
+    /// end — three cases where the stored pair is absent or stale.
+    ///
+    /// **With one correction: a bout that opens the workout counts.** A lift
+    /// is logged seconds after it happens, but a treadmill is logged when you
+    /// step OFF — so on a day that starts with twenty minutes of cardio, the
+    /// first log is twenty minutes into the visit, and every such workout
+    /// would read twenty minutes short, for ever. The entry carries its own
+    /// length, so the start is pulled back by it. Only for the FIRST log:
+    /// anything later is already inside the span.
+    ///
+    /// Zero for a single lift, which is an instant, not a duration.
+    static func gymSeconds(_ logs: [Log]) -> Int {
+        guard let first = logs.min(by: { $0.date < $1.date }),
+              let last = logs.max(by: { $0.date < $1.date }) else { return 0 }
+        let start = first.date.addingTimeInterval(-Double(max(0, first.seconds)))
+        return max(0, Int(last.date.timeIntervalSince(start)))
+    }
+
+    /// Every workout's span, added up. Per workout and THEN summed — the span
+    /// of all logs at once would count the nights in between.
+    static func gymSeconds(workouts: [[Log]]) -> Int {
+        workouts.reduce(0) { $0 + gymSeconds($1) }
+    }
+
+    /// "47 min", "1 h 12", "312 h" — the unit follows the size, because
+    /// "18,720 min" is not a number anyone has a feeling about.
+    static func gymTimeText(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        if hours < 100 {
+            let rest = minutes % 60
+            return rest == 0 ? "\(hours) h" : "\(hours) h \(String(format: "%02d", rest))"
+        }
+        return "\(Fmt.count(hours)) h"
     }
 
     // MARK: - The record book
@@ -1123,6 +1178,9 @@ extension SetEntry {
                   assisted: exercise?.assisted ?? false,
                   bodyWeight: bodyWeight)
     }
+
+    /// This entry as the gym clock sees it — see `Tally.gymSeconds`.
+    var log: Tally.Log { Tally.Log(date: date, seconds: seconds) }
 }
 
 extension Array where Element == SetEntry {
