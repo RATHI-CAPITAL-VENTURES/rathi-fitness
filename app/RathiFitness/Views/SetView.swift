@@ -61,8 +61,21 @@ struct SetView: View {
     }
     /// Sequential, so a warm-up is set 1 and the numbering matches what you did.
     private var nextSet: Int { todays.count + 1 }
-    /// Progress toward the target counts working sets only.
-    private var workingToday: [SetEntry] { todays.filter { $0.setKind.counts } }
+    /// Progress toward the target counts working sets only — and counts the
+    /// SLOT's, not just this exercise's. Two sets on the bench before it was
+    /// taken are two of the four this screen is asking for; without them this
+    /// said "Set 1 of 4" while Today said "2 of 4 done". `todays` stays
+    /// per-exercise, because set numbering, undo and the opening weight are
+    /// about this lift. See `Swaps.slugsCounting`.
+    private var workingToday: [SetEntry] {
+        guard let session = currentSession else { return [] }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return allSets.filter {
+            $0.session?.persistentModelID == session.persistentModelID
+                && slugs.contains($0.exercise?.slug ?? "")
+                && $0.setKind.counts
+        }
+    }
     private var nextWorkingSet: Int { workingToday.count + 1 }
     private var isFinished: Bool { workingToday.count >= plan.sets }
     private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }

@@ -42,6 +42,16 @@ first log to last, and a 25 lb bar.
   the action's first line hides it. This retro's first draft had already
   written the UI test off as `blocked` on a guess about long-presses racing the
   navigation push; the guess was wrong, and it took one attempt to find out.
+- **The crossover corners of `Prescription` were wrong in both directions and
+  the tests said otherwise.** Independent review found that a lift standing in
+  for a treadmill inherited 1 × 0 with no rest, and a rower standing in for a
+  squat was prescribed nothing. The one crossover test asserted `.sets == 1`
+  and nothing else, so it passed throughout. A test that names a behaviour and
+  checks a third of it reads as coverage.
+- **"What is in the slot now" is not "what was done in the slot".** The first
+  version keyed the checklist on the current exercise, so a swap after two sets
+  sent the row from "2 of 4" to "0 of 4". It was even written down as intended
+  in a comment — which is how an undesigned case gets to look designed.
 - **First log to last log undercounts on exactly his workouts.** A treadmill is
   logged when you step off. The ask was literal; the literal version reads
   twenty minutes short on every day that opens with cardio and zero on a
@@ -61,6 +71,12 @@ first log to last, and a 25 lb bar.
 | `gym` could not tell a swapped slot from an edited plan | observability | `instead_of` in the snapshot, "· for Treadmill" in `gym today` | landed here |
 | The swap is a long-press, which nobody can discover | UX | one-time hint under the rows, gone once used | landed here |
 | Swapping from inside the set screen | feature | none | blocked: `SetView` holds its exercise as a `let` and primes its weight once by design; changing it under a pushed screen (possibly to `CardioSetView`) means re-priming state built not to re-prime. Reasoned in DECISIONS 2026-09-19. |
+| A lift in a cardio slot got 0 reps, no rest, and ticked done after one set; cardio in a lift slot got no minutes (review) | correctness | both crossovers open on `PlanDefaults`; four `SwapTests` cases | landed here |
+| Sets logged before a swap, or on a stand-in later swapped away from, vanished from the checklist (review) | correctness | `Swaps.slugsCounting`; kept rows + latest-wins; Today, both set screens and the snapshot count the slot | landed here |
+| `gym today` printed 0 lb for a stand-in the phone showed at 60 (review) | consistency | snapshot emits the weight the row shows | landed here |
+| `gym sessions` total drifted hours below the phone's, from minutes truncated per workout (review) | consistency | `gym_seconds`, summed then formatted | landed here |
+| Docs called the snapshot change additive when `today.items[]` had changed meaning (review) | docs | schema 7, history row, "Stand-ins" rewritten | landed here |
+| Apple Health got the uncorrected span for a workout that opens with cardio (review) — and this table first called it blocked on a migration risk that only applies to rewriting history | consistency | `Sessions.backdate`, forwards only, never across midnight; four `SessionTests` cases | landed here |
 | The swap flow had no UI test, and the first draft of this retro called that blocked without trying | testing | `SwapUITests`: menu → picker → catalogue → stand-in row → set screen → back | landed here |
 
 ## Follow-ups landed in this milestone

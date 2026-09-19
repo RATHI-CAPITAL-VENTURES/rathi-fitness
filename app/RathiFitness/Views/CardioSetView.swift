@@ -57,7 +57,18 @@ struct CardioSetView: View {
     }
     /// Cardio is usually one bout; intervals are the reason `targetSets` still
     /// means something here.
-    private var isFinished: Bool { todays.count >= max(1, plan.sets) }
+    private var isFinished: Bool { slotBouts >= max(1, plan.sets) }
+    /// Bouts done in this SLOT — this machine's and any other that stood in
+    /// the slot today. `todays` stays per-machine: numbering, undo and records
+    /// are about this one. See `Swaps.slugsCounting`.
+    private var slotBouts: Int {
+        guard let session = currentSession else { return 0 }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return allSets.filter {
+            $0.session?.persistentModelID == session.persistentModelID
+                && slugs.contains($0.exercise?.slug ?? "")
+        }.count
+    }
     private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }
 
     /// The machine's own numbers, minus the clock, which is the hero.
@@ -114,7 +125,7 @@ struct CardioSetView: View {
                 Text("Today, instead of \(planned.name)").rfEyebrow()
             }
             if plan.sets > 1 {
-                SetPips(total: plan.sets, done: todays.count)
+                SetPips(total: plan.sets, done: slotBouts)
             } else {
                 Text(planLine).rfEyebrow()
             }
@@ -306,7 +317,7 @@ struct CardioSetView: View {
     }
 
     private var logTitle: String {
-        plan.sets > 1 ? "Log interval \(todays.count + 1)" : "Log it"
+        plan.sets > 1 ? "Log interval \(slotBouts + 1)" : "Log it"
     }
 
     /// Nothing on the clock and nothing on the odometer is not a workout — and
@@ -427,8 +438,12 @@ struct CardioSetView: View {
             incline: values[.incline] ?? 0,
             resistance: values[.resistance] ?? 0,
             averageHeartRate: Int(values[.heartRate] ?? 0))
-        entry.session = Sessions.current(for: item.day, in: context)
+        let session = Sessions.current(for: item.day, in: context)
+        entry.session = session
         context.insert(entry)
+        // If this bout is what opened the workout, the workout began when the
+        // bout did — which is what Apple Health is sent.
+        if let session { Sessions.backdate(session, toCover: entry) }
         note = ""
         context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
@@ -436,7 +451,7 @@ struct CardioSetView: View {
         // Intervals rest; a single twenty-minute bout does not. Starting a
         // cooldown after the only thing you came to do would be the app asking
         // you to stand next to a treadmill for ninety seconds.
-        if plan.sets > 1 && plan.restSeconds > 0 && todays.count < plan.sets {
+        if plan.sets > 1 && plan.restSeconds > 0 && slotBouts < plan.sets {
             rest.start(seconds: plan.restSeconds, exercise: exercise.name)
         } else if isFinished {
             dismiss()

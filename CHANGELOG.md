@@ -28,24 +28,39 @@ A **MINOR bump is a milestone** and must ship a retro under
   weight, miles, speed and grade were facts about the other machine — and a
   heavy day on a stand-in no longer writes itself into the plan's target
   weight. The picker shelves what you usually do instead first, then anything
-  that does the same job, and reaches into the catalogue. Shown on the set
-  screen ("Today, instead of Treadmill") and in `gym today` ("· for
-  Treadmill"); `plan[]` in the snapshot is untouched. See `docs/DECISIONS.md`
+  that does the same job, and reaches into the catalogue. A slot is done
+  when its work is done: sets logged before a swap, or on a stand-in you later
+  swapped away from, still count toward it. Across the lifting/cardio line the
+  stand-in opens on your plan defaults, since the slot has no shape to lend.
+  Shown on the set screen ("Today, instead of Treadmill") and in `gym today`
+  ("· for Treadmill"); `plan[]` in the snapshot is untouched. See `docs/DECISIONS.md`
   2026-09-19.
 - **Time in the gym.** First log to last — on every past workout, as a lifetime
-  tile on Trends, as `sessions[].gym_minutes` in the snapshot, and per workout
+  tile on Trends, as `sessions[].gym_seconds` in the snapshot, and per workout
   and all told in `gym sessions`. A workout that *opens* with cardio counts the
   bout's own length: a treadmill is logged when you step off, so the raw span
   read twenty minutes short on every such day and zero on a cardio-only one.
 - **A 25 lb bar**, and *A different bar* to type the weight of a hex, EZ-curl
   or Smith bar. The bars moved out of an inline list into `PlateMath.bars`.
 
+### Changed
+
+- **A workout that opens with cardio starts when the cardio did.** The session
+  opened on the first *log*, which for a treadmill is when you step off, so
+  Apple Health received a workout twenty minutes short. New workouts only —
+  one already exported is left alone, because its start is what the export
+  de-duplicates on.
+- **Snapshot schema 7.** `today.items[]` now describes what is being *done*,
+  which for a swapped slot is not what `plan[]` says — a change of meaning, so
+  a bump. `gym` on the Mac refuses a schema-6 file until the phone has updated
+  and rewritten it; open the app once. See `docs/SNAPSHOT.md`.
+
 ### Fixed
 
 - **Today's elapsed time agrees with everything else.** It was a private
   computation beside the row; it now reads `Tally.gymSeconds` like the three
   new places do, so it also counts an opening cardio bout, and past the hour it
-  reads "1 h 12" rather than "72 min".
+  reads "1 h 12 min" rather than "72 min".
 - **A bar weight that was not on the menu showed as "—".** That reads as "no
   bar" while the plate math went on subtracting it. The menu now always
   includes the bar actually set.

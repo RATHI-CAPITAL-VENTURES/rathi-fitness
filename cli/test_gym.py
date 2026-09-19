@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 6,
+    "schema": 7,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -525,7 +525,7 @@ class Cardio(unittest.TestCase):
     def test_sessions_say_how_long_you_were_there(self):
         data = json.loads(json.dumps(FIXTURE))
         for s, minutes in zip(data["sessions"], (62, 48)):
-            s["gym_minutes"] = minutes
+            s["gym_seconds"] = minutes * 60
         with fixture(data):
             _, out = run("sessions")
         self.assertIn("1 h 2 min in the gym", out)
@@ -536,18 +536,30 @@ class Cardio(unittest.TestCase):
         # you ask for fewer rows is not a lifetime figure.
         data = json.loads(json.dumps(FIXTURE))
         for s in data["sessions"]:
-            s["gym_minutes"] = 45
+            s["gym_seconds"] = 45 * 60
         total = gym.clock(45 * 60 * len(data["sessions"]))
         with fixture(data):
             _, out = run("sessions", "--limit", "1")
         self.assertIn(f"{total} in the gym, all told", out)
 
     def test_an_older_snapshot_has_no_gym_time_and_says_nothing(self):
-        # `gym_minutes` is an addition, not a schema bump, so a snapshot from
-        # before it must not print "0 min in the gym" against every workout.
+        # A snapshot written before the field existed must not print "0 min in
+        # the gym" against every workout.
         with fixture():
             _, out = run("sessions")
         self.assertNotIn("in the gym", out)
+
+    def test_the_total_is_summed_in_seconds_not_in_rounded_minutes(self):
+        # Two workouts of 47 min 40 s are 95 min 20 s. Truncated per workout
+        # and then summed they are 94 — and the phone, which sums seconds, says
+        # otherwise. Over a hundred and fifty workouts that is two hours.
+        data = json.loads(json.dumps(FIXTURE))
+        data["sessions"] = data["sessions"][:2]
+        for s in data["sessions"]:
+            s["gym_seconds"] = 47 * 60 + 40
+        with fixture(data):
+            _, out = run("sessions")
+        self.assertIn(f"{gym.clock(95 * 60 + 20)} in the gym, all told", out)
 
     def test_clock_reads_like_a_person(self):
         self.assertEqual(gym.clock(1320), "22 min")
@@ -591,12 +603,16 @@ class StandIns(unittest.TestCase):
     def test_a_swapped_lift_is_marked_too(self):
         data = json.loads(json.dumps(FIXTURE))
         slot = next(i for i in data["today"]["items"] if i["slug"] == "lateral-raise")
+        # The stand-in's own weight, as the phone shows it — not the 20 the
+        # plan has for the dumbbell raise it replaced.
         slot.update(slug="cable-lateral-raise", name="Cable Lateral Raise",
+                    target_weight=12.5,
                     instead_of="Lateral Raise", instead_of_slug="lateral-raise")
         with fixture(data):
             _, out = run("today")
         line = next(l for l in out.splitlines() if "Cable Lateral Raise" in l)
         self.assertIn("for Lateral Raise", line)
+        self.assertIn("12.5 lb", line)
 
 
 class Machines(unittest.TestCase):

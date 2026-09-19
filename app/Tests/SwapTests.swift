@@ -198,13 +198,143 @@ final class SwapTests: XCTestCase {
         XCTAssertEqual(Swaps.prescription(for: plan.squat, doing: press).weight, 0)
     }
 
-    /// "4 sets" of squats is not "4 intervals" on a rower.
-    func testCardioStandingInForALiftIsOneBout() {
+    // MARK: across the lifting/cardio line the slot has no shape to lend
+
+    /// "4 sets" of squats is not "4 intervals" on a rower — and a squat slot
+    /// has no minutes, so the rower was being asked for nothing at all.
+    func testCardioStandingInForALiftIsOneBoutOfTheDefaultLength() {
         let context = context()
         let plan = legs(in: context)
         let rower = cardio("Rower", [.duration], in: context)
 
-        XCTAssertEqual(Swaps.prescription(for: plan.squat, doing: rower).sets, 1)
+        let asked = Swaps.prescription(for: plan.squat, doing: rower)
+
+        XCTAssertEqual(asked.sets, 1)
+        XCTAssertEqual(asked.seconds, PlanDefaults().cardioSeconds,
+                       "a lift slot has no minutes to hand over")
+        XCTAssertEqual(asked.restSeconds, 0, "a single bout has nothing to rest between")
+    }
+
+    /// A treadmill slot is 1 × 0 with no rest. Inherited, a leg press opened
+    /// on zero reps, had no cooldown, and ticked itself done after one set.
+    func testALiftStandingInForCardioOpensLikeANewSlot() {
+        let context = context()
+        let plan = legs(in: context)
+        let press = lift("Leg Press", .quads, loading: .machine, bar: 0, in: context)
+
+        let asked = Swaps.prescription(for: plan.run, doing: press)
+
+        XCTAssertEqual(asked.sets, PlanDefaults().targetSets)
+        XCTAssertEqual(asked.reps, PlanDefaults().targetReps)
+        XCTAssertEqual(asked.restSeconds, PlanDefaults().restSeconds)
+        XCTAssertGreaterThan(asked.reps, 0)
+        XCTAssertEqual(asked.seconds, 0)
+    }
+
+    func testTheCrossoverUsesYourDefaultsNotTheFactoryOnes() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let press = lift("Leg Press", .quads, loading: .machine, bar: 0, in: context)
+        let mine = PlanDefaults.current(in: context)
+        mine.targetSets = 5; mine.targetReps = 5; mine.restSeconds = 200
+        try context.save()
+
+        let asked = Swaps.prescription(for: plan.run, doing: press)
+
+        XCTAssertEqual([asked.sets, asked.reps, asked.restSeconds], [5, 5, 200])
+    }
+
+    /// It is called from view bodies and from the snapshot builder.
+    func testAskingForAPrescriptionNeverWritesADefaultsRow() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let rower = cardio("Rower", [.duration], in: context)
+
+        _ = Swaps.prescription(for: plan.squat, doing: rower)
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<PlanDefaults>()), 0)
+    }
+
+    // MARK: a slot is done when its work is done, whoever did it
+
+    private func log(_ exercise: Exercise, at date: Date, in context: ModelContext) {
+        context.insert(SetEntry(exercise: exercise, weight: 100, reps: 6,
+                                setIndex: 1, date: date))
+    }
+
+    /// Two sets on the squat, someone takes the rack, on to the front squat.
+    /// Counting only what is in the slot NOW sent "2 of 4" back to "0 of 4".
+    func testSetsDoneBeforeTheSwapStillCountTowardTheSlot() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let squat = try XCTUnwrap(plan.squat.exercise)
+        let front = lift("Front Squat", .quads, in: context)
+        log(squat, at: at(14, 18), in: context)
+
+        Swaps.put(front, in: plan.squat, context: context, now: at(14, 19), calendar: cal)
+
+        XCTAssertEqual(Swaps.slugsCounting(toward: plan.squat, on: at(14), calendar: cal),
+                       ["squat", "front-squat"])
+    }
+
+    /// The mirror: swap, lift, swap back. Deleting the row on the way back
+    /// would hide the front squats from the checklist instead.
+    func testSwappingBackAfterLiftingKeepsTheStandInsSetsInTheSlot() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let front = lift("Front Squat", .quads, in: context)
+        Swaps.put(front, in: plan.squat, context: context, now: at(14, 18), calendar: cal)
+        log(front, at: at(14, 19), in: context)
+
+        Swaps.clear(plan.squat, context: context, on: at(14, 20), calendar: cal)
+
+        XCTAssertNil(Swaps.standIn(for: plan.squat, on: at(14, 21), calendar: cal),
+                     "the slot is the squat again")
+        XCTAssertTrue(Swaps.slugsCounting(toward: plan.squat, on: at(14, 21), calendar: cal)
+            .contains("front-squat"), "and the front squats still happened in it")
+    }
+
+    func testAStandInYouNeverLiftedLeavesNothingBehind() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let front = lift("Front Squat", .quads, in: context)
+        Swaps.put(front, in: plan.squat, context: context, now: at(14, 18), calendar: cal)
+
+        Swaps.clear(plan.squat, context: context, on: at(14, 19), calendar: cal)
+        try context.save()
+
+        XCTAssertEqual(Swaps.slugsCounting(toward: plan.squat, on: at(14), calendar: cal),
+                       ["squat"])
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Swap>()), 0)
+    }
+
+    /// The way back is a row too, once there is history to keep — and it must
+    /// not be mistaken for something you "usually do instead".
+    func testTheWayBackIsNotCountedAsAStandIn() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let squat = try XCTUnwrap(plan.squat.exercise)
+        let front = lift("Front Squat", .quads, in: context)
+        Swaps.put(front, in: plan.squat, context: context, now: at(14, 18), calendar: cal)
+        log(front, at: at(14, 19), in: context)
+        Swaps.clear(plan.squat, context: context, on: at(14, 20), calendar: cal)
+
+        let offered = Swaps.candidates(for: plan.squat, among: [squat, front],
+                                       on: at(21), calendar: cal)
+
+        XCTAssertEqual(offered.usual.map(\.slug), ["front-squat"])
+    }
+
+    /// Yesterday's stand-in has no claim on today's slot.
+    func testTomorrowOnlyThePlansOwnExerciseCounts() {
+        let context = context()
+        let plan = legs(in: context)
+        let front = lift("Front Squat", .quads, in: context)
+        Swaps.put(front, in: plan.squat, context: context, now: at(14), calendar: cal)
+        log(front, at: at(14, 19), in: context)
+
+        XCTAssertEqual(Swaps.slugsCounting(toward: plan.squat, on: at(15), calendar: cal),
+                       ["squat"])
     }
 
     // MARK: what the picker offers
@@ -305,6 +435,64 @@ final class SwapTests: XCTestCase {
         XCTAssertNil(slot.cardioTarget?.incline)
         XCTAssertNil(slot.cardioTarget?.distance)
         XCTAssertNil(snapshot.today?.items.first { $0.slug == "squat" }?.insteadOf)
+    }
+
+    /// The phone's row reads the stand-in's own history; `gym today` printed 0
+    /// beside it, because a stand-in's prescription has no weight to give.
+    func testTheSnapshotGivesAStandInTheWeightThePhoneShows() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let press = lift("Leg Press", .quads, loading: .machine, bar: 0, in: context)
+        // Last week: 3 × 6 at 300, every rep made.
+        for i in 1...4 {
+            context.insert(SetEntry(exercise: press, weight: 300, reps: 6,
+                                    setIndex: i, date: at(7, 18)))
+        }
+        Swaps.put(press, in: plan.squat, context: context, now: at(14), calendar: cal)
+        // `today` is only present when a workout is open or scheduled, and
+        // "Legs" here is on no weekday — so open one, as the treadmill did.
+        let run = try XCTUnwrap(plan.run.exercise)
+        let session = Session(startedAt: at(14), dayName: "Legs", plannedDay: plan.day)
+        context.insert(session)
+        let bout = SetEntry(exercise: run, weight: 0, reps: 0, setIndex: 1,
+                            date: at(14), seconds: 600)
+        bout.session = session
+        context.insert(bout)
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(14), appVersion: "test")
+        let slot = try XCTUnwrap(snapshot.today?.items.first { $0.slug == "leg-press" })
+
+        XCTAssertGreaterThanOrEqual(slot.targetWeight, 300,
+                                    "its own history, never the 0 the prescription carries")
+        XCTAssertNotEqual(slot.targetWeight, 225, "and never the squat's")
+    }
+
+    func testTheSnapshotCountsTheWholeSlot() throws {
+        let context = context()
+        let plan = legs(in: context)
+        let squat = try XCTUnwrap(plan.squat.exercise)
+        let front = lift("Front Squat", .quads, in: context)
+        let now = at(14, 18)
+        let session = Session(startedAt: now, dayName: "Legs", plannedDay: plan.day)
+        context.insert(session)
+        for (i, exercise) in [squat, squat, front, front].enumerated() {
+            let entry = SetEntry(exercise: exercise, weight: 135, reps: 6, setIndex: i + 1,
+                                 date: now.addingTimeInterval(Double(i) * 180))
+            entry.session = session
+            context.insert(entry)
+        }
+        Swaps.put(front, in: plan.squat, context: context,
+                  now: now.addingTimeInterval(400), calendar: cal)
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context,
+                                                 now: now.addingTimeInterval(900),
+                                                 appVersion: "test")
+        let slot = try XCTUnwrap(snapshot.today?.items.first { $0.slug == "front-squat" })
+
+        XCTAssertEqual(slot.setsDone, 4)
+        XCTAssertTrue(slot.done, "two on the squat and two on the front squat is four of four")
     }
 
     /// `plan[]` is the programme. A swap is not an edit to it.

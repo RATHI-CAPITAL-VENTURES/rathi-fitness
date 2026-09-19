@@ -865,17 +865,15 @@ enum Tally {
         workouts.reduce(0) { $0 + gymSeconds($1) }
     }
 
-    /// "47 min", "1 h 12", "312 h" — the unit follows the size, because
+    /// "47 min", "1 h 12 min", "312 h" — the unit follows the size, because
     /// "18,720 min" is not a number anyone has a feeling about.
+    ///
+    /// `Fmt.minutes` until the hours reach three figures, so a workout reads
+    /// the same here as its cardio does beside it and as `gym sessions` prints
+    /// it on the Mac. Past that the minutes are noise on a tile.
     static func gymTimeText(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes) min" }
-        let hours = minutes / 60
-        if hours < 100 {
-            let rest = minutes % 60
-            return rest == 0 ? "\(hours) h" : "\(hours) h \(String(format: "%02d", rest))"
-        }
-        return "\(Fmt.count(hours)) h"
+        let hours = seconds / 3600
+        return hours < 100 ? Fmt.minutes(seconds) : "\(Fmt.count(hours)) h"
     }
 
     // MARK: - The record book

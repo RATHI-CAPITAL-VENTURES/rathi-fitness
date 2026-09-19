@@ -39,7 +39,7 @@ struct Snapshot: Codable {
     /// tonnage, and a reader that averages it in is reporting a fiction.
     /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
     /// where the seat goes.
-    static let currentSchema = 6
+    static let currentSchema = 7
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -281,12 +281,16 @@ struct Snapshot: Codable {
         /// absent: "no cardio" is a fact worth stating on a lifting day.
         var cardioMinutes: Double = 0
         var cardioDistance: Double = 0
-        /// Whole minutes from first log to last — `Tally.gymSeconds`, the same
-        /// figure the phone shows. NOT `ended_at − started_at`: those are
-        /// clock times with no date, so a reader subtracting them gets a
-        /// workout that crossed midnight wrong, and both of them miss the
-        /// treadmill a workout opened with. Zero for a single set.
-        var gymMinutes: Int = 0
+        /// Seconds from first log to last — `Tally.gymSeconds`, the figure the
+        /// phone shows. NOT `ended_at − started_at`: those are clock times
+        /// with no date, so a reader subtracting them gets a workout that
+        /// crossed midnight wrong, and both of them miss the treadmill a
+        /// workout opened with. Zero for a single set.
+        ///
+        /// Seconds, not minutes: a reader totals these, and a figure truncated
+        /// per workout loses half a minute each — two hours adrift of the
+        /// phone's lifetime tile after a hundred and fifty workouts.
+        var gymSeconds: Int = 0
     }
 }
 
@@ -433,9 +437,12 @@ enum SnapshotBuilder {
             guard let ex = Swaps.exercise(for: item, on: now, calendar: cal) else { continue }
             let target = Swaps.prescription(for: item, doing: ex)
             let planned = Swaps.isStandIn(ex, in: item) ? item.exercise : nil
+            // Everything done in the SLOT today, stand-ins and all — the same
+            // rule the phone's checklist uses (`Swaps.slugsCounting`).
+            let counting = Swaps.slugsCounting(toward: item, on: now, calendar: cal)
             let performed = todaysSets
-                .filter { $0.exercise?.slug == ex.slug }
-                .sorted { $0.setIndex < $1.setIndex }
+                .filter { counting.contains($0.exercise?.slug ?? "") }
+                .sorted { $0.date < $1.date }
             // Warm-ups do not move you toward the target. Three warm-ups used to
             // mark an exercise done, which is the checklist lying to you.
             let working = performed.filter { $0.setKind.counts }
@@ -448,7 +455,9 @@ enum SnapshotBuilder {
             items.append(.init(
                 slug: ex.slug, name: ex.name,
                 targetSets: target.sets, targetReps: target.reps,
-                targetWeight: target.weight, restSeconds: target.restSeconds,
+                targetWeight: planned == nil ? target.weight
+                    : standInWeight(ex, target: target, sets: sets, now: now, cal: cal),
+                restSeconds: target.restSeconds,
                 setsDone: working.count,
                 warmupSets: performed.count - working.count,
                 done: isDone,
@@ -483,6 +492,21 @@ enum SnapshotBuilder {
               incline: e.incline > 0 ? round1(e.incline) : nil,
               resistance: e.resistance > 0 ? round1(e.resistance) : nil,
               heartRate: e.averageHeartRate > 0 ? e.averageHeartRate : nil)
+    }
+
+    /// The weight a stand-in's row reads on the phone, before anything is
+    /// logged: what the set screen will suggest from its own history, else its
+    /// empty bar. The prescription alone says "0" for a dumbbell you pressed 60
+    /// on last week, and `gym today` printing 0 beside a phone showing 60 is
+    /// the disagreement this file exists to prevent.
+    private static func standInWeight(_ exercise: Exercise, target: Swaps.Prescription,
+                                      sets: [SetEntry], now: Date, cal: Calendar) -> Double {
+        let mine = sets.filter { $0.exercise?.slug == exercise.slug }
+        let suggestion = Tally.nextTarget(
+            lastSession: mine.lastSession(before: now, calendar: cal)
+                .map { $0.tally(bodyWeight: nil) },
+            target: target.reps)
+        return Tally.shownWeight(plan: target.weight, suggestion: suggestion, today: [])
     }
 
     /// The plan as written — `plan[]`, which a swap never touches.
@@ -713,7 +737,7 @@ enum SnapshotBuilder {
                         Tally.Bout(seconds: $0.seconds, distance: $0.distance)
                     })),
                     cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }),
-                    gymMinutes: Tally.gymSeconds(entries.map(\.log)) / 60)
+                    gymSeconds: Tally.gymSeconds(entries.map(\.log)))
             }
             .sorted {
                 $0.date == $1.date ? $0.ordinal > $1.ordinal : $0.date > $1.date

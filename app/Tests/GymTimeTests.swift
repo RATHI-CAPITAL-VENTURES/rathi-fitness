@@ -58,8 +58,9 @@ final class GymTimeTests: XCTestCase {
     func testTheUnitFollowsTheSize() {
         XCTAssertEqual(Tally.gymTimeText(47 * 60), "47 min")
         XCTAssertEqual(Tally.gymTimeText(60 * 60), "1 h")
-        XCTAssertEqual(Tally.gymTimeText(72 * 60), "1 h 12")
-        XCTAssertEqual(Tally.gymTimeText(65 * 60), "1 h 05")
+        XCTAssertEqual(Tally.gymTimeText(72 * 60), "1 h 12 min")
+        XCTAssertEqual(Tally.gymTimeText(72 * 60), Fmt.minutes(72 * 60),
+                       "a workout and the cardio inside it are printed side by side")
         XCTAssertEqual(Tally.gymTimeText(1_312 * 3600 + 40 * 60), "1,312 h")
     }
 }

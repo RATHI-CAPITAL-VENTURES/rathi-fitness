@@ -39,7 +39,7 @@ from pathlib import Path
 # which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
 # numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
 # See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 6
+SCHEMA_SUPPORTED = 7
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -517,16 +517,19 @@ def cmd_sessions(args, data) -> None:
         # First log to last, as the phone measures it. Absent from snapshots
         # written before 0.10.0, and zero for a one-set workout — say nothing
         # in both cases rather than "0 min".
-        if s.get("gym_minutes"):
-            body += f" · {clock(s['gym_minutes'] * 60)} in the gym"
+        if s.get("gym_seconds", 0) >= 60:
+            body += f" · {clock(s['gym_seconds'])} in the gym"
         lines.append(f"{head} {body}")
         if s.get("top_lifts"):
             lines.append(f"           {' · '.join(s['top_lifts'])}")
     # Over EVERY session, not the rows shown: `--limit` is how many to list,
     # and a lifetime figure that shrinks when you ask for fewer rows is not one.
-    total = sum(s.get("gym_minutes") or 0 for s in data.get("sessions", []))
-    if total:
-        lines += ["", f"  {clock(total * 60)} in the gym, all told"]
+    # Summed in SECONDS and formatted once, as the phone does: minutes rounded
+    # per workout drift half a minute each, and the two lifetime figures part
+    # company by hours.
+    total = sum(s.get("gym_seconds") or 0 for s in data.get("sessions", []))
+    if total >= 60:
+        lines += ["", f"  {clock(total)} in the gym, all told"]
     emit(args, rows, "Recent sessions\n" + ("\n".join(lines) or "  none yet"))
 
 

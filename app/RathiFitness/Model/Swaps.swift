@@ -11,13 +11,39 @@ enum Swaps {
     /// What is standing in for this slot's exercise on `date`, if anything.
     static func standIn(for item: PlanItem, on date: Date = .now,
                         calendar: Calendar = .current) -> Exercise? {
+        // The latest row wins. One naming the slot's OWN exercise is how
+        // "back to the plan" is recorded once there is history to keep — see
+        // `put` — and means there is no stand-in.
+        guard let latest = rows(for: item, on: date, calendar: calendar).last?.exercise,
+              isStandIn(latest, in: item) else { return nil }
+        return latest
+    }
+
+    /// Today's rows for this slot, oldest first.
+    private static func rows(for item: PlanItem, on date: Date,
+                             calendar: Calendar) -> [Swap] {
         (item.swaps ?? [])
             // A deleted row stays in the relationship until pending changes are
             // processed — the trap `Sessions.pruneEmpty` documents. Without
             // this, swapping back leaves the bike on screen until the next save.
             .filter { !$0.isDeleted && calendar.isDate($0.date, inSameDayAs: date) }
-            .max { $0.date < $1.date }?
-            .exercise
+            .sorted { $0.date < $1.date }
+    }
+
+    /// Every exercise whose sets count toward this slot on `date`: the plan's
+    /// own, and anything that has stood in for it today.
+    ///
+    /// **A slot is done when its work is done, whoever did it.** Two sets on
+    /// the bench, someone takes it, two more on the dumbbells: that is four of
+    /// four. Counting only what is in the slot NOW made the first two vanish
+    /// from the checklist the moment you swapped — "1 of 4 done" went back to
+    /// "0 of 4" — and swapping back hid the dumbbells instead.
+    static func slugsCounting(toward item: PlanItem, on date: Date = .now,
+                              calendar: Calendar = .current) -> Set<String> {
+        var slugs = Set(rows(for: item, on: date, calendar: calendar)
+            .compactMap { $0.exercise?.slug })
+        if let own = item.exercise?.slug { slugs.insert(own) }
+        return slugs
     }
 
     /// What you are actually doing in this slot on `date`: the stand-in if
@@ -37,23 +63,45 @@ enum Swaps {
 
     // MARK: - Changing it
 
-    /// Do `exercise` in this slot today. One row per slot per day, so changing
-    /// your mind replaces rather than stacks — and choosing the slot's own
-    /// exercise is how you swap back, not a swap of a thing for itself.
+    /// Do `exercise` in this slot today. Choosing the slot's own exercise is
+    /// how you swap back, not a swap of a thing for itself.
+    ///
+    /// **A row you lifted under is kept; a row you only looked at is not.**
+    /// Changing your mind before logging anything replaces the row rather than
+    /// stacking another. But once sets exist on a stand-in, its row is what
+    /// says those sets belong to this slot (`slugsCounting`) — deleting it on
+    /// the way back to the plan would orphan them from the checklist. So the
+    /// way back is then recorded as a newer row naming the slot's own
+    /// exercise, and the latest row wins.
     static func put(_ exercise: Exercise, in item: PlanItem,
                     context: ModelContext, now: Date = .now,
                     calendar: Calendar = .current) {
-        clear(item, context: context, on: now, calendar: calendar)
-        guard isStandIn(exercise, in: item) else { return }
+        var kept = 0
+        for row in rows(for: item, on: now, calendar: calendar) {
+            if let standIn = row.exercise, isStandIn(standIn, in: item),
+               wasDone(standIn, on: now, calendar: calendar) {
+                kept += 1
+            } else {
+                context.delete(row)
+            }
+        }
+        // Back to the plan with nothing to remember is no row at all.
+        if !isStandIn(exercise, in: item) && kept == 0 { return }
         context.insert(Swap(item: item, exercise: exercise, date: now))
     }
 
-    /// Back to the plan. Sets already logged against the stand-in stay where
-    /// they are — they happened.
+    /// Back to the plan. Sets already logged against a stand-in stay where
+    /// they are, and go on counting toward the slot — they happened.
     static func clear(_ item: PlanItem, context: ModelContext,
                       on date: Date = .now, calendar: Calendar = .current) {
-        for swap in item.swaps ?? [] where calendar.isDate(swap.date, inSameDayAs: date) {
-            context.delete(swap)
+        guard let own = item.exercise else { return }
+        put(own, in: item, context: context, now: date, calendar: calendar)
+    }
+
+    private static func wasDone(_ exercise: Exercise, on date: Date,
+                                calendar: Calendar) -> Bool {
+        (exercise.sets ?? []).contains {
+            !$0.isDeleted && calendar.isDate($0.date, inSameDayAs: date)
         }
     }
 
@@ -76,10 +124,12 @@ enum Swaps {
         let taken = takenSlugs(around: item, on: date, calendar: calendar)
         let open = exercises.filter { !taken.contains($0.slug) }
 
-        // Counted over every past swap in this slot, today's included.
+        // Counted over every past swap in this slot, today's included. A row
+        // naming the slot's own exercise is a way back, not a stand-in.
         var uses: [String: (count: Int, latest: Date)] = [:]
         for swap in item.swaps ?? [] where !swap.isDeleted {
-            guard let slug = swap.exercise?.slug else { continue }
+            guard let standIn = swap.exercise, isStandIn(standIn, in: item) else { continue }
+            let slug = standIn.slug
             let seen = uses[slug]
             uses[slug] = ((seen?.count ?? 0) + 1, max(seen?.latest ?? swap.date, swap.date))
         }
@@ -106,6 +156,11 @@ enum Swaps {
     /// back", a different button) and anything already in today's workout —
     /// the checklist matches sets to slots by exercise, so the same one in two
     /// slots would tick both off with one set.
+    ///
+    /// Another slot's PLANNED exercise stays taken even while that slot is
+    /// swapped away, which looks over-cautious (nobody is on the treadmill
+    /// today) and is not: its sets still count toward its own slot
+    /// (`slugsCounting`), so doing it here would tick that one too.
     static func takenSlugs(around item: PlanItem, on date: Date = .now,
                            calendar: Calendar = .current) -> Set<String> {
         var taken = Set<String>()
@@ -163,15 +218,31 @@ enum Swaps {
                 speed: item.targetSpeed, incline: item.targetIncline,
                 resistance: item.targetResistance)
         }
-        // Across the lifting/cardio line the set count means something else —
-        // "3 sets" of bench is not "3 intervals" on a rower — so cardio
-        // standing in for a lift is one bout.
+        let bar = exercise.loadingKind.showsPlateMath ? exercise.barWeight : 0
         let crossesOver = exercise.kind != (item.exercise?.kind ?? exercise.kind)
-        return Prescription(
-            sets: crossesOver && exercise.isCardio ? 1 : item.targetSets,
-            reps: item.targetReps,
-            restSeconds: item.restSeconds,
-            seconds: item.targetSeconds,
-            weight: exercise.loadingKind.showsPlateMath ? exercise.barWeight : 0)
+        guard crossesOver else {
+            return Prescription(sets: item.targetSets, reps: item.targetReps,
+                                restSeconds: item.restSeconds,
+                                seconds: item.targetSeconds, weight: bar)
+        }
+        // Across the lifting/cardio line the slot has NO shape to lend. A
+        // treadmill slot is 1 × 0 with no rest, so a leg press standing in for
+        // it opened on zero reps, no cooldown, and ticked itself done after one
+        // set; a squat slot has no minutes, so a rower standing in for it was
+        // asked for nothing. Neither is a smaller version of the plan — it is a
+        // new slot for the day, so it opens on what a new slot opens on.
+        let fresh = defaults(near: item)
+        return exercise.isCardio
+            ? Prescription(sets: 1, reps: 0, restSeconds: 0, seconds: fresh.cardioSeconds)
+            : Prescription(sets: fresh.targetSets, reps: fresh.targetReps,
+                           restSeconds: fresh.restSeconds, seconds: 0, weight: bar)
+    }
+
+    /// The plan defaults, READ — never made. `PlanDefaults.current` inserts a
+    /// row when there is none, and this is called from view bodies and from the
+    /// snapshot builder, neither of which may write. An unsaved `PlanDefaults()`
+    /// carries the same numbers a first-use row would.
+    private static func defaults(near item: PlanItem) -> PlanDefaults {
+        (try? item.modelContext?.fetch(FetchDescriptor<PlanDefaults>()).first) ?? PlanDefaults()
     }
 }

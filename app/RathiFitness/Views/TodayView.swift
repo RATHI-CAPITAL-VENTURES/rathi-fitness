@@ -579,12 +579,12 @@ struct TodayView: View {
 
     // MARK: state
 
-    /// Sets against whatever is in the slot today. After a swap that is the
-    /// stand-in's — sets already done on the planned exercise stay in the
-    /// workout and its totals, they just stop counting toward this row.
+    /// Everything done in this slot today — on the plan's exercise and on
+    /// anything that stood in for it. Two sets on the bench and two on the
+    /// dumbbells is four of four: see `Swaps.slugsCounting`.
     private func performed(_ item: PlanItem) -> [SetEntry] {
-        guard let slug = Swaps.exercise(for: item)?.slug else { return [] }
-        return todaysSets.filter { $0.exercise?.slug == slug }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return todaysSets.filter { slugs.contains($0.exercise?.slug ?? "") }
     }
 
     /// The slot's numbers as they apply to what is in it today.

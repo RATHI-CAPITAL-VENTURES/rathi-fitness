@@ -1588,11 +1588,28 @@ its empty bar if it has none. And the log path's write-back to
 for a stand-in: a heavy day on the dumbbells must not become next week's
 barbell target.
 
-**Everything that draws or counts a slot reads `Swaps.exercise(for:)`, never
-`item.exercise`** — Today's rows, its done-state, and `today.items[]` in the
-snapshot. The checklist matches sets to slots by exercise, which is also why an
-exercise already in today's workout cannot stand in: the same lift in two slots
-would tick both off with one set.
+**Everything that draws a slot reads `Swaps.exercise(for:)`, never
+`item.exercise`** — Today's rows and `today.items[]` in the snapshot.
+
+**And a slot is done when its work is done, whoever did it**
+(`Swaps.slugsCounting`). Two sets on the bench, someone takes it, two on the
+dumbbells: four of four. The first version counted only what was in the slot
+*now*, and review caught what that does — swap after two sets and the row goes
+from "2 of 4" back to "0 of 4" with the sets nowhere on the checklist; swap
+back and it is the dumbbells that vanish. So a stand-in's row is kept once you
+have lifted under it, the way back is then a newer row naming the slot's own
+exercise, and the latest row wins. A stand-in you only looked at still leaves
+nothing behind. This is also why an exercise already in today's workout cannot
+stand in — even one whose own slot is currently swapped away: its sets still
+count toward that slot, so doing it here would tick both.
+
+**Across the lifting/cardio line nothing carries over**, because the slot has
+no shape to lend. A treadmill slot is 1 × 0 with no rest — inherited, a leg
+press opened on zero reps with no cooldown and ticked itself done after one
+set — and a squat slot has no minutes, so a rower was asked for nothing. Both
+now open on `PlanDefaults`, which is what a new slot opens on, because that is
+what they are. Also caught in review; the first version handled one direction
+and only its set count.
 
 Not done, on purpose: swapping from inside the set screen. `SetView` takes its
 exercise as a `let` and primes its weight once; changing the exercise under a
@@ -1622,14 +1639,28 @@ log pulled back by its own length when it is a cardio bout. Rejected:
   inside the span and adding it would count those minutes twice.
 
 One definition, four readers — Today's "47 min", the past-workout page, the
-lifetime tile on Trends, `sessions[].gym_minutes` — because the figure this
+lifetime tile on Trends, `sessions[].gym_seconds` — because the figure this
 replaces on Today was a private computation that had already been wrong once
 (it measured to *now*, so a workout finished at 08:49 read "438 min in" by
 mid-afternoon). The lifetime figure is summed per workout; the span of every
 log at once would count the nights in between.
 
+The snapshot carries **seconds**, not minutes, because `gym sessions` totals
+them: minutes truncated per workout lose half a minute each, and review worked
+out that a hundred and fifty workouts puts the Mac two hours behind the phone.
+
+**Apple Health is a fifth reader, and it reads `Session.startedAt` rather than
+the logs** — so review pointed out that Health was still short by the opening
+bout. `Sessions.backdate` moves `startedAt` to when the bout began, for the
+entry that opens a session. Forwards only: `startedAt` is the key the Health
+export de-duplicates on, so moving one already exported would send that workout
+twice, and history is left as it is. Never across midnight, because the day a
+workout belongs to is what the rotation and "today" both read.
+
 What it still leaves out, knowingly: the walk from the door to the first set,
-and the shower. Nothing on the phone records either.
+and the shower. Nothing on the phone records either. The pull-back also trusts
+the bout's typed length and assumes it was logged on stepping off; a bout
+logged fifteen minutes late is fifteen minutes late.
 
 ## 2026-09-19 — The bars are a registry, and the ones with no standard weight are typed
 
