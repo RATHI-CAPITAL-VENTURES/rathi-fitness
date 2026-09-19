@@ -1591,6 +1591,19 @@ barbell target.
 **Everything that draws a slot reads `Swaps.exercise(for:)`, never
 `item.exercise`** — Today's rows and `today.items[]` in the snapshot.
 
+**Counting is per slot; a weight is per exercise.** The second review caught
+the first fix overreaching: once the row counted the whole slot, it also read
+its *weight* from the whole slot, so two bench sets at 185 put "185" on the
+dumbbell row that replaced them while the set screen opened on 60 — the
+row-versus-set-screen disagreement 2026-09-16 exists to end. `shownWeight` is
+fed this exercise's sets only, on the phone and in the snapshot alike. And
+**one exercise counts toward one slot**: `takenSlugs` excludes everything that
+*counts* toward another slot, not just what is showing in it, or a stand-in
+lifted under and swapped away from could be offered elsewhere and tick both.
+"Lifted under" means in THIS workout — a set whose session is the slot's
+planned day — and the no-open-session fallback on Today and in the snapshot is
+scoped the same way, so a morning's leg presses do not tick an evening slot.
+
 **And a slot is done when its work is done, whoever did it**
 (`Swaps.slugsCounting`). Two sets on the bench, someone takes it, two on the
 dumbbells: four of four. The first version counted only what was in the slot
@@ -1649,13 +1662,23 @@ The snapshot carries **seconds**, not minutes, because `gym sessions` totals
 them: minutes truncated per workout lose half a minute each, and review worked
 out that a hundred and fifty workouts puts the Mac two hours behind the phone.
 
-**Apple Health is a fifth reader, and it reads `Session.startedAt` rather than
-the logs** — so review pointed out that Health was still short by the opening
-bout. `Sessions.backdate` moves `startedAt` to when the bout began, for the
-entry that opens a session. Forwards only: `startedAt` is the key the Health
-export de-duplicates on, so moving one already exported would send that workout
-twice, and history is left as it is. Never across midnight, because the day a
-workout belongs to is what the rotation and "today" both read.
+**A hypothesis that was wrong, written down so it is not re-run: "Apple Health
+is short by the opening bout."** Review raised it as a possibility, unverified;
+it was then implemented as a fix, also unverified; the second review read the
+export and found neither of us had. `HealthBridge.exportWorkouts` never sends
+`Session.startedAt`. Each cardio bout goes over as its own workout, and
+`saveCardio` already starts it `seconds` before its log — Health has had the
+right interval since cardio shipped. The lifting workout is bounded by the
+lifting sets' own dates. `startedAt` is only the dictionary key and the
+de-duplication key.
+
+`Sessions.backdate` stays, for the reason that is actually true: the stored
+start, and so `sessions[].started_at`, was twenty minutes late on a workout
+opened by a bout, and now agrees with `gym_seconds`. It fires only for the
+entry that opens a session — one set, still open, never exported — so the
+de-duplication key is never moved from under an export, and never across
+midnight, because the day a workout belongs to is what the rotation and
+"today" both read.
 
 What it still leaves out, knowingly: the walk from the door to the first set,
 and the shower. Nothing on the phone records either. The pull-back also trusts

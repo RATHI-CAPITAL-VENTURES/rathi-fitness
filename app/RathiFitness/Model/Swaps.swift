@@ -77,9 +77,11 @@ enum Swaps {
                     context: ModelContext, now: Date = .now,
                     calendar: Calendar = .current) {
         var kept = 0
+        var latestKept: Date?
         for row in rows(for: item, on: now, calendar: calendar) {
             if let standIn = row.exercise, isStandIn(standIn, in: item),
-               wasDone(standIn, on: now, calendar: calendar) {
+               wasDone(standIn, in: item, on: now, calendar: calendar) {
+                latestKept = max(latestKept ?? row.date, row.date)
                 kept += 1
             } else {
                 context.delete(row)
@@ -87,7 +89,11 @@ enum Swaps {
         }
         // Back to the plan with nothing to remember is no row at all.
         if !isStandIn(exercise, in: item) && kept == 0 { return }
-        context.insert(Swap(item: item, exercise: exercise, date: now))
+        // Strictly after anything kept. "Latest wins" is only a rule if there
+        // IS a latest: two rows at one instant make the slot's contents
+        // whichever the sort happened to put last.
+        let stamp = latestKept.map { max(now, $0.addingTimeInterval(0.001)) } ?? now
+        context.insert(Swap(item: item, exercise: exercise, date: stamp))
     }
 
     /// Back to the plan. Sets already logged against a stand-in stay where
@@ -98,10 +104,18 @@ enum Swaps {
         put(own, in: item, context: context, now: date, calendar: calendar)
     }
 
-    private static func wasDone(_ exercise: Exercise, on date: Date,
-                                calendar: Calendar) -> Bool {
+    /// Whether `exercise` was lifted today IN THIS WORKOUT — a set whose
+    /// session belongs to the slot's planned day.
+    ///
+    /// Not merely "today". Leg press in the morning's Legs is not a reason to
+    /// keep a leg-press row on the evening's bench slot: looked at and put
+    /// back, it would have stayed counted toward that slot all day and been
+    /// shelved under "what you usually do instead" for the bench for good.
+    private static func wasDone(_ exercise: Exercise, in item: PlanItem,
+                                on date: Date, calendar: Calendar) -> Bool {
         (exercise.sets ?? []).contains {
             !$0.isDeleted && calendar.isDate($0.date, inSameDayAs: date)
+                && $0.session?.plannedDay?.persistentModelID == item.day?.persistentModelID
         }
     }
 
@@ -167,10 +181,12 @@ enum Swaps {
         if let own = item.exercise?.slug { taken.insert(own) }
         for other in item.day?.orderedItems ?? []
         where other.persistentModelID != item.persistentModelID {
-            if let slug = other.exercise?.slug { taken.insert(slug) }
-            if let slug = standIn(for: other, on: date, calendar: calendar)?.slug {
-                taken.insert(slug)
-            }
+            // Everything that COUNTS toward the other slot, not merely what is
+            // showing in it. A stand-in you lifted under and then swapped away
+            // from is no longer that slot's `standIn`, but its sets still tick
+            // that slot — so offering it here let two dumbbell sets open a
+            // second slot at "2 of 3 done" before it had been touched.
+            taken.formUnion(slugsCounting(toward: other, on: date, calendar: calendar))
         }
         return taken
     }

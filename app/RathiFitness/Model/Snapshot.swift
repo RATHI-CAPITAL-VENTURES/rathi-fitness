@@ -426,7 +426,13 @@ enum SnapshotBuilder {
         if let open = todaysSessions.last(where: \.isOpen) {
             todaysSets = open.orderedSets
         } else {
-            todaysSets = sets.filter { cal.isDate($0.date, inSameDayAs: now) }
+            // For THIS workout — see `TodayView.todaysSets`, which makes the
+            // same cut for the same reason.
+            todaysSets = sets.filter {
+                cal.isDate($0.date, inSameDayAs: now)
+                    && ($0.session == nil
+                        || $0.session?.plannedDay?.persistentModelID == day.persistentModelID)
+            }
         }
 
         var items: [Snapshot.Today.Item] = []
@@ -456,7 +462,8 @@ enum SnapshotBuilder {
                 slug: ex.slug, name: ex.name,
                 targetSets: target.sets, targetReps: target.reps,
                 targetWeight: planned == nil ? target.weight
-                    : standInWeight(ex, target: target, sets: sets, now: now, cal: cal),
+                    : standInWeight(ex, target: target, sets: sets,
+                                    today: performed, now: now, cal: cal),
                 restSeconds: target.restSeconds,
                 setsDone: working.count,
                 warmupSets: performed.count - working.count,
@@ -494,19 +501,25 @@ enum SnapshotBuilder {
               heartRate: e.averageHeartRate > 0 ? e.averageHeartRate : nil)
     }
 
-    /// The weight a stand-in's row reads on the phone, before anything is
-    /// logged: what the set screen will suggest from its own history, else its
-    /// empty bar. The prescription alone says "0" for a dumbbell you pressed 60
+    /// The weight a stand-in's row reads on the phone: what he is lifting on
+    /// it today once a working set is logged, before that what the set screen
+    /// will suggest from its own history, else its empty bar — `shownWeight`,
+    /// fed the same way `TodayView` feeds it, this exercise's sets only. The prescription alone says "0" for a dumbbell you pressed 60
     /// on last week, and `gym today` printing 0 beside a phone showing 60 is
     /// the disagreement this file exists to prevent.
     private static func standInWeight(_ exercise: Exercise, target: Swaps.Prescription,
-                                      sets: [SetEntry], now: Date, cal: Calendar) -> Double {
+                                      sets: [SetEntry], today: [SetEntry],
+                                      now: Date, cal: Calendar) -> Double {
         let mine = sets.filter { $0.exercise?.slug == exercise.slug }
         let suggestion = Tally.nextTarget(
             lastSession: mine.lastSession(before: now, calendar: cal)
                 .map { $0.tally(bodyWeight: nil) },
             target: target.reps)
-        return Tally.shownWeight(plan: target.weight, suggestion: suggestion, today: [])
+        return Tally.shownWeight(
+            plan: target.weight, suggestion: suggestion,
+            today: today.filter { $0.exercise?.slug == exercise.slug }
+                .sorted { $0.date < $1.date }
+                .map { $0.tally(bodyWeight: nil) })
     }
 
     /// The plan as written — `plan[]`, which a swap never touches.

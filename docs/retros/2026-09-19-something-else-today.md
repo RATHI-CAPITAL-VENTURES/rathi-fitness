@@ -52,6 +52,13 @@ first log to last, and a 25 lb bar.
   version keyed the checklist on the current exercise, so a swap after two sets
   sent the row from "2 of 4" to "0 of 4". It was even written down as intended
   in a comment — which is how an undesigned case gets to look designed.
+- **A fix applied one step too broadly is a new bug of the old kind.** Making
+  the row count the whole slot was right; letting it read its weight from the
+  whole slot was the 0.9.1 disagreement again. Two review passes, because the
+  first fix was reviewed by the person who wrote it until it was not.
+- **Nobody had read the Health export.** A "lower-confidence concern" became a
+  commit, a changelog line, a decision entry and a retro row before anyone
+  opened `HealthBridge.swift`. It took four minutes to read.
 - **First log to last log undercounts on exactly his workouts.** A treadmill is
   logged when you step off. The ask was literal; the literal version reads
   twenty minutes short on every day that opens with cardio and zero on a
@@ -76,7 +83,10 @@ first log to last, and a 25 lb bar.
 | `gym today` printed 0 lb for a stand-in the phone showed at 60 (review) | consistency | snapshot emits the weight the row shows | landed here |
 | `gym sessions` total drifted hours below the phone's, from minutes truncated per workout (review) | consistency | `gym_seconds`, summed then formatted | landed here |
 | Docs called the snapshot change additive when `today.items[]` had changed meaning (review) | docs | schema 7, history row, "Stand-ins" rewritten | landed here |
-| Apple Health got the uncorrected span for a workout that opens with cardio (review) — and this table first called it blocked on a migration risk that only applies to rewriting history | consistency | `Sessions.backdate`, forwards only, never across midnight; four `SessionTests` cases | landed here |
+| "Apple Health is short by the opening bout" — raised unverified by review, implemented unverified by me, and false: `saveCardio` already backdates every bout and `startedAt` is only a de-dup key (second review) | process | claims corrected in five places; the wrong hypothesis recorded in DECISIONS; `backdate` kept for the true reason, a late `started_at` | landed here |
+| The slot-wide fix made the row read its WEIGHT slot-wide too: 185 on the dumbbell row (second review) | correctness | `shownWeight` fed this exercise's sets only, phone and snapshot | landed here |
+| A stand-in lifted under, then swapped away from, could be offered to a second slot and tick both (second review) | correctness | `takenSlugs` unions `slugsCounting` of every other slot | landed here |
+| "Lifted today" matched any workout, and the no-session fallback matched the whole day — a morning's sets ticked an evening slot (second review) | correctness | both scoped to the slot's planned day | landed here |
 | The swap flow had no UI test, and the first draft of this retro called that blocked without trying | testing | `SwapUITests`: menu → picker → catalogue → stand-in row → set screen → back | landed here |
 
 ## Follow-ups landed in this milestone

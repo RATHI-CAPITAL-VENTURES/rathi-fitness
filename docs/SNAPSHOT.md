@@ -115,8 +115,10 @@ done*:
 - The targets are the slot's **as they apply to a stand-in**. Sets, reps, rest
   and `cardio_target.seconds` carry over; the rest of `cardio_target` does not,
   because miles and grade were facts about the other machine. `target_weight`
-  is the stand-in's own — what the phone's row shows: the set screen's
-  suggestion from its history, else its empty bar, else 0.
+  is the stand-in's own — what the phone's row shows: what he is lifting on it
+  today once a working set is logged, before that the set screen's suggestion
+  from its history, else its empty bar, else 0. Never the displaced exercise's
+  weight, even though that exercise's sets count toward the slot.
 - Across the lifting/cardio line nothing carries, because the slot has no
   shape to lend: a lift in a treadmill's slot opens on the plan defaults
   (3 × 10, 90 s unless he changed them), cardio in a lift's slot on one bout of
@@ -149,8 +151,10 @@ totals drift apart by hours. One known difference remains: `sessions[]`
 includes sets that reached the phone with no workout attached (grouped by day —
 see the builder), and the phone's tile leaves those out, so `gym` can read
 slightly *higher*. From v0.10.0 a workout opened by a bout also has its
-`started_at` moved back to when the bout began, which is what Apple Health is
-sent; workouts from before that keep the late start.
+`started_at` moved back to when the bout began, so on a same-day workout
+`ended_at − started_at` now agrees with `gym_seconds`; workouts from before
+that keep the late start. (Apple Health is unaffected either way — it exports
+each bout from its own start and never reads `started_at`.)
 
 ### Assisted machines
 

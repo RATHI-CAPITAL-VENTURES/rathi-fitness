@@ -47,9 +47,9 @@ A **MINOR bump is a milestone** and must ship a retro under
 
 - **A workout that opens with cardio starts when the cardio did.** The session
   opened on the first *log*, which for a treadmill is when you step off, so
-  Apple Health received a workout twenty minutes short. New workouts only —
-  one already exported is left alone, because its start is what the export
-  de-duplicates on.
+  `sessions[].started_at` read twenty minutes late. New workouts only. (Apple
+  Health was never affected — it already exports each bout from its own
+  start. This was first written up as a Health fix; it is not one.)
 - **Snapshot schema 7.** `today.items[]` now describes what is being *done*,
   which for a swapped slot is not what `plan[]` says — a change of meaning, so
   a bump. `gym` on the Mac refuses a schema-6 file until the phone has updated

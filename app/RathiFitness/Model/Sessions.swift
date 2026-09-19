@@ -46,14 +46,19 @@ enum Sessions {
     ///
     /// A session opens on the first LOG, and a treadmill is logged when you
     /// step off — so a workout that opens with twenty minutes of cardio had a
-    /// `startedAt` twenty minutes late. `Tally.gymSeconds` corrects for that
-    /// when it measures the span, but Apple Health is sent `startedAt` itself,
-    /// so Health was short by the length of the bout.
+    /// `startedAt` twenty minutes late, and the snapshot's `started_at` said
+    /// so to anyone reading it. `Tally.gymSeconds` makes the same correction
+    /// when it measures the span; this makes the stored start agree with it.
     ///
-    /// Only for the entry that opened the session, only forwards in time (new
-    /// workouts — history is left alone, because `startedAt` is what the Health
-    /// export de-duplicates on and moving an exported one would send it
-    /// twice), and never across midnight: the day a workout belongs to is what
+    /// **This is not a Health fix, though it was written as one.** Apple Health
+    /// is never sent `startedAt`: `HealthBridge.saveCardio` exports each bout
+    /// with its own start already pulled back by its length, the lifting
+    /// workout is bounded by the lifting sets, and `startedAt` is only the key
+    /// the export de-duplicates on. See DECISIONS 2026-09-19.
+    ///
+    /// Only for the entry that opened the session — which means a session with
+    /// one set, still open, and so never yet exported: the de-duplication key
+    /// is not moved out from under an export. And never across midnight: the day a workout belongs to is what
     /// the rotation and "today" both read, and a bout that straddles it is
     /// still today's.
     static func backdate(_ session: Session, toCover opening: SetEntry,

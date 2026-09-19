@@ -44,8 +44,8 @@ final class SessionTests: XCTestCase {
         return entry
     }
 
-    /// Logged at 18:20 when you step off; the workout began at 18:00. Apple
-    /// Health is sent `startedAt`, so without this it is twenty minutes short.
+    /// Logged at 18:20 when you step off; the workout began at 18:00, and
+    /// `sessions[].started_at` should say so.
     func testAWorkoutOpenedByABoutStartsWhenTheBoutDid() throws {
         let context = context()
         let logged = at(2026, 9, 14, 18).addingTimeInterval(20 * 60)

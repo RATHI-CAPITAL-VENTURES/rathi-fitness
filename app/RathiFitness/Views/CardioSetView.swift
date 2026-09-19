@@ -442,7 +442,7 @@ struct CardioSetView: View {
         entry.session = session
         context.insert(entry)
         // If this bout is what opened the workout, the workout began when the
-        // bout did — which is what Apple Health is sent.
+        // bout did, not when you stepped off and logged it.
         if let session { Sessions.backdate(session, toCover: entry) }
         note = ""
         context.saveOrReport("logging a set")

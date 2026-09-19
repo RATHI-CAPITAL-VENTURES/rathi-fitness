@@ -105,7 +105,16 @@ struct TodayView: View {
                 $0.session?.persistentModelID == session.persistentModelID
             }
         }
-        return allSets.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+        // Today's sets FOR THIS WORKOUT. The bare calendar day let a
+        // morning's Legs tick the evening's Push A before its first set —
+        // any lift the two shared, and with a swap any lift at all: stand the
+        // leg press in for the bench and the row read "4 of 3 done" on work
+        // from a different workout. A set with no session predates sessions.
+        let shown = today?.persistentModelID
+        return allSets.filter {
+            calendar.isDate($0.date, inSameDayAs: .now)
+                && ($0.session == nil || $0.session?.plannedDay?.persistentModelID == shown)
+        }
     }
 
     /// The workout in progress for the day on screen, if there is one.
@@ -627,7 +636,15 @@ struct TodayView: View {
                           suggestion: suggestion(for: item, exercise: exercise),
                           // Oldest first: `allSets` is newest-first, and the
                           // rule reads the LAST working set as what you are on.
-                          today: performed(item).sorted { $0.date < $1.date }
+                          //
+                          // THIS exercise's sets only. `performed` is the whole
+                          // slot, which is right for counting and wrong for a
+                          // weight: two bench sets at 185 put "185" on the
+                          // dumbbell row that replaced it, while the set screen
+                          // opened on 60.
+                          today: performed(item)
+                              .filter { $0.exercise?.slug == exercise.slug }
+                              .sorted { $0.date < $1.date }
                               .map { $0.tally(bodyWeight: nil) })
     }
 
@@ -675,7 +692,9 @@ struct TodayView: View {
             return warmups > 0 ? "\(plan) · \(warmups) warm-up done" : plan
         }
         if done.count >= target.sets {
-            let reps = done.sorted { $0.setIndex < $1.setIndex }.map { String($0.reps) }
+            // By time, not `setIndex`: that is per exercise, so a slot shared
+            // by two of them would print its reps interleaved.
+            let reps = done.sorted { $0.date < $1.date }.map { String($0.reps) }
             let hitAll = done.allSatisfy { $0.reps >= target.reps }
             return hitAll ? "\(plan) · all \(done.count) hit"
                           : "\(plan) · got \(reps.joined(separator: ", "))"
