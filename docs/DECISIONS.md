@@ -1554,3 +1554,150 @@ relabels nothing.
 Why the stored target stays and still advances: it is the fallback with no
 history, the number the plan editor edits, and what the snapshot exports as
 `working_weight`. It is the programme. The row is what you are about to do.
+
+## 2026-09-19 — A swap is a dated row, not an edit to the plan
+
+**Chosen: `Swap` — one row per plan slot per calendar day naming what is being
+done instead. Rejected: a `standIn` field on `PlanItem`; a list of alternates
+per slot; editing the plan and changing it back.**
+
+The treadmills are all taken, so you get on a bike. The only door the app had
+was the plan editor, which says "bike" for every week from now on and has to be
+undone by hand next Tuesday — which is to say it never is.
+
+- **A field on the slot needs something to clear it** — at midnight, on the
+  next launch, when the session closes. Every one of those is a rule that fails
+  silently the day it does not run, and the failure is the bike staying in the
+  plan for good: the exact thing being avoided. A dated row needs no clearing.
+  Tomorrow it simply does not match (`SwapTests.testTomorrowIsThePlanAgain…`).
+- **Day-scoped, not session-scoped**, because the swap is made *before* the
+  first set and a `Session` does not exist until one is logged.
+- **A list of alternates per slot was the other obvious shape** and is more
+  work for less: you would have to curate it in the plan editor before the day
+  you need it. The old rows give the same result for free — the picker's first
+  shelf is "what you usually do instead", most often first, so the second time
+  the treadmills are taken the bike is one tap.
+
+**The stand-in inherits the shape of the work and none of the load**
+(`Swaps.Prescription`). Sets, reps, rest and minutes carry over; weight, miles,
+speed, grade and resistance do not. 185 lb is a fact about the bench, and two
+miles at 3% is a fact about the treadmill — a bike covers that in a third of
+the time and has no grade. The stand-in opens on its own history instead, or on
+its empty bar if it has none. And the log path's write-back to
+`PlanItem.targetWeight` (2026-09-02, "The plan follows the barbell") is skipped
+for a stand-in: a heavy day on the dumbbells must not become next week's
+barbell target.
+
+**Everything that draws a slot reads `Swaps.exercise(for:)`, never
+`item.exercise`** — Today's rows and `today.items[]` in the snapshot.
+
+**Counting is per slot; a weight is per exercise.** The second review caught
+the first fix overreaching: once the row counted the whole slot, it also read
+its *weight* from the whole slot, so two bench sets at 185 put "185" on the
+dumbbell row that replaced them while the set screen opened on 60 — the
+row-versus-set-screen disagreement 2026-09-16 exists to end. `shownWeight` is
+fed this exercise's sets only, on the phone and in the snapshot alike. And
+**one exercise counts toward one slot**: `takenSlugs` excludes everything that
+*counts* toward another slot, not just what is showing in it, or a stand-in
+lifted under and swapped away from could be offered elsewhere and tick both.
+"Lifted under" means in THIS workout — a set whose session is the slot's
+planned day — and the no-open-session fallback on Today and in the snapshot is
+scoped the same way, so a morning's leg presses do not tick an evening slot.
+
+**And a slot is done when its work is done, whoever did it**
+(`Swaps.slugsCounting`). Two sets on the bench, someone takes it, two on the
+dumbbells: four of four. The first version counted only what was in the slot
+*now*, and review caught what that does — swap after two sets and the row goes
+from "2 of 4" back to "0 of 4" with the sets nowhere on the checklist; swap
+back and it is the dumbbells that vanish. So a stand-in's row is kept once you
+have lifted under it, the way back is then a newer row naming the slot's own
+exercise, and the latest row wins. A stand-in you only looked at still leaves
+nothing behind. This is also why an exercise already in today's workout cannot
+stand in — even one whose own slot is currently swapped away: its sets still
+count toward that slot, so doing it here would tick both.
+
+**Across the lifting/cardio line nothing carries over**, because the slot has
+no shape to lend. A treadmill slot is 1 × 0 with no rest — inherited, a leg
+press opened on zero reps with no cooldown and ticked itself done after one
+set — and a squat slot has no minutes, so a rower was asked for nothing. Both
+now open on `PlanDefaults`, which is what a new slot opens on, because that is
+what they are. Also caught in review; the first version handled one direction
+and only its set count.
+
+Not done, on purpose: swapping from inside the set screen. `SetView` takes its
+exercise as a `let` and primes its weight once; changing the exercise under a
+pushed screen means re-priming state that was designed not to re-prime, and may
+mean replacing `SetView` with `CardioSetView` mid-navigation. The swap lives on
+Today, one long-press before the screen it would have disturbed, with a one-time
+hint because a long-press is invisible until someone says it is there.
+
+## 2026-09-19 — Time in the gym is first log to last, plus the bout you opened with
+
+**Chosen: `Tally.gymSeconds` — the span of a workout's logs, with the first
+log pulled back by its own length when it is a cardio bout. Rejected:
+`endedAt − startedAt`; a start/stop button; the raw span.**
+
+- **Not the stored pair.** `Session.endedAt` is nil while a workout is running,
+  is whatever the backfill guessed for history, and goes stale when an undo
+  removes the last set. The logs are the record; the span is read from them.
+- **Not a button.** A timer you have to remember to start is a number that is
+  wrong on exactly the days you were too busy training to press it. The app's
+  own cardio screen already refused to be a stopwatch for the same reason.
+- **Not the raw span, because of when cardio is logged.** A lift is logged
+  seconds after it happens. A treadmill is logged when you step *off*. On a day
+  that opens with twenty minutes of cardio the first log is twenty minutes into
+  the visit, so the raw span reads twenty minutes short — every time, for ever,
+  and on a cardio-only day it reads zero. The entry carries its own length, so
+  the start is pulled back by it. Only the FIRST log: a finisher is already
+  inside the span and adding it would count those minutes twice.
+
+One definition, four readers — Today's "47 min", the past-workout page, the
+lifetime tile on Trends, `sessions[].gym_seconds` — because the figure this
+replaces on Today was a private computation that had already been wrong once
+(it measured to *now*, so a workout finished at 08:49 read "438 min in" by
+mid-afternoon). The lifetime figure is summed per workout; the span of every
+log at once would count the nights in between.
+
+The snapshot carries **seconds**, not minutes, because `gym sessions` totals
+them: minutes truncated per workout lose half a minute each, and review worked
+out that a hundred and fifty workouts puts the Mac two hours behind the phone.
+
+**A hypothesis that was wrong, written down so it is not re-run: "Apple Health
+is short by the opening bout."** Review raised it as a possibility, unverified;
+it was then implemented as a fix, also unverified; the second review read the
+export and found neither of us had. `HealthBridge.exportWorkouts` never sends
+`Session.startedAt`. Each cardio bout goes over as its own workout, and
+`saveCardio` already starts it `seconds` before its log — Health has had the
+right interval since cardio shipped. The lifting workout is bounded by the
+lifting sets' own dates. `startedAt` is only the dictionary key and the
+de-duplication key.
+
+`Sessions.backdate` stays, for the reason that is actually true: the stored
+start, and so `sessions[].started_at`, was twenty minutes late on a workout
+opened by a bout, and now agrees with `gym_seconds`. It fires only for the
+entry that opens a session — one set, still open, never exported — so the
+de-duplication key is never moved from under an export, and never across
+midnight, because the day a workout belongs to is what the rotation and
+"today" both read.
+
+What it still leaves out, knowingly: the walk from the door to the first set,
+and the shower. Nothing on the phone records either. The pull-back also trusts
+the bout's typed length and assumes it was logged on stepping off; a bout
+logged fifteen minutes late is fifteen minutes late.
+
+## 2026-09-19 — The bars are a registry, and the ones with no standard weight are typed
+
+**Chosen: `PlateMath.bars` (45, 35, 25, 15, none) drives the picker; any other
+weight is typed in. Rejected: adding a 25 to the inline list; adding rows for
+hex, EZ-curl, safety-squat and Smith bars.**
+
+The ask was a 25 lb bar, and the list it was missing from was four tuples
+written inline in `ExerciseEditorView`. Plate math was always generic over the
+bar — the picker was the only thing that could not say 25.
+
+A hex bar is anything from 45 to 70 lb, an EZ-curl 15 to 25, a counterbalanced
+Smith bar as little as 15. A menu row for any of them would be a guess wearing
+a label, and the plate math would subtract the guess. So those are typed
+("A different bar"), and `barOptions(including:)` keeps a typed weight on the
+menu — a menu that cannot find its own current value shows "—", which reads as
+"no bar" while 55 lb is quietly being subtracted underneath.

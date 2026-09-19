@@ -31,6 +31,12 @@ struct SetView: View {
 
     private var calendar: Calendar { .current }
 
+    /// What the slot asks of THIS exercise — the plan's own numbers, or only
+    /// the shape of them when `exercise` is standing in for the day. Read this,
+    /// not `item.target…`: see `Swaps.Prescription`.
+    private var plan: Swaps.Prescription { Swaps.prescription(for: item, doing: exercise) }
+    private var isStandIn: Bool { Swaps.isStandIn(exercise, in: item) }
+
     private var mine: [SetEntry] { allSets.filter { $0.exercise?.slug == exercise.slug } }
     /// This workout's sets, not today's.
     ///
@@ -55,10 +61,23 @@ struct SetView: View {
     }
     /// Sequential, so a warm-up is set 1 and the numbering matches what you did.
     private var nextSet: Int { todays.count + 1 }
-    /// Progress toward the target counts working sets only.
-    private var workingToday: [SetEntry] { todays.filter { $0.setKind.counts } }
+    /// Progress toward the target counts working sets only — and counts the
+    /// SLOT's, not just this exercise's. Two sets on the bench before it was
+    /// taken are two of the four this screen is asking for; without them this
+    /// said "Set 1 of 4" while Today said "2 of 4 done". `todays` stays
+    /// per-exercise, because set numbering, undo and the opening weight are
+    /// about this lift. See `Swaps.slugsCounting`.
+    private var workingToday: [SetEntry] {
+        guard let session = currentSession else { return [] }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return allSets.filter {
+            $0.session?.persistentModelID == session.persistentModelID
+                && slugs.contains($0.exercise?.slug ?? "")
+                && $0.setKind.counts
+        }
+    }
     private var nextWorkingSet: Int { workingToday.count + 1 }
-    private var isFinished: Bool { workingToday.count >= item.targetSets }
+    private var isFinished: Bool { workingToday.count >= plan.sets }
     private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }
 
     private var loadout: PlateMath.Loadout {
@@ -96,7 +115,7 @@ struct SetView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Text("Set \(min(nextWorkingSet, item.targetSets)) of \(item.targetSets)")
+                Text("Set \(min(nextWorkingSet, plan.sets)) of \(plan.sets)")
                     .rfEyebrow()
             }
         }
@@ -141,7 +160,7 @@ struct SetView: View {
             return "\(rest.remaining()) seconds left on \(exercise.name)."
         }
         if isFinished { return "\(exercise.name) is done. \(workingToday.count) sets." }
-        return "\(exercise.name). Set \(nextWorkingSet) of \(item.targetSets), "
+        return "\(exercise.name). Set \(nextWorkingSet) of \(plan.sets), "
              + "\(Fmt.spoken(weight)) for \(reps)."
     }
 
@@ -156,7 +175,10 @@ struct SetView: View {
             Text(exercise.name)
                 .font(RFDesign.title(29))
                 .foregroundStyle(RFDesign.speech)
-            SetPips(total: item.targetSets, done: workingToday.count)
+            if isStandIn, let planned = item.exercise {
+                Text("Today, instead of \(planned.name)").rfEyebrow()
+            }
+            SetPips(total: plan.sets, done: workingToday.count)
         }
         .padding(.top, RFDesign.xs)
     }
@@ -168,7 +190,7 @@ struct SetView: View {
             let now = timeline.date
             CooldownRing(
                 progress: restingHere ? rest.progress(at: now) : 1,
-                remaining: restingHere ? rest.remaining(at: now) : item.restSeconds,
+                remaining: restingHere ? rest.remaining(at: now) : plan.restSeconds,
                 caption: restingHere ? restForThisSet.caption
                                      : (isFinished ? "Done" : "Ready"))
         }
@@ -260,7 +282,7 @@ struct SetView: View {
                 // volume. Saying so explicitly beats a default that hides it.
                 $0.tally(bodyWeight: nil)
             },
-            target: item.targetReps)
+            target: plan.reps)
         // No `assisted:` here on purpose — `nextTarget` reads it off the sets,
         // which is what stops this call site getting it wrong again.
     }
@@ -472,8 +494,8 @@ struct SetView: View {
     private func prime() {
         guard !started else { return }
         started = true
-        weight = todays.last?.weight ?? suggestion?.weight ?? item.targetWeight
-        reps = todays.last.map { _ in item.targetReps } ?? suggestion?.reps ?? item.targetReps
+        weight = todays.last?.weight ?? suggestion?.weight ?? plan.weight
+        reps = todays.last.map { _ in plan.reps } ?? suggestion?.reps ?? plan.reps
     }
 
     /// In a superset you walk to the next machine, you do not rest.
@@ -483,11 +505,11 @@ struct SetView: View {
     /// the model at all is that the timer is otherwise actively wrong here.
     private var restForThisSet: (seconds: Int, caption: String) {
         guard item.supersetGroup > 0, let day = item.day else {
-            return (item.restSeconds, "Cooldown")
+            return (plan.restSeconds, "Cooldown")
         }
         let group = day.orderedItems.filter { $0.supersetGroup == item.supersetGroup }
         let isLast = group.last?.persistentModelID == item.persistentModelID
-        return isLast ? (item.restSeconds, "Cooldown") : (20, "Move")
+        return isLast ? (plan.restSeconds, "Cooldown") : (20, "Move")
     }
 
     private func logSet() {
@@ -524,7 +546,12 @@ struct SetView: View {
         // The plan follows what you actually lift. Without this the row goes on
         // showing 45 after you have been doing 50 for a month — the suggestion
         // told you to move up, you moved up, and the checklist never noticed.
-        if let advanced = Tally.advancedTarget(current: item.targetWeight,
+        //
+        // Not for a stand-in. `targetWeight` belongs to the slot's OWN exercise:
+        // a heavy day on the dumbbells must not become next week's barbell
+        // target, which is what writing it through would do.
+        if !isStandIn,
+           let advanced = Tally.advancedTarget(current: item.targetWeight,
                                                targetReps: item.targetReps,
                                                set: candidate) {
             item.targetWeight = advanced

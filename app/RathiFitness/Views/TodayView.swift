@@ -24,6 +24,9 @@ struct TodayView: View {
     /// one — most of them are rest days, so swiping would mostly show nothing.
     @State private var page = 0
     @AppStorage("today.swipeHintSeen") private var swipeHintSeen = false
+    /// The slot being swapped, while the picker is up.
+    @State private var swapping: PlanItem?
+    @AppStorage("today.swapHintSeen") private var swapHintSeen = false
 
     private var calendar: Calendar { .current }
     private var config: Rotation.Config { schedules.first?.config ?? Rotation.Config() }
@@ -102,7 +105,16 @@ struct TodayView: View {
                 $0.session?.persistentModelID == session.persistentModelID
             }
         }
-        return allSets.filter { calendar.isDate($0.date, inSameDayAs: .now) }
+        // Today's sets FOR THIS WORKOUT. The bare calendar day let a
+        // morning's Legs tick the evening's Push A before its first set —
+        // any lift the two shared, and with a swap any lift at all: stand the
+        // leg press in for the bench and the row read "4 of 3 done" on work
+        // from a different workout. A set with no session predates sessions.
+        let shown = today?.persistentModelID
+        return allSets.filter {
+            calendar.isDate($0.date, inSameDayAs: .now)
+                && ($0.session == nil || $0.session?.plannedDay?.persistentModelID == shown)
+        }
     }
 
     /// The workout in progress for the day on screen, if there is one.
@@ -218,6 +230,13 @@ struct TodayView: View {
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(isPresented: $showingPlan) { PlanView() }
+            .sheet(item: $swapping) { item in
+                ExercisePickerView(standingInFor: item) { chosen in
+                    Swaps.put(chosen, in: item, context: context)
+                    context.saveOrReport("swapping an exercise for today")
+                    snapshots.setNeedsWrite(context)
+                }
+            }
         }
     }
 
@@ -233,6 +252,7 @@ struct TodayView: View {
                 if let day = today {
                     progress(for: day)
                     rows(for: day)
+                    swapHint
                     moved(for: day)
                 } else {
                     restDay
@@ -258,6 +278,16 @@ struct TodayView: View {
             .rfEyebrow()
             .frame(maxWidth: .infinity)
             .padding(.top, RFDesign.sm)
+        }
+    }
+
+    /// Same argument as `swipeHint`: a long-press is invisible until you are
+    /// told it is there. Gone for good once the picker has been opened once.
+    @ViewBuilder private var swapHint: some View {
+        if !swapHintSeen {
+            Text("Machine taken? Hold an exercise to do something else today.")
+                .rfEyebrow()
+                .padding(.top, RFDesign.xs)
         }
     }
 
@@ -383,22 +413,27 @@ struct TodayView: View {
     ///
     /// A finished workout has a duration; a live one has an elapsed time. They
     /// are different sentences and it now says whichever is true.
+    ///
+    /// Both go through `Tally.gymSeconds`, so this, the past-workout page and
+    /// the lifetime total on Trends cannot disagree about when a workout began
+    /// — in particular all three count the treadmill you opened with.
     private var elapsedMinutes: String? {
-        let sets = todaysSets
-        guard let start = sets.map(\.date).min() else { return nil }
+        let logs = todaysSets.map(\.log)
+        guard !logs.isEmpty else { return nil }
         if openSession != nil {
-            let mins = Int(Date.now.timeIntervalSince(start) / 60)
-            return "\(mins) min in"
+            // Still going, so "now" is the far end rather than the last set.
+            let running = Tally.gymSeconds(logs + [Tally.Log(date: .now)])
+            return "\(Tally.gymTimeText(running)) in"
         }
-        guard let last = sets.map(\.date).max() else { return nil }
-        let mins = max(1, Int(last.timeIntervalSince(start) / 60))
-        return "\(mins) min"
+        return Tally.gymTimeText(max(60, Tally.gymSeconds(logs)))
     }
 
     private func rows(for day: PlannedDay) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(day.orderedItems.enumerated()), id: \.element.persistentModelID) { i, item in
-                if let exercise = item.exercise {
+                // What is in the slot TODAY — the plan's exercise, or whatever
+                // is standing in for it. See `Swaps`.
+                if let exercise = Swaps.exercise(for: item) {
                     NavigationLink {
                         // Two screens, because a treadmill and a bench share
                         // almost nothing: no plate math, no rep target, and a
@@ -416,10 +451,31 @@ struct TodayView: View {
                             .accessibilityIdentifier("row-\(exercise.slug)")
                     }
                     .buttonStyle(.plain)
+                    .contextMenu { swapMenu(for: item) }
                     if i < day.orderedItems.count - 1 {
                         Divider().overlay(RFDesign.hairline)
                     }
                 }
+            }
+        }
+    }
+
+    /// Today only. Editing the plan is the other door, and it is the wrong one
+    /// for "the treadmills are all taken" — it changes every week from now on.
+    @ViewBuilder private func swapMenu(for item: PlanItem) -> some View {
+        Button {
+            swapHintSeen = true
+            swapping = item
+        } label: {
+            Label("Do something else today", systemImage: "arrow.left.arrow.right")
+        }
+        if Swaps.standIn(for: item) != nil, let planned = item.exercise {
+            Button {
+                Swaps.clear(item, context: context)
+                context.saveOrReport("swapping back to the plan")
+                snapshots.setNeedsWrite(context)
+            } label: {
+                Label("Back to \(planned.name)", systemImage: "arrow.uturn.backward")
             }
         }
     }
@@ -532,9 +588,17 @@ struct TodayView: View {
 
     // MARK: state
 
+    /// Everything done in this slot today — on the plan's exercise and on
+    /// anything that stood in for it. Two sets on the bench and two on the
+    /// dumbbells is four of four: see `Swaps.slugsCounting`.
     private func performed(_ item: PlanItem) -> [SetEntry] {
-        guard let slug = item.exercise?.slug else { return [] }
-        return todaysSets.filter { $0.exercise?.slug == slug }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return todaysSets.filter { slugs.contains($0.exercise?.slug ?? "") }
+    }
+
+    /// The slot's numbers as they apply to what is in it today.
+    private func prescription(_ item: PlanItem) -> Swaps.Prescription? {
+        Swaps.exercise(for: item).map { Swaps.prescription(for: item, doing: $0) }
     }
 
     /// Sets that move you toward the target. Three warm-ups used to tick an
@@ -547,10 +611,11 @@ struct TodayView: View {
         // One bout ticks a cardio slot off unless the plan asked for intervals.
         // Counting it against `targetSets` alone would leave the treadmill
         // permanently unfinished, because its default target is three.
-        if item.exercise?.isCardio == true {
-            return performed(item).count >= max(1, item.targetSets)
+        let sets = prescription(item)?.sets ?? item.targetSets
+        if Swaps.exercise(for: item)?.isCardio == true {
+            return performed(item).count >= max(1, sets)
         }
-        return working(item).count >= item.targetSets
+        return working(item).count >= sets
     }
 
     /// What the set screen will say to try, from the last day this lift was
@@ -559,7 +624,7 @@ struct TodayView: View {
         let mine = allSets.filter { $0.exercise?.slug == exercise.slug }
         return Tally.nextTarget(
             lastSession: mine.lastSession(calendar: calendar).map { $0.tally(bodyWeight: nil) },
-            target: item.targetReps)
+            target: Swaps.prescription(for: item, doing: exercise).reps)
     }
 
     /// The weight a row reads. Not `item.targetWeight`: that is what the plan
@@ -567,11 +632,19 @@ struct TodayView: View {
     /// and stays stale for any session the log path never saw. The row shows
     /// the same number the set screen opens on — see `Tally.shownWeight`.
     private func shownWeight(for item: PlanItem, exercise: Exercise) -> Double {
-        Tally.shownWeight(plan: item.targetWeight,
+        Tally.shownWeight(plan: Swaps.prescription(for: item, doing: exercise).weight,
                           suggestion: suggestion(for: item, exercise: exercise),
                           // Oldest first: `allSets` is newest-first, and the
                           // rule reads the LAST working set as what you are on.
-                          today: performed(item).sorted { $0.date < $1.date }
+                          //
+                          // THIS exercise's sets only. `performed` is the whole
+                          // slot, which is right for counting and wrong for a
+                          // weight: two bench sets at 185 put "185" on the
+                          // dumbbell row that replaced it, while the set screen
+                          // opened on 60.
+                          today: performed(item)
+                              .filter { $0.exercise?.slug == exercise.slug }
+                              .sorted { $0.date < $1.date }
                               .map { $0.tally(bodyWeight: nil) })
     }
 
@@ -579,54 +652,72 @@ struct TodayView: View {
     /// cardio. It is the thing you are about to go and do either way.
     private func trailing(for item: PlanItem, exercise: Exercise) -> String {
         guard exercise.isCardio else { return Fmt.weight(shownWeight(for: item, exercise: exercise)) }
-        if item.targetSeconds > 0 { return Fmt.minutes(item.targetSeconds) }
-        if item.targetDistance > 0 { return "\(Fmt.distance(item.targetDistance)) mi" }
+        let plan = Swaps.prescription(for: item, doing: exercise)
+        if plan.seconds > 0 { return Fmt.minutes(plan.seconds) }
+        if plan.distance > 0 { return "\(Fmt.distance(plan.distance)) mi" }
         return "—"
     }
 
     private func state(for item: PlanItem) -> ExerciseRow.State {
         if isDone(item) { return .done }
         if !performed(item).isEmpty { return .live }
-        if rest.exerciseName != nil && rest.exerciseName == item.exercise?.name { return .live }
+        if rest.exerciseName != nil && rest.exerciseName == Swaps.exercise(for: item)?.name {
+            return .live
+        }
         return .pending
     }
 
     /// The plan and the deviation in the same breath.
     private func meta(for item: PlanItem) -> String {
-        guard let exercise = item.exercise else { return "" }
-        if exercise.isCardio { return cardioMeta(for: item) }
+        guard let exercise = Swaps.exercise(for: item) else { return "" }
+        let line = exercise.isCardio
+            ? cardioMeta(for: item, exercise: exercise)
+            : liftMeta(for: item, exercise: exercise)
+        // A stand-in says whose place it is in, first — otherwise a bike in
+        // the treadmill's slot looks like the plan changed under you.
+        if Swaps.isStandIn(exercise, in: item), let planned = item.exercise {
+            return "for \(planned.name) · \(line)"
+        }
+        return line
+    }
+
+    private func liftMeta(for item: PlanItem, exercise: Exercise) -> String {
+        let target = Swaps.prescription(for: item, doing: exercise)
         let done = working(item)
         let warmups = performed(item).count - done.count
         let unit = exercise.weightUnit
         let weight = Fmt.weight(shownWeight(for: item, exercise: exercise))
-        let plan = "\(item.targetSets) × \(item.targetReps) · \(weight) \(unit)"
+        let plan = "\(target.sets) × \(target.reps) · \(weight) \(unit)"
         if done.isEmpty {
             return warmups > 0 ? "\(plan) · \(warmups) warm-up done" : plan
         }
-        if done.count >= item.targetSets {
-            let reps = done.sorted { $0.setIndex < $1.setIndex }.map { String($0.reps) }
-            let hitAll = done.allSatisfy { $0.reps >= item.targetReps }
+        if done.count >= target.sets {
+            // By time, not `setIndex`: that is per exercise, so a slot shared
+            // by two of them would print its reps interleaved.
+            let reps = done.sorted { $0.date < $1.date }.map { String($0.reps) }
+            let hitAll = done.allSatisfy { $0.reps >= target.reps }
             return hitAll ? "\(plan) · all \(done.count) hit"
                           : "\(plan) · got \(reps.joined(separator: ", "))"
         }
-        if rest.isResting && rest.exerciseName == item.exercise?.name {
-            return "set \(done.count) of \(item.targetSets) · resting \(Fmt.clock(rest.remaining()))"
+        if rest.isResting && rest.exerciseName == exercise.name {
+            return "set \(done.count) of \(target.sets) · resting \(Fmt.clock(rest.remaining()))"
         }
-        return "set \(done.count) of \(item.targetSets) done"
+        return "set \(done.count) of \(target.sets) done"
             + (warmups > 0 ? " · +\(warmups) warm-up" : "")
     }
 
     /// Cardio's version: what was asked for, then what actually happened on the
     /// console. No reps, because there are none.
-    private func cardioMeta(for item: PlanItem) -> String {
+    private func cardioMeta(for item: PlanItem, exercise: Exercise) -> String {
+        let target = Swaps.prescription(for: item, doing: exercise)
         let bouts = performed(item)
         if bouts.isEmpty {
             var parts: [String] = []
-            if item.targetSeconds > 0 { parts.append(Fmt.minutes(item.targetSeconds)) }
-            if item.targetDistance > 0 { parts.append("\(Fmt.distance(item.targetDistance)) mi") }
-            if item.targetIncline > 0 { parts.append("\(Fmt.rate(item.targetIncline))% grade") }
-            if item.targetSpeed > 0 { parts.append("\(Fmt.rate(item.targetSpeed)) mph") }
-            if item.targetSets > 1 { parts.append("\(item.targetSets) intervals") }
+            if target.seconds > 0 { parts.append(Fmt.minutes(target.seconds)) }
+            if target.distance > 0 { parts.append("\(Fmt.distance(target.distance)) mi") }
+            if target.incline > 0 { parts.append("\(Fmt.rate(target.incline))% grade") }
+            if target.speed > 0 { parts.append("\(Fmt.rate(target.speed)) mph") }
+            if target.sets > 1 { parts.append("\(target.sets) intervals") }
             return parts.isEmpty ? "no target" : parts.joined(separator: " · ")
         }
         let seconds = bouts.reduce(0) { $0 + $1.seconds }
@@ -634,8 +725,8 @@ struct TodayView: View {
         var parts: [String] = []
         if seconds > 0 { parts.append(Fmt.minutes(seconds)) }
         if miles > 0 { parts.append("\(Fmt.distance(miles)) mi") }
-        if item.targetSets > 1 {
-            parts.append("\(bouts.count) of \(item.targetSets)")
+        if target.sets > 1 {
+            parts.append("\(bouts.count) of \(target.sets)")
         }
         return parts.joined(separator: " · ")
     }

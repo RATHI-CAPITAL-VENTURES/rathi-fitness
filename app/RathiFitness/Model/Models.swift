@@ -63,6 +63,12 @@ final class Exercise {
     @Relationship(deleteRule: .cascade, inverse: \MachineSetting.exercise)
     var machineSettings: [MachineSetting]? = []
 
+    /// The days this stood in for something else. See `Swap`. Cascades: a
+    /// swap pointing at an exercise that no longer exists is a row on Today
+    /// with no name.
+    @Relationship(deleteRule: .cascade, inverse: \Swap.exercise)
+    var standIns: [Swap]? = []
+
     init(name: String, slug: String? = nil,
          loading: Loading = .barbell, barWeight: Double = 45,
          primary: MuscleGroup = .other, secondary: [MuscleGroup] = [],
@@ -163,6 +169,10 @@ final class PlanItem {
     var exercise: Exercise?
     var day: PlannedDay?
 
+    /// The days something else was done in this slot. See `Swap`.
+    @Relationship(deleteRule: .cascade, inverse: \Swap.item)
+    var swaps: [Swap]? = []
+
     init(order: Int, exercise: Exercise, targetSets: Int, targetReps: Int,
          targetWeight: Double, restSeconds: Int = 90, supersetGroup: Int = 0,
          targetSeconds: Int = 0, targetDistance: Double = 0,
@@ -180,6 +190,40 @@ final class PlanItem {
         self.targetReps = targetReps
         self.targetWeight = targetWeight
         self.restSeconds = restSeconds
+    }
+}
+
+/// Something else, in this slot, for one day.
+///
+/// The treadmills are all taken, so you get on a bike. Until this existed the
+/// only way to say so was to edit the plan — which says it for every week from
+/// now on, and has to be undone by hand next Tuesday, which is to say it never
+/// is. The plan is what you intend; this is what happened instead, once.
+///
+/// **A row per day, not a field on the slot.** A `PlanItem.standIn` would have
+/// been one property and no model, and it would have needed something to clear
+/// it — at midnight, or on the next launch, or when the session closes — and
+/// every one of those is a rule that fails silently the day it does not run,
+/// leaving the bike in the plan for good: the exact thing this exists to avoid.
+/// A dated row needs no clearing. Tomorrow it simply does not match.
+///
+/// **Day-scoped, not session-scoped**, because the swap is made BEFORE the
+/// first set and a `Session` does not exist until one is logged.
+///
+/// Old rows are kept on purpose: they are how the picker knows the bike is
+/// what you usually reach for when the treadmill is taken.
+@Model
+final class Swap {
+    /// The day it applies to. Any time on that day; compared by calendar day.
+    var date: Date = Date.now
+    var item: PlanItem?
+    /// What is being done instead.
+    var exercise: Exercise?
+
+    init(item: PlanItem, exercise: Exercise, date: Date = .now) {
+        self.item = item
+        self.exercise = exercise
+        self.date = date
     }
 }
 

@@ -41,6 +41,40 @@ enum Sessions {
         return session
     }
 
+    /// Start the workout when the bout that opened it began, not when it was
+    /// logged.
+    ///
+    /// A session opens on the first LOG, and a treadmill is logged when you
+    /// step off — so a workout that opens with twenty minutes of cardio had a
+    /// `startedAt` twenty minutes late, and the snapshot's `started_at` said
+    /// so to anyone reading it. `Tally.gymSeconds` makes the same correction
+    /// when it measures the span; this makes the stored start agree with it.
+    ///
+    /// **This is not a Health fix, though it was written as one.** Apple Health
+    /// is never sent `startedAt`: `HealthBridge.saveCardio` exports each bout
+    /// with its own start already pulled back by its length, the lifting
+    /// workout is bounded by the lifting sets, and `startedAt` is only the key
+    /// the export de-duplicates on. See DECISIONS 2026-09-19.
+    ///
+    /// Only for the entry that opened the session — which means a session with
+    /// one set, still open, and so never yet exported: the de-duplication key
+    /// is not moved out from under an export.
+    ///
+    /// And never across midnight: the day a workout belongs to is what the
+    /// rotation and "today" both read, and a bout that straddles it is still
+    /// today's.
+    static func backdate(_ session: Session, toCover opening: SetEntry,
+                         calendar: Calendar = .current) {
+        guard opening.seconds > 0 else { return }
+        let others = (session.sets ?? []).filter {
+            !$0.isDeleted && $0.persistentModelID != opening.persistentModelID
+        }
+        guard others.isEmpty else { return }
+        let began = opening.date.addingTimeInterval(-Double(opening.seconds))
+        let floor = calendar.startOfDay(for: opening.date)
+        session.startedAt = min(session.startedAt, max(began, floor))
+    }
+
     /// Record the schedule as it is now, if it has changed.
     ///
     /// Append-only, and idempotent: calling it twice with the same target adds
@@ -117,8 +151,12 @@ enum Sessions {
     /// End a workout. Idempotent — finishing a finished session does nothing.
     ///
     /// `endedAt` is the last set logged, not the moment you tapped the button,
-    /// so the span Apple Health receives is the workout rather than however long
-    /// the app stayed open afterwards.
+    /// so `sessions[].ended_at` is when the workout ended rather than however
+    /// long the app stayed open afterwards. It is also what makes a session
+    /// READY to export — but it is not what Apple Health is sent: the lifting
+    /// workout is bounded by the lifting sets' own dates, and each bout by its
+    /// own. (This line used to say Health received this span. It never did;
+    /// see DECISIONS 2026-09-19.)
     static func close(_ session: Session, in context: ModelContext) {
         guard session.isOpen else { return }
         session.endedAt = session.orderedSets.last?.date ?? session.startedAt

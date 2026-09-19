@@ -33,6 +33,73 @@ final class SessionTests: XCTestCase {
         return exercise
     }
 
+    // MARK: a workout that opens with cardio
+
+    private func bout(_ seconds: Int, at date: Date, in session: Session,
+                      _ context: ModelContext) -> SetEntry {
+        let entry = SetEntry(exercise: lift("Treadmill", in: context), weight: 0, reps: 0,
+                             setIndex: 1, date: date, seconds: seconds)
+        entry.session = session
+        context.insert(entry)
+        return entry
+    }
+
+    /// Logged at 18:20 when you step off; the workout began at 18:00, and
+    /// `sessions[].started_at` should say so.
+    func testAWorkoutOpenedByABoutStartsWhenTheBoutDid() throws {
+        let context = context()
+        let logged = at(2026, 9, 14, 18).addingTimeInterval(20 * 60)
+        let session = try XCTUnwrap(Sessions.current(for: nil, in: context, now: logged))
+        let opening = bout(1200, at: logged, in: session, context)
+
+        Sessions.backdate(session, toCover: opening, calendar: cal)
+
+        XCTAssertEqual(session.startedAt, at(2026, 9, 14, 18))
+    }
+
+    /// A finisher is already inside the workout. Moving the start for it would
+    /// stretch the workout backwards over time you were not there.
+    func testABoutLaterInTheWorkoutMovesNothing() throws {
+        let context = context()
+        let began = at(2026, 9, 14, 18)
+        let session = try XCTUnwrap(Sessions.current(for: nil, in: context, now: began))
+        let first = SetEntry(exercise: lift("Squat", in: context), weight: 225, reps: 5,
+                             setIndex: 1, date: began)
+        first.session = session
+        context.insert(first)
+        let finisher = bout(1200, at: began.addingTimeInterval(3600), in: session, context)
+
+        Sessions.backdate(session, toCover: finisher, calendar: cal)
+
+        XCTAssertEqual(session.startedAt, began)
+    }
+
+    /// The day a workout belongs to is what the rotation and "today" read.
+    func testABoutThatStraddlesMidnightStaysOnTheDayItWasLogged() throws {
+        let context = context()
+        let logged = at(2026, 9, 14, 0).addingTimeInterval(10 * 60)     // 00:10
+        let session = try XCTUnwrap(Sessions.current(for: nil, in: context, now: logged))
+        let opening = bout(1800, at: logged, in: session, context)
+
+        Sessions.backdate(session, toCover: opening, calendar: cal)
+
+        XCTAssertEqual(session.startedAt, at(2026, 9, 14, 0))
+    }
+
+    func testALiftHasNoLengthToBackdateBy() throws {
+        let context = context()
+        let began = at(2026, 9, 14, 18)
+        let session = try XCTUnwrap(Sessions.current(for: nil, in: context, now: began))
+        let set = SetEntry(exercise: lift("Squat", in: context), weight: 225, reps: 5,
+                           setIndex: 1, date: began)
+        set.session = session
+        context.insert(set)
+
+        Sessions.backdate(session, toCover: set, calendar: cal)
+
+        XCTAssertEqual(session.startedAt, began)
+    }
+
     // MARK: opening and closing
 
     func testTheFirstSetOfAWorkoutOpensIt() throws {

@@ -35,6 +35,10 @@ struct CardioSetView: View {
     @State private var primed = false
 
     private var calendar: Calendar { .current }
+    /// What the slot asks of THIS machine. Twenty minutes carries over to a
+    /// stand-in; two miles at 3% does not — see `Swaps.Prescription`.
+    private var plan: Swaps.Prescription { Swaps.prescription(for: item, doing: exercise) }
+    private var isStandIn: Bool { Swaps.isStandIn(exercise, in: item) }
     private var mine: [SetEntry] { allSets.filter { $0.exercise?.slug == exercise.slug } }
     /// This workout's bouts, not today's — see `SetView.todays`.
     private var todays: [SetEntry] {
@@ -53,7 +57,18 @@ struct CardioSetView: View {
     }
     /// Cardio is usually one bout; intervals are the reason `targetSets` still
     /// means something here.
-    private var isFinished: Bool { todays.count >= max(1, item.targetSets) }
+    private var isFinished: Bool { slotBouts >= max(1, plan.sets) }
+    /// Bouts done in this SLOT — this machine's and any other that stood in
+    /// the slot today. `todays` stays per-machine: numbering, undo and records
+    /// are about this one. See `Swaps.slugsCounting`.
+    private var slotBouts: Int {
+        guard let session = currentSession else { return 0 }
+        let slugs = Swaps.slugsCounting(toward: item)
+        return allSets.filter {
+            $0.session?.persistentModelID == session.persistentModelID
+                && slugs.contains($0.exercise?.slug ?? "")
+        }.count
+    }
     private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }
 
     /// The machine's own numbers, minus the clock, which is the hero.
@@ -106,8 +121,11 @@ struct CardioSetView: View {
             Text(exercise.name)
                 .font(RFDesign.title(29))
                 .foregroundStyle(RFDesign.speech)
-            if item.targetSets > 1 {
-                SetPips(total: item.targetSets, done: todays.count)
+            if isStandIn, let planned = item.exercise {
+                Text("Today, instead of \(planned.name)").rfEyebrow()
+            }
+            if plan.sets > 1 {
+                SetPips(total: plan.sets, done: slotBouts)
             } else {
                 Text(planLine).rfEyebrow()
             }
@@ -126,10 +144,10 @@ struct CardioSetView: View {
     /// What the plan asked for, in one line, or what you did last time.
     private var planLine: String {
         var parts: [String] = []
-        if item.targetSeconds > 0 { parts.append(Fmt.minutes(item.targetSeconds)) }
-        if item.targetDistance > 0 { parts.append("\(Fmt.distance(item.targetDistance)) mi") }
-        if item.targetIncline > 0 { parts.append("\(Fmt.rate(item.targetIncline))% grade") }
-        if item.targetSpeed > 0 { parts.append("\(Fmt.rate(item.targetSpeed)) mph") }
+        if plan.seconds > 0 { parts.append(Fmt.minutes(plan.seconds)) }
+        if plan.distance > 0 { parts.append("\(Fmt.distance(plan.distance)) mi") }
+        if plan.incline > 0 { parts.append("\(Fmt.rate(plan.incline))% grade") }
+        if plan.speed > 0 { parts.append("\(Fmt.rate(plan.speed)) mph") }
         if parts.isEmpty, let last = lastBout {
             return "Last time — " + summary(of: last)
         }
@@ -148,10 +166,10 @@ struct CardioSetView: View {
                            incline: $0.incline, speed: $0.speed,
                            resistance: $0.resistance, heartRate: $0.averageHeartRate)
             },
-            target: Tally.CardioTarget(seconds: item.targetSeconds,
-                                       distance: item.targetDistance,
-                                       speed: item.targetSpeed,
-                                       incline: item.targetIncline))
+            target: Tally.CardioTarget(seconds: plan.seconds,
+                                       distance: plan.distance,
+                                       speed: plan.speed,
+                                       incline: plan.incline))
     }
 
     private func suggestionLine(_ s: Tally.CardioSuggestion) -> String {
@@ -299,7 +317,7 @@ struct CardioSetView: View {
     }
 
     private var logTitle: String {
-        item.targetSets > 1 ? "Log interval \(todays.count + 1)" : "Log it"
+        plan.sets > 1 ? "Log interval \(slotBouts + 1)" : "Log it"
     }
 
     /// Nothing on the clock and nothing on the odometer is not a workout — and
@@ -373,11 +391,11 @@ struct CardioSetView: View {
         for metric in exercise.metrics {
             let target: Double
             switch metric {
-            case .duration: target = Double(item.targetSeconds)
-            case .distance: target = item.targetDistance
-            case .speed: target = item.targetSpeed
-            case .incline: target = item.targetIncline
-            case .resistance: target = item.targetResistance
+            case .duration: target = Double(plan.seconds)
+            case .distance: target = plan.distance
+            case .speed: target = plan.speed
+            case .incline: target = plan.incline
+            case .resistance: target = plan.resistance
             case .heartRate: target = 0
             }
             if target > 0 {
@@ -420,8 +438,12 @@ struct CardioSetView: View {
             incline: values[.incline] ?? 0,
             resistance: values[.resistance] ?? 0,
             averageHeartRate: Int(values[.heartRate] ?? 0))
-        entry.session = Sessions.current(for: item.day, in: context)
+        let session = Sessions.current(for: item.day, in: context)
+        entry.session = session
         context.insert(entry)
+        // If this bout is what opened the workout, the workout began when the
+        // bout did, not when you stepped off and logged it.
+        if let session { Sessions.backdate(session, toCover: entry) }
         note = ""
         context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
@@ -429,8 +451,8 @@ struct CardioSetView: View {
         // Intervals rest; a single twenty-minute bout does not. Starting a
         // cooldown after the only thing you came to do would be the app asking
         // you to stand next to a treadmill for ninety seconds.
-        if item.targetSets > 1 && item.restSeconds > 0 && todays.count < item.targetSets {
-            rest.start(seconds: item.restSeconds, exercise: exercise.name)
+        if plan.sets > 1 && plan.restSeconds > 0 && slotBouts < plan.sets {
+            rest.start(seconds: plan.restSeconds, exercise: exercise.name)
         } else if isFinished {
             dismiss()
         }

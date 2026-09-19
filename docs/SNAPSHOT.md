@@ -25,6 +25,7 @@ CLI can exist at all.
 | 4 | Assisted machines. `assisted: true` on an exercise **inverts what its numbers mean**: `working_weight` is how much help you needed, so lower is better and a negative `change_30d` is progress; `best` is the least help ever needed; assistance is excluded from `volume` and from `top_lifts`. A reader that does not know the flag will congratulate you for getting weaker, which is why this is a bump and not an addition. |
 | 6 | **Time away.** `time_away[]` records stretches he declared himself away for — `from`, `to` (both `YYYY-MM-DD`, `to` **inclusive**) and an optional `note`. Anything reading `sessions[]` to judge consistency must subtract these first: a fortnight abroad is not a fortnight of not bothering, and the app's own band leaves those weeks out of its percentage entirely rather than counting them as met. |
 | 5 | **Sessions, not days.** A `sessions[]` entry is one *workout*, not one date, so **two entries can share a `date`** — a reader that keys on `date` alone will merge a two-a-day back together, or overwrite one with the other. `started_at` and `ended_at` (`HH:mm`, 24-hour; `ended_at` absent while a workout is in progress) and `ordinal` (which workout of that day, from 1) are what tell them apart. `day` is now the workout's **recorded** name rather than a guess from the weekday, so it is right on a day you trained out of order. |
+| 7 | **Stand-ins: `today.items[]` is what is being DONE, not what is planned.** Until now every item in `today.items[]` was a slot of `plan[]` and the two could not disagree. A slot can now be swapped for one day, and when it is, that item's `slug`, `name`, `target_weight` and `cardio_target` describe the stand-in, and `performed[]`, `sets_done` and `volume` cover **everything done in the slot** — the planned exercise's sets and the stand-in's. `instead_of` / `instead_of_slug` name what the plan has there. A reader that ignores them sees `today` contradicting `plan[]` and reads it as an edited programme, which is why this is a bump and not an addition. Also new, and additive: `sessions[].gym_seconds`. |
 | 3 | Cardio and machine settings. Two additions and one **changed meaning**, which is what forces the bump: an exercise may be `modality: "cardio"`, and on one of those `volume`, `working_weight` and `best` are absent or zero and **mean nothing** — a treadmill has no tonnage. Cardio numbers live in `cardio` blocks (`bouts`, `seconds`, `distance`, `average_incline`, `average_speed`) and in `sessions[].cardio_minutes`. `machine_settings[]` on an exercise says where the seat goes. |
 
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
@@ -81,7 +82,7 @@ the build if that stops being true.
 | `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |
 | `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
-| `sessions[]` | one row per training day: counts, volume, top lifts, `cardio_minutes`, `cardio_distance` |
+| `sessions[]` | one row per workout: counts, volume, top lifts, `cardio_minutes`, `cardio_distance`, `gym_seconds` |
 
 ### Cardio
 
@@ -100,6 +101,60 @@ different fields:
 
 `top_lifts` on a session **excludes cardio**: "Treadmill 0" is what happens
 when it does not.
+
+### Stand-ins
+
+    today.items[].instead_of        "Treadmill"   — absent on almost every slot
+    today.items[].instead_of_slug   "treadmill"
+
+A slot can be swapped **for one day** — the treadmills were taken, so he rode
+the bike. When that has happened the item describes what is *actually being
+done*:
+
+- `slug` and `name` are the stand-in's.
+- The targets are the slot's **as they apply to a stand-in**. Sets, reps, rest
+  and `cardio_target.seconds` carry over; the rest of `cardio_target` does not,
+  because miles and grade were facts about the other machine. `target_weight`
+  is the stand-in's own — what the phone's row shows: what he is lifting on it
+  today once a working set is logged, before that the set screen's suggestion
+  from its history, else its empty bar, else 0. Never the displaced exercise's
+  weight, even though that exercise's sets count toward the slot.
+- Across the lifting/cardio line nothing carries, because the slot has no
+  shape to lend: a lift in a treadmill's slot opens on the plan defaults
+  (3 × 10, 90 s unless he changed them), cardio in a lift's slot on one bout of
+  the default length.
+- `performed[]`, `sets_done`, `volume`, `done` and `cardio` cover **everything
+  done in the slot today** — two sets on the bench before it was taken and two
+  on the dumbbells after are `sets_done: 4`. So a `performed[]` entry is not
+  necessarily a set of `slug`.
+- `instead_of` is the only trace of what the plan has there.
+
+`plan[]` is **never** affected. It is the programme; a swap is not an edit to
+it, and tomorrow `today.items[]` is back to matching it with nothing undone.
+
+### Time in the gym
+
+    sessions[].gym_seconds   first log to last
+
+Use this rather than subtracting `started_at` from `ended_at`. Those are
+`HH:mm` with no date, so a workout across midnight subtracts wrong, and both
+are taken from *log* times — a treadmill is logged when you step off, so a
+workout that opens with twenty minutes of cardio has a `started_at` twenty
+minutes late. `gym_seconds` pulls the start back by the opening bout's own
+length; per workout it is the figure the phone shows. `0` means a single set,
+which has no length.
+
+Seconds, so that it can be **summed**: `gym sessions` totals every session (not
+just the rows `--limit` lists) and formats once, the way the phone's lifetime
+tile does. Minutes rounded per workout lose half a minute each and the two
+totals drift apart by hours. One known difference remains: `sessions[]`
+includes sets that reached the phone with no workout attached (grouped by day —
+see the builder), and the phone's tile leaves those out, so `gym` can read
+slightly *higher*. From v0.10.0 a workout opened by a bout also has its
+`started_at` moved back to when the bout began, so on a same-day workout
+`ended_at − started_at` now agrees with `gym_seconds`; workouts from before
+that keep the late start. (Apple Health is unaffected either way — it exports
+each bout from its own start and never reads `started_at`.)
 
 ### Assisted machines
 
