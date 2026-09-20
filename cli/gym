@@ -285,14 +285,42 @@ def stand_in(item) -> str:
     return f" · for {item['instead_of']}" if item.get("instead_of") else ""
 
 
+def day_notes(data, today=None) -> list:
+    """Today's jotted notes — locker, parking, a note — or [] if there are none
+    OR if they are not today's.
+
+    The snapshot is only as fresh as the last time the app ran. Its notes carry
+    the day they belong to, and a block dated any other day is dropped whole:
+    Tuesday's locker number reported on Thursday is a confident wrong answer,
+    and a wrong locker is worse than none.
+    """
+    block = data.get("day_notes") or {}
+    today = today or dt.datetime.now().strftime("%Y-%m-%d")
+    if block.get("date") != today:
+        return []
+    return block.get("items") or []
+
+
+def day_notes_lines(data) -> list:
+    notes = day_notes(data)
+    if not notes:
+        return []
+    width = max(len(n.get("heading", "")) for n in notes)
+    return ["", "Today only"] + [f"  {n.get('heading', ''):<{width}}  {n.get('text', '')}"
+                                 for n in notes]
+
+
 def cmd_today(args, data) -> None:
     today = data.get("today")
     body = data.get("body_weight", {})
     if not today:
-        payload = {"training": False, "body_weight": body.get("current")}
+        # A rest day can still have a locker and a parking level.
+        payload = {"training": False, "body_weight": body.get("current"),
+                   "day_notes": day_notes(data)}
         emit(args, payload,
-             "Rest day — nothing scheduled.\n"
-             f"Body weight {num(body.get('current'))} lb")
+             "\n".join(["Rest day — nothing scheduled.",
+                        f"Body weight {num(body.get('current'))} lb"]
+                       + day_notes_lines(data)))
         return
 
     lines = [f"{today['day']} · {today['date']}",
@@ -336,7 +364,8 @@ def cmd_today(args, data) -> None:
         lines += ["", "  ·  ".join(summary)]
     lines += ["", f"Body weight {num(body.get('current'))} lb "
                   f"({signed(body.get('change_30d'))} in 30 days)"]
-    emit(args, today, "\n".join(lines))
+    lines += day_notes_lines(data)
+    emit(args, {**today, "day_notes": day_notes(data)}, "\n".join(lines))
 
 
 def cmd_weight(args, data) -> None:

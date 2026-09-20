@@ -55,6 +55,33 @@ struct Snapshot: Codable {
     /// bothering, and anything reading `sessions[]` to judge consistency will
     /// draw the wrong conclusion without them.
     var timeAway: [Away]
+    /// What he jotted down for TODAY — locker, parking, a note. Top-level, not
+    /// inside `today`, because `today` is absent on a rest day and you can take
+    /// a locker on one. Only today's: yesterday's locker number, served to a
+    /// reader that asks "what's my locker", is a confident wrong answer.
+    /// Always present, empty when there is nothing — an addition, so no schema
+    /// bump: a reader that ignores it is told nothing false.
+    ///
+    /// **Carries its own date, and a reader must check it.** The file is only
+    /// as fresh as the last time the app ran. Open `gym today` on Thursday
+    /// against a snapshot written on Tuesday and, without the date, Tuesday's
+    /// locker is reported as today's — the exact stale answer the phone avoids
+    /// by keying notes to a day.
+    var dayNotes = DayNotesBlock(date: "", items: [])
+
+    struct DayNotesBlock: Codable {
+        /// The local day these belong to, `YYYY-MM-DD`.
+        var date: String
+        var items: [DayNoteLine]
+    }
+
+    /// `kind` is the stable raw value (`locker`, `parking`, `note`, `other`);
+    /// `heading` is what to call it, which for `other` is his own word.
+    struct DayNoteLine: Codable {
+        let kind: String
+        let heading: String
+        let text: String
+    }
 
     struct BodyWeight: Codable {
         var unit: String = "lb"
@@ -318,6 +345,7 @@ enum SnapshotBuilder {
             FetchDescriptor<SetEntry>(sortBy: [SortDescriptor(\.date, order: .forward)]))
         let trips = try context.fetch(
             FetchDescriptor<TimeAway>(sortBy: [SortDescriptor(\.startedAt, order: .forward)]))
+        let dayNotes = try context.fetch(FetchDescriptor<DayNote>())
 
         // Built once. Assisted work is valued at bodyweight minus the help,
         // and every section that reports tonnage has to agree about it — the
@@ -348,7 +376,14 @@ enum SnapshotBuilder {
             timeAway: trips.map {
                 Snapshot.Away(from: Fmt.day($0.startedAt), to: Fmt.day($0.endedAt),
                               note: $0.note.isEmpty ? nil : $0.note)
-            })
+            },
+            // `DayNotes.on` is the phone's own rule — same day, non-empty, in a
+            // total order, so identical writes are identical bytes.
+            dayNotes: Snapshot.DayNotesBlock(
+                date: Fmt.day(now),
+                items: DayNotes.on(now, among: dayNotes, calendar: cal).map {
+                    Snapshot.DayNoteLine(kind: $0.kind, heading: $0.heading, text: $0.text)
+                }))
     }
 
     // MARK: pieces

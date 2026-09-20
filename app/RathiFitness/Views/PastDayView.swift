@@ -23,6 +23,7 @@ struct PastDayView: View {
     let session: Session
 
     @Query(sort: \WeighIn.date, order: .reverse) private var weighIns: [WeighIn]
+    @Query(sort: \DayNote.date) private var dayNotes: [DayNote]
 
     private var calendar: Calendar { .current }
 
@@ -65,6 +66,11 @@ struct PastDayView: View {
     private var gymSeconds: Int { Tally.gymSeconds(entries.map(\.log)) }
     private var workingSets: Int { entries.filter { $0.setKind.counts && !$0.isCardio }.count }
 
+    /// What you jotted down that day. Read-only like everything else here — and
+    /// the reason the rows are kept rather than deleted at midnight: "knee was
+    /// sore" is worth finding next to the workout it explains.
+    private var notes: [DayNote] { DayNotes.on(date, among: dayNotes, calendar: calendar) }
+
     private var weighIn: WeighIn? {
         weighIns.first { calendar.isDate($0.date, inSameDayAs: date) }
     }
@@ -85,6 +91,24 @@ struct PastDayView: View {
                 header
                 summary
                 rows
+                if !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Noted that day").rfEyebrow()
+                        ForEach(notes, id: \.persistentModelID) { note in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(note.heading)
+                                    .font(RFDesign.ui(12.5))
+                                    .foregroundStyle(RFDesign.labelDim)
+                                    .frame(width: 64, alignment: .leading)
+                                Text(note.text)
+                                    .font(RFDesign.ui(13.5))
+                                    .foregroundStyle(RFDesign.said)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(.top, RFDesign.xs)
+                }
                 if let weighIn {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("On the scale").rfEyebrow()

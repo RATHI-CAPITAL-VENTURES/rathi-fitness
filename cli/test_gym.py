@@ -615,6 +615,60 @@ class StandIns(unittest.TestCase):
         self.assertIn("12.5 lb", line)
 
 
+class DayNotes(unittest.TestCase):
+    """Locker, parking, a note — for today, and only for today."""
+
+    TODAY = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+
+    def noted(self, date=None, rest_day=False):
+        data = json.loads(json.dumps(FIXTURE))
+        data["day_notes"] = {"date": date or self.TODAY, "items": [
+            {"kind": "locker", "heading": "Locker", "text": "214"},
+            {"kind": "parking", "heading": "Parking", "text": "Level 2, row C"},
+            {"kind": "other", "heading": "Towel", "text": "31"},
+            {"kind": "note", "heading": "Note", "text": "Left knee — go easy"},
+        ]}
+        if rest_day:
+            data.pop("today")
+        return data
+
+    def test_today_lists_them(self):
+        with fixture(self.noted()):
+            _, out = run("today")
+        self.assertIn("Today only", out)
+        self.assertRegex(out, r"Locker\s+214")
+        self.assertRegex(out, r"Towel\s+31")
+        self.assertIn("Left knee — go easy", out)
+
+    def test_yesterdays_locker_is_never_reported_as_todays(self):
+        # The snapshot is only as fresh as the last time the app ran. A wrong
+        # locker number is worse than none.
+        with fixture(self.noted(date="2020-01-01")):
+            _, out = run("today")
+        self.assertNotIn("214", out)
+        self.assertNotIn("Today only", out)
+
+    def test_a_rest_day_can_still_have_a_locker(self):
+        with fixture(self.noted(rest_day=True)):
+            _, out = run("today")
+        self.assertIn("Rest day", out)
+        self.assertRegex(out, r"Locker\s+214")
+
+    def test_nothing_noted_says_nothing(self):
+        with fixture():
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+
+    def test_json_carries_them_too_and_drops_a_stale_block(self):
+        with fixture(self.noted()):
+            _, out = run("--json", "today")
+        self.assertEqual([n["heading"] for n in json.loads(out)["day_notes"]],
+                         ["Locker", "Parking", "Towel", "Note"])
+        with fixture(self.noted(date="2020-01-01")):
+            _, out = run("--json", "today")
+        self.assertEqual(json.loads(out)["day_notes"], [])
+
+
 class Machines(unittest.TestCase):
     """Where the seat goes — the thing you otherwise rediscover by sitting down
     and finding out it is wrong."""

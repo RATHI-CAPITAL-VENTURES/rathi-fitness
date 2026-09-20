@@ -227,6 +227,104 @@ final class Swap {
     }
 }
 
+/// Something you need to know today and not tomorrow.
+///
+/// Locker 214. Level 2, row C. "Left knee — go easy." None of it is a fact
+/// about an exercise, a set or a plan, so there was nowhere to put it, and the
+/// places it ended up — a set's note, the Notes app, the back of a hand — are
+/// all places you cannot find it again while holding a towel.
+///
+/// **A dated row, for the reason `Swap` is one.** "Temporary" could have been a
+/// single editable block that something clears at midnight, and everything
+/// that clears is a rule that fails silently the day it does not run: open the
+/// app on Thursday and Tuesday's locker number is still there, confidently
+/// wrong, which is worse than blank. A row that belongs to a day needs no
+/// clearing. Tomorrow it does not match, and the strip is empty.
+///
+/// Old rows are kept on purpose: they are why a past workout can show what you
+/// noted that day, and why the sheet can offer "same as last time".
+@Model
+final class DayNote {
+    /// The day it belongs to. Any time on that day; compared by calendar day.
+    var date: Date = Date.now
+    var kind: String = DayNoteKind.note.rawValue
+    /// Your own heading, used only when `kind` is `other`.
+    var label: String = ""
+    var text: String = ""
+
+    init(kind: DayNoteKind, text: String, label: String = "", date: Date = .now) {
+        self.kind = kind.rawValue
+        self.text = text
+        self.label = label
+        self.date = date
+    }
+
+    var noteKind: DayNoteKind { DayNoteKind(rawValue: kind) ?? .other }
+
+    /// What to call it: the kind's own name, or yours.
+    var heading: String {
+        noteKind == .other && !label.isEmpty ? label : noteKind.label
+    }
+}
+
+/// What people actually need to remember for one gym visit.
+///
+/// Enumerated, like `MachineSettingKind`, so the strip can offer them as
+/// one-tap chips and two entries cannot be "locker" and "Locker #". `other`
+/// takes your own heading, which is the "etc".
+///
+/// **Absent on purpose: the lock's combination.** It is the obvious next chip
+/// and it must not exist. Everything here is written into the snapshot so the
+/// Mac and RIA can answer "what's my locker number" — and the snapshot is a
+/// JSON file in a folder any process on the Mac can read. A locker number there
+/// is harmless; the combination beside it is the pass-code mistake
+/// `docs/SNAPSHOT.md` already refuses to make.
+enum DayNoteKind: String, CaseIterable, Identifiable {
+    case locker, parking, note, other
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .locker: return "Locker"
+        case .parking: return "Parking"
+        case .note: return "Note"
+        case .other: return "Other"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .locker: return "lock"
+        case .parking: return "car"
+        case .note: return "note.text"
+        case .other: return "plus"
+        }
+    }
+
+    /// Concrete, because "value" as a placeholder says nothing about the shape
+    /// of answer wanted.
+    var hint: String {
+        switch self {
+        case .locker: return "214"
+        case .parking: return "Level 2, row C"
+        case .note: return "Left knee — go easy"
+        case .other: return "Towel 31"
+        }
+    }
+
+    /// A number or a few words fits on its chip. A note does not, and is shown
+    /// as a line of its own.
+    var fitsOnAChip: Bool { self != .note }
+
+    /// One per day for the named kinds — a second locker replaces the first.
+    /// `other` is keyed by its heading, so "Towel" and "Guest" can coexist.
+    var isSingular: Bool { self != .other }
+
+    /// Display order — what you look for first, first.
+    var order: Int { DayNoteKind.allCases.firstIndex(of: self) ?? 99 }
+}
+
 /// A named day in the rotation — "Push A". `weekday` uses `Calendar`'s 1=Sunday.
 @Model
 final class PlannedDay {

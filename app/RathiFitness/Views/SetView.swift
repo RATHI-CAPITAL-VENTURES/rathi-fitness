@@ -365,24 +365,7 @@ struct SetView: View {
     }
 
     private func chip(_ text: String, tint: Color, filled: Bool) -> some View {
-        Text(text)
-            .font(RFDesign.ui(12, bold: filled))
-            .foregroundStyle(filled ? RFDesign.ground : tint)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(filled ? tint : Color.clear)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(filled ? Color.clear : RFDesign.hairline, lineWidth: 1)
-                    }
-            }
-            // Unfilled is the DEFAULT state for all three of these — working
-            // set, no RPE, no note — and unfilled means `Color.clear`, which
-            // under `.buttonStyle(.plain)` means the chip is tappable only where
-            // it is opaque: the glyphs and a one-point stroke. Same defect as
-            // `PrimaryButton` had; see docs/DECISIONS.md.
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+        Chip(text: text, tint: tint, filled: filled)
     }
 
     private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {

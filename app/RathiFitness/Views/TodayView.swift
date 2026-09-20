@@ -249,6 +249,9 @@ struct TodayView: View {
             VStack(alignment: .leading, spacing: RFDesign.md + 2) {
                 LegacyDataBanner()
                 header
+                // On a rest day too. You can park at the gym and take a locker
+                // on a day the plan says nothing about.
+                DayNotesStrip()
                 if let day = today {
                     progress(for: day)
                     rows(for: day)

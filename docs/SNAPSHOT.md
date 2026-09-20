@@ -82,6 +82,7 @@ the build if that stops being true.
 | `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |
 | `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
+| `day_notes` | `{ date, items[] }` — what he jotted down for **today**: `kind`, `heading`, `text`. See "Day notes". |
 | `sessions[]` | one row per workout: counts, volume, top lifts, `cardio_minutes`, `cardio_distance`, `gym_seconds` |
 
 ### Cardio
@@ -101,6 +102,31 @@ different fields:
 
 `top_lifts` on a session **excludes cardio**: "Treadmill 0" is what happens
 when it does not.
+
+### Day notes
+
+    day_notes.date              "2026-09-20"  — the local day these belong to
+    day_notes.items[]           { kind, heading, text }
+
+Locker, parking, a note, or `other` under his own `heading` — for one day.
+`kind` is the stable raw value (`locker`, `parking`, `note`, `other`);
+`heading` is what to call it. Top-level rather than inside `today`, because
+`today` is absent on a rest day and a locker is not. An addition (schema stays
+7): a reader that ignores it is told nothing false.
+
+**Check `date` before believing `items`.** The file is only as fresh as the
+last time the app ran. Read on Thursday, a snapshot written on Tuesday still
+holds Tuesday's locker, and reporting it as today's is a confident wrong
+answer — worse than none. `gym` drops a block whose `date` is not today, and
+any other reader must do the same. Only today's notes are ever exported;
+history stays on the phone.
+
+**No lock combinations, by construction.** Unlike pass codes, these values ARE
+in the file, because "what's my locker number" is the question this exists to
+answer from the Mac. That is safe for a locker number and would not be for the
+combination that opens it — this folder is readable by any process — so the
+app offers no chip for one (`DayNoteKind`), and a test fails if one is added.
+A free-text note can of course hold anything; the sheet says where it goes.
 
 ### Stand-ins
 
