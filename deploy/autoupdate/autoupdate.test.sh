@@ -21,9 +21,14 @@ ok()  { if [ "$1" = "$2" ]; then PASS=$((PASS+1)); echo "  ok   $3";
         else FAIL=$((FAIL+1)); echo "  FAIL $3 (got '$1', wanted '$2')"; fi; }
 says() { if grep -qF "$1" "$LOG"; then PASS=$((PASS+1)); echo "  ok   $2";
          else FAIL=$((FAIL+1)); echo "  FAIL $2 — log has no '$1'"; fi; }
-quiet() { if ! grep -qE "APPLIED|FAILED|REFUSING" "$LOG"; then
-            PASS=$((PASS+1)); echo "  ok   $1";
-          else FAIL=$((FAIL+1)); echo "  FAIL $1 — logged: $(cat "$LOG")"; fi; }
+# grep's THREE outcomes, not two. 1 is "not found" — quiet. Anything above is
+# grep not having run at all, and `if ! grep` read that as quiet too: on Linux
+# a 200 KB environment variable made every exec fail ("Argument list too
+# long"), this printed ok, and CI was green about a case that ran nothing.
+quiet() { grep -qE "APPLIED|FAILED|REFUSING" "$LOG"; local rc=$?
+          if [ "$rc" -eq 1 ]; then PASS=$((PASS+1)); echo "  ok   $1";
+          elif [ "$rc" -eq 0 ]; then FAIL=$((FAIL+1)); echo "  FAIL $1 — logged: $(cat "$LOG")";
+          else FAIL=$((FAIL+1)); echo "  FAIL $1 — could not even read the log (grep exit $rc)"; fi; }
 
 setup() {
     TMP=$(mktemp -d)
@@ -48,7 +53,22 @@ setup() {
     cat > "$BIN/xcrun" <<STUB
 #!/bin/bash
 case "\$*" in
-  *"info details"*)   [ -n "\${STUB_REACHABLE:-}" ] || exit 1 ;;
+  # As the real tool behaves, which is NOT how this stub used to: it modelled
+  # an absent phone as a non-zero exit, the same wrong guess the script made,
+  # so the two agreed with each other and with nothing else. A paired phone
+  # that is out of reach exits ZERO and says so in the text. STUB_UNKNOWN is a
+  # device this Mac has never paired with — the one case that does exit 1.
+  *"info details"*)   [ -n "\${STUB_XCRUN_RC:-}" ] && exit "\${STUB_XCRUN_RC}"
+                      [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
+                      echo "Current device information:"
+                      if [ -n "\${STUB_STATE:-}" ]; then echo "    • Device State: \${STUB_STATE}"
+                      elif [ -n "\${STUB_REACHABLE:-}" ]; then echo "    • Device State: connected"
+                      else echo "    • Device State: unavailable"; fi
+                      # A long report is long OUTPUT. It was a 200 KB environment
+                      # variable, which Linux refuses per string at 128 KiB — so
+                      # on the CI runner nothing in that case could be exec'd.
+                      [ -n "\${STUB_LONG:-}" ] && head -c "\${STUB_LONG}" /dev/zero | tr '\0' x
+                      ;;
   *"info processes"*) [ -n "\${STUB_RUNNING:-}" ] && echo "9 /x/Thing.app/Thing" ;;
   *"install app"*)    [ -n "\${STUB_INSTALL_FAILS:-}" ] && exit 1; echo "App installed:" ;;
 esac
@@ -56,8 +76,44 @@ exit 0
 STUB
     cat > "$BIN/xcodebuild" <<STUB
 #!/bin/bash
-[ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
+# "I was launched", recorded by the stub ITSELF, beside its own binary. Both
+# earlier witnesses for "no build was attempted" leaned on the script under
+# test — a directory it creates, then a log path it chooses — and each went
+# vacuous the moment that script changed. This cannot: it does not ask the
+# script anything.
+: > "\$(dirname "\$0")/../xcodebuild-ran"
 d=\$(echo "\$@" | sed 's/.*-derivedDataPath //;s/ .*//')
+# BEFORE it can fail, as the real one does. This used to come after the failure
+# branch, so with STUB_BUILD_FAILS set the directory could never exist and "no
+# build was attempted" — which looks for it — passed while the log beside it
+# said BUILD FAILED. An assertion that cannot fail is not one.
+mkdir -p "\$d"
+[ "\${STUB_NO_DESTINATION:-}" = TIMEOUT ] && {
+  echo "xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available"
+  exit 70; }
+[ -n "\${STUB_NO_DESTINATION:-}" ] && {
+  echo "xcodebuild: error: Unable to find a \${STUB_NO_DESTINATION} matching the provided destination specifier:"
+  exit 70; }
+# The line shape is copied from a real failed run, 'id:' and all — the first
+# version of this stub had no id, which is why no test could see that the lock
+# check was not scoped to a device. STUB_LOCKED names WHOSE lock screen it is.
+[ -n "\${STUB_LOCKED:-}" ] && {
+  echo "xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available"
+  echo ""
+  # As LONG as the real thing, which is the point. This stub was four lines, so
+  # 'tail -5' always contained the header and the assertion that the log keeps
+  # "the line that says WHY" passed with the code that keeps it deleted. The
+  # real log lists every simulator on the Mac; the header is nowhere near the
+  # last five lines, which is exactly how it was lost twice.
+  echo "	Available destinations for the \"Thing\" scheme:"
+  for n in 1 2 3 4 5 6 7 8; do
+    echo "		{ platform:iOS Simulator, arch:arm64, id:0000000\$n-AAAA-BBBB-CCCC-DDDDDDDDDDDD, OS:18.\$n, name:iPhone SE (3rd generation) }"
+  done
+  echo ""
+  echo "	Destinations compatible with the \"Thing\" scheme:"
+  echo "		{ platform:iOS, arch:arm64, id:\${STUB_LOCKED}, name:A Device, error:A Device needs to be unlocked to enable development services Please unlock the device. }"
+  exit 70; }
+[ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
 mkdir -p "\$d/Build/Products/Debug-iphoneos/Thing.app"
 exit 0
 STUB
@@ -66,7 +122,8 @@ STUB
     chmod +x "$BIN"/*
 }
 teardown() { rm -rf "$TMP"
-    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS; }
+    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN \
+          STUB_NO_DESTINATION STUB_STATE STUB_LONG STUB_LOCKED STUB_XCRUN_RC; }
 
 run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
@@ -81,6 +138,26 @@ run() {
     echo $?
 }
 new_commit() { (cd "$TMP/seed"; echo more >> app/thing; git commit -qam two; git push -q origin main); }
+
+echo "autoupdate — the suite itself"
+# The stubs are written with UNQUOTED heredocs, so a backtick inside one is a
+# command substitution that runs every time `setup` does — comments included.
+# One that said `id:` printed "command not found" on every case, on CI, for a
+# whole commit, while everything stayed green (in this branch's history). One
+# that said `tail -5` hung the suite waiting on stdin — that one only ever
+# lived in a working tree and was never committed, so take it on trust or not.
+#
+# The delimiter is read off the opener, so this covers a heredoc opened with
+# any word, `<<-`, or a trailing space — the first version matched the literal
+# `<<STUB` at end of line and nothing else, a guard against an invisible bug
+# that an invisible character defeated. A QUOTED delimiter is skipped on
+# purpose: backticks are literal there.
+ok "$(awk '
+  /<<-?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$/ { d=$0; sub(/.*<<-?/,"",d); sub(/[[:space:]]*$/,"",d); inh=1; next }
+  inh && $0 ~ ("^[[:space:]]*" d "[[:space:]]*$") { inh=0; next }
+  inh && /`/ { n++ }
+  END { print n+0 }' "$0")" "0" \
+   "no backtick inside an unquoted heredoc — they execute"
 
 echo "autoupdate — the spine"
 
@@ -127,10 +204,121 @@ setup
 teardown
 
 setup
-  new_commit                      # no STUB_REACHABLE: device away
+  new_commit                      # no STUB_REACHABLE: paired, and out of reach
+  export STUB_BUILD_FAILS=1       # what xcodebuild really does with no device
   run > /dev/null
   quiet "an absent device is not an error"
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+  ok "$([ -e "$TMP/xcodebuild-ran" ] && echo built || echo untouched)" "untouched" \
+     "and no build is attempted for a phone that is not there"
+teardown
+
+setup
+  new_commit; export STUB_UNKNOWN=1 STUB_BUILD_FAILS=1   # never paired: exits 1
+  run > /dev/null
+  quiet "a device this Mac has never met is not an error either"
+teardown
+
+# A state word nobody has seen yet. The deny-match lets it through on purpose;
+# xcodebuild then says there is nothing to build for, and THAT is believed.
+setup
+  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=destination
+  run > /dev/null
+  quiet "no destination is absence, whatever devicectl called it"
+  ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# The wording that is actually ON DISK from a real run — and that the first two
+# versions of this fallback did not match at all.
+setup
+  new_commit; export STUB_STATE="disconnected"
+  export STUB_NO_DESTINATION="TIMEOUT"
+  run > /dev/null
+  quiet "'Timed out waiting for all destinations' is absence too"
+teardown
+
+# The older wording, which three places in this repo had recorded as THE one.
+setup
+  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=device
+  run > /dev/null
+  quiet "in either of xcodebuild's wordings"
+teardown
+
+# The phone says it is HERE and xcodebuild cannot find it: that is a wrong ECID,
+# and waiting will never fix it. Silent here is silent for ever.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_NO_DESTINATION=destination
+  run > /dev/null
+  says "BUILD FAILED" "a present phone with no destination is a wrong ECID, and loud"
+teardown
+
+# Locked all night, with a commit waiting: not an error, and not a log line
+# every ten minutes until morning.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=E     # E is AU_IOS_ECID: OUR phone
+  run > /dev/null
+  quiet "a locked phone is 'not now'"
+  ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# The iPad asleep in the kitchen. Our phone says it is here and xcodebuild
+# cannot find it — a wrong ECID — and someone ELSE's lock screen is in the list.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=SOME-OTHER-DEVICE
+  run > /dev/null
+  says "BUILD FAILED" "a wrong ECID stays loud even when ANOTHER device is locked"
+  says "Timed out waiting" "and the log keeps the line that says WHY, not just a tail"
+teardown
+
+# A quiet exit leaves no line in the job log by design, so it must leave the
+# build log somewhere: it is the only evidence if a quiet path ever misfires.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=E
+  run > /dev/null
+  ok "$([ -s "$TMP/derived/autoupdate-build.log.last-quiet" ] && echo kept || echo lost)" \
+     "kept" "a quiet exit keeps the build log it decided to stay silent about"
+teardown
+
+# The FIRST quiet exit — `Device State: unavailable` — happens before any build,
+# so there is no build log to keep. It keeps what devicectl said instead: that
+# deny-match is the one this whole fix rests on, against a tool that has
+# already changed its wording once.
+setup
+  new_commit                      # paired, and out of reach
+  run > /dev/null
+  ok "$(grep -c 'Device State: unavailable' "$TMP/derived/devicectl-details.last-quiet" 2>/dev/null || echo 0)" \
+     "1" "an away phone keeps what devicectl said about it"
+  ok "$([ -e "$TMP/xcodebuild-ran" ] && echo built || echo untouched)" \
+     "untouched" "without a build having been attempted"
+teardown
+
+# DEVELOPER_DIR pointing at CommandLineTools: xcrun runs, finds no devicectl,
+# exits 72. The tool is away, not the phone — silent would be silent for ever.
+setup
+  new_commit; export STUB_XCRUN_RC=72
+  run > /dev/null
+  says "devicectl unavailable" "a missing devicectl (72) is reported, not waited out"
+teardown
+
+setup
+  new_commit; export STUB_XCRUN_RC=127
+  run > /dev/null
+  says "devicectl unavailable" "and so is a missing xcrun (127)"
+teardown
+
+# ...but a real build failure on a phone that IS there stays loud.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_BUILD_FAILS=1
+  run > /dev/null
+  says "BUILD FAILED" "a broken build on a present phone is still reported"
+teardown
+
+# The state is on line 1 of more than a pipe buffer of output. With
+# `printf | grep -q` under pipefail this lost the exit 10 to SIGPIPE.
+setup
+  new_commit; export STUB_BUILD_FAILS=1 STUB_LONG=200000
+  run > /dev/null
+  quiet "a long device report cannot lose 'not now' to a closed pipe"
 teardown
 
 setup
