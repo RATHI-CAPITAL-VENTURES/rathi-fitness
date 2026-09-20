@@ -14,6 +14,22 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.11.1 — 2026-09-20
+
+### Fixed
+
+- **The auto-installer reported an absent phone as a build failure.** v0.11.0
+  merged green while the phone was out of the house, and eight seconds later
+  the log said `BUILD FAILED` / `APPLY FAILED` — and would have said it again
+  every ten minutes until he got home. The installer's "is the device even
+  here?" check trusted the exit code of `devicectl device info details`, which
+  is 0 for a paired phone that is miles away; the text says
+  `Device State: unavailable`. It reads that now and waits silently, which is
+  what the design always said an absent device should do. The code was never
+  the problem and the phone was never touched. Shared template 1.0.2 → 1.0.3
+  (`deploy/autoupdate`, installed by `bootstrap`); the template's test stub had
+  the same wrong assumption as the script, and is fixed with it.
+
 ## 0.11.0 — 2026-09-20
 
 ### Added

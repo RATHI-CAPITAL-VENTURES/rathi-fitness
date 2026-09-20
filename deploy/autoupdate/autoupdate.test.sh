@@ -48,7 +48,15 @@ setup() {
     cat > "$BIN/xcrun" <<STUB
 #!/bin/bash
 case "\$*" in
-  *"info details"*)   [ -n "\${STUB_REACHABLE:-}" ] || exit 1 ;;
+  # As the real tool behaves, which is NOT how this stub used to: it modelled
+  # an absent phone as a non-zero exit, the same wrong guess the script made,
+  # so the two agreed with each other and with nothing else. A paired phone
+  # that is out of reach exits ZERO and says so in the text. STUB_UNKNOWN is a
+  # device this Mac has never paired with — the one case that does exit 1.
+  *"info details"*)   [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
+                      echo "Current device information:"
+                      if [ -n "\${STUB_REACHABLE:-}" ]; then echo "    • Device State: connected"
+                      else echo "    • Device State: unavailable"; fi ;;
   *"info processes"*) [ -n "\${STUB_RUNNING:-}" ] && echo "9 /x/Thing.app/Thing" ;;
   *"install app"*)    [ -n "\${STUB_INSTALL_FAILS:-}" ] && exit 1; echo "App installed:" ;;
 esac
@@ -66,7 +74,7 @@ STUB
     chmod +x "$BIN"/*
 }
 teardown() { rm -rf "$TMP"
-    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS; }
+    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN; }
 
 run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
@@ -127,10 +135,19 @@ setup
 teardown
 
 setup
-  new_commit                      # no STUB_REACHABLE: device away
+  new_commit                      # no STUB_REACHABLE: paired, and out of reach
+  export STUB_BUILD_FAILS=1       # what xcodebuild really does with no device
   run > /dev/null
   quiet "an absent device is not an error"
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+  ok "$([ -d "$TMP/derived" ] && echo built || echo untouched)" "untouched" \
+     "and no build is attempted for a phone that is not there"
+teardown
+
+setup
+  new_commit; export STUB_UNKNOWN=1 STUB_BUILD_FAILS=1   # never paired: exits 1
+  run > /dev/null
+  quiet "a device this Mac has never met is not an error either"
 teardown
 
 setup

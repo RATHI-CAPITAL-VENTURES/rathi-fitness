@@ -36,7 +36,19 @@ XCRUN="${AU_XCRUN:-xcrun}"
 XCODEBUILD="${AU_XCODEBUILD:-xcodebuild}"
 
 # ------------------------------------------------- is the device even here?
-"$XCRUN" devicectl device info details --device "$DEVICE" >/dev/null 2>&1 || exit 10
+# The EXIT CODE does not answer this, which is what this line used to trust.
+# `devicectl device info details` exits 0 for a paired phone that is miles away:
+# it prints what it remembers, with `Device State: unavailable` in the middle.
+# So an absent device sailed through, xcodebuild had nothing to build FOR and
+# died in eight seconds with "Unable to find a destination", and the log said
+# BUILD FAILED / APPLY FAILED — every ten minutes, for as long as he was out —
+# about code that was fine. Exit 10 is "not now", and deliberately silent.
+#
+# Matched on the state observed, not on an allow-list of good ones: a state
+# nobody has seen yet falls through to a build attempt, which fails loudly,
+# rather than into a silent "not now" that would stall installs for ever.
+details=$("$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null) || exit 10
+printf '%s\n' "$details" | grep -qiE 'Device State:[[:space:]]*unavailable' && exit 10
 
 # ------------------------------------------------- never interrupt a session
 # Installing over a running app terminates it. For a workout logger that means
