@@ -287,6 +287,24 @@ final class DayNoteTests: XCTestCase {
         XCTAssertNotEqual(DayNotesStrip.identifier(for: towel),
                           DayNotesStrip.identifier(for: guest))
         XCTAssertEqual(DayNotesStrip.identifier(for: locker), "day-note-locker")
+        XCTAssertEqual(DayNotesStrip.identifier(for: towel), "day-note-other-towel")
+
+        // Two headings that survive the dedupe as two rows must be two ids.
+        // Slugified, "Guest 1" and "Guest-1" were one.
+        let a = DayNote(kind: .other, text: "Sam", label: "Guest 1")
+        let b = DayNote(kind: .other, text: "Ann", label: "Guest-1")
+        XCTAssertNotEqual(DayNotes.key(a.noteKind, a.label), DayNotes.key(b.noteKind, b.label))
+        XCTAssertNotEqual(DayNotesStrip.identifier(for: a), DayNotesStrip.identifier(for: b))
+    }
+
+    /// Same instant, two rows: the survivor must not depend on the order they
+    /// arrive in — the strip's query is sorted and the snapshot's fetch is not.
+    func testATieOnTheInstantIsBrokenTheSameWayWhateverTheOrder() {
+        let one = DayNote(kind: .locker, text: "9", date: at(14, 18))
+        let two = DayNote(kind: .locker, text: "214", date: at(14, 18))
+
+        XCTAssertEqual(DayNotes.on(at(14), among: [one, two], calendar: cal).map(\.text),
+                       DayNotes.on(at(14), among: [two, one], calendar: cal).map(\.text))
     }
 
     func testEveryKindCanDescribeItself() {

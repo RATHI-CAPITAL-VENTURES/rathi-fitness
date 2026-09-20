@@ -628,6 +628,7 @@ class DayNotes(unittest.TestCase):
         # 23:59:58 makes the whole class fail two seconds later.
         until = until or self.utc(hours=6)
         data = json.loads(json.dumps(FIXTURE))
+        data["generated_at"] = self.utc(minutes=-5).strftime("%Y-%m-%dT%H:%M:%SZ")
         data["day_notes"] = {
             "date": "2026-09-21",
             "until": until.strftime("%Y-%m-%dT%H:%M:%SZ") if until != "missing" else None,
@@ -667,17 +668,25 @@ class DayNotes(unittest.TestCase):
             _, out = run("today")
         self.assertNotIn("Today only", out)
         # ...and a minute before the phone's midnight it is still today's.
-        with fixture(self.noted(until=self.utc(minutes=1))):
+        with fixture(self.noted(until=self.utc(minutes=5))):
             _, out = run("today")
         self.assertRegex(out, r"Locker\s+A-77")
 
     def test_a_block_with_no_expiry_fails_closed(self):
-        for bad in ("missing", ):
-            with fixture(self.noted(until=bad)):
-                _, out = run("today")
-            self.assertNotIn("Today only", out)
+        with fixture(self.noted(until="missing")):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
         data = self.noted()
         data["day_notes"]["until"] = "2026-09-21T00:00:00"      # no zone: unusable
+        with fixture(data):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+
+    def test_a_phone_with_a_wrong_clock_cannot_keep_its_notes_alive(self):
+        # `until` a year away — a clock set forward — on a snapshot written two
+        # days ago. No day is 36 hours long.
+        data = self.noted(until=self.utc(days=365))
+        data["generated_at"] = self.utc(hours=-48).strftime("%Y-%m-%dT%H:%M:%SZ")
         with fixture(data):
             _, out = run("today")
         self.assertNotIn("Today only", out)

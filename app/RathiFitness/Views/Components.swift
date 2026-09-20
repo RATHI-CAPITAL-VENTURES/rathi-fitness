@@ -172,6 +172,10 @@ struct Chip: View {
             }
             Text(text).font(RFDesign.ui(12, bold: filled)).lineLimit(lineLimit)
                 .multilineTextAlignment(.leading)
+                // Without this a multi-line Text in an HStack in a Button is
+                // still offered one line's height, and `lineLimit: nil` buys
+                // nothing. Only when wrapping was asked for.
+                .fixedSize(horizontal: false, vertical: lineLimit == nil)
         }
         .foregroundStyle(filled ? RFDesign.ground : tint)
         .padding(.horizontal, 10).padding(.vertical, 6)

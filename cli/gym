@@ -304,6 +304,14 @@ def day_notes(data, now=None) -> list:
     now = now or dt.datetime.now(dt.timezone.utc)
     if until is None or until.tzinfo is None or now >= until:
         return []
+    # `until` alone trusts both clocks. A phone whose clock is set forward
+    # writes an `until` that never arrives, and its notes would be served for
+    # ever. No day is longer than 36 hours, so nothing written longer ago than
+    # that can be about today — the same bound `gym status` calls stale.
+    written = parse_ts(data.get("generated_at") or "")
+    if written is None or written.tzinfo is None \
+            or (now - written).total_seconds() > 36 * 3600:
+        return []
     return block.get("items") or []
 
 

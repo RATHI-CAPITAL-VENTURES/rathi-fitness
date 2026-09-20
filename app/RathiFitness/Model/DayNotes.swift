@@ -27,11 +27,15 @@ enum DayNotes {
             && calendar.isDate(note.date, inSameDayAs: date)
             && !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let key = Self.key(note.noteKind, note.label)
-            if let seen = latest[key], seen.date >= note.date { continue }
+            // Text breaks a tie on the instant, so which of two rows survives
+            // never depends on the ORDER they were handed in — the strip's
+            // query is sorted and the snapshot's fetch is not.
+            if let seen = latest[key], (seen.date, seen.text) >= (note.date, note.text) { continue }
             latest[key] = note
         }
         return latest.values.sorted {
-            ($0.noteKind.order, $0.heading, $0.date) < ($1.noteKind.order, $1.heading, $1.date)
+            ($0.noteKind.order, $0.heading.lowercased(), $0.date)
+                < ($1.noteKind.order, $1.heading.lowercased(), $1.date)
         }
     }
 
@@ -58,7 +62,12 @@ enum DayNotes {
                     now: Date = .now, calendar: Calendar = .current) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let heading = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let all = (try? context.fetch(FetchDescriptor<DayNote>())) ?? []
+        // Not `try? … ?? []`: that turns "I could not look" into "there was
+        // nothing there", and the insert below then DUPLICATES where it meant
+        // to replace. If the store cannot be read, say so and write nothing.
+        guard let all = reportingFailure("reading today's notes", {
+            try context.fetch(FetchDescriptor<DayNote>())
+        }) else { return }
         let target = key(kind, heading)
         for old in all where !old.isDeleted
             && calendar.isDate(old.date, inSameDayAs: now)

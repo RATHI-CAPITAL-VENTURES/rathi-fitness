@@ -106,9 +106,15 @@ struct DayNotesStrip: View {
 
     /// Unique per chip. Two `other` notes used to share "day-note-other", so
     /// a test tapping it got whichever sorted first.
+    ///
+    /// Built from `DayNotes.key` — the SAME identity the dedupe uses — so "one
+    /// row per key" is also "one identifier per chip". Slugifying the heading
+    /// here was a second notion of identity: "Guest 1" and "Guest-1" are two
+    /// keys, two chips, and were one identifier.
     static func identifier(for note: DayNote) -> String {
-        note.noteKind.isSingular ? "day-note-\(note.noteKind.rawValue)"
-            : "day-note-other-\(Exercise.slugify(note.label))"
+        "day-note-" + DayNotes.key(note.noteKind, note.label)
+            .replacingOccurrences(of: "·", with: "-")
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     private func chipButton(text: String, symbol: String, filled: Bool, id: String,

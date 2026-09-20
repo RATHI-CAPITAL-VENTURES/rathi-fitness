@@ -393,8 +393,12 @@ enum SnapshotBuilder {
             // total order, so identical writes are identical bytes.
             dayNotes: Snapshot.DayNotesBlock(
                 date: Fmt.day(now),
-                until: Fmt.iso(cal.date(byAdding: .day, value: 1,
-                                        to: cal.startOfDay(for: now)) ?? now),
+                // The day's own END, not "start + 1 day". Where the clocks
+                // change AT midnight (Santiago, Havana, Tehran) the next 00:00
+                // does not exist and adding a day lands an hour late.
+                until: Fmt.iso(cal.dateInterval(of: .day, for: now)?.end
+                               ?? cal.date(byAdding: .day, value: 1,
+                                           to: cal.startOfDay(for: now)) ?? now),
                 items: DayNotes.on(now, among: dayNotes, calendar: cal).map {
                     Snapshot.DayNoteLine(kind: $0.kind, heading: $0.heading, text: $0.text)
                 }))
