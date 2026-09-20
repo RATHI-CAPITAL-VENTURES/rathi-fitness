@@ -837,13 +837,14 @@ enum Tally {
     /// What a trend line is measuring, which decides its unit and which way is
     /// up. Carried WITH the points so a caller cannot draw miles labelled "lb"
     /// or colour an assisted machine's progress as a loss.
-    enum TrendMeasure: Equatable {
-        case weight, help, miles, minutes
+    enum TrendMeasure: Equatable, CaseIterable {
+        case weight, help, reps, miles, minutes
 
         var unit: String {
             switch self {
             case .weight: return "lb"
             case .help: return "lb help"
+            case .reps: return "reps"
             case .miles: return "mi"
             case .minutes: return "min"
             }
@@ -851,6 +852,25 @@ enum Tally {
 
         /// On an assisted machine the number going DOWN is the progress.
         var lowerIsBetter: Bool { self == .help }
+
+        /// The least room a chart leaves above and below, in this unit.
+        ///
+        /// Here, beside `unit`, because it IS a fact about the unit and one
+        /// number cannot serve them all: half a mile of padding flattens a
+        /// 2.0 → 2.1 mi gain to a twelfth of the frame, and the same half as
+        /// MINUTES lets one extra minute fill half of it.
+        var minimumPad: Double {
+            switch self {
+            case .weight, .help: return 5
+            case .reps: return 2
+            case .miles: return 0.1
+            case .minutes: return 2
+            }
+        }
+
+        /// A weight holds until you change it, so it steps; a distance or a
+        /// time is a reading, so it is joined.
+        var isStepped: Bool { self == .weight || self == .help }
     }
 
     struct Trend: Equatable {
@@ -875,6 +895,25 @@ enum Tally {
             guard let first = points.first, let last = points.last else { return 0 }
             return Int((last.date.timeIntervalSince(first.date) / 86_400).rounded())
         }
+
+        /// "+10 lb · 3 weeks". Nil when it has not moved — "+0 lb" is a line
+        /// of text reporting the absence of news.
+        ///
+        /// Here rather than in the view that shows it, so it can be tested:
+        /// the first version lived in `ExerciseTrend` and said "1 days" for a
+        /// two-a-day, the count clamped to one and the plural chosen from the
+        /// unclamped zero.
+        var summary: String? {
+            guard let change, abs(change) >= 0.05 else { return nil }
+            let amount: String
+            switch measure {
+            case .miles: amount = (change > 0 ? "+" : "−") + Fmt.distance(abs(change))
+            default: amount = Fmt.signed(change)
+            }
+            let span = max(days, 1)
+            let over = span >= 14 ? "\(span / 7) weeks" : "\(span) day\(span == 1 ? "" : "s")"
+            return "\(amount) \(measure.unit) · \(over)"
+        }
     }
 
     /// A lift, one point per workout: **the hardest working set.**
@@ -887,17 +926,31 @@ enum Tally {
     /// for an assisted one, working sets only; a workout that was all warm-ups
     /// has no point rather than a zero.
     ///
-    /// - Parameter sets: each set with the workout it belongs to (a sortable
-    ///   key — the session's start), so a two-a-day is two points.
+    ///
+    /// **A lift with no weight plots reps.** Push-ups, pull-ups, planks-for-
+    /// reps are all logged at 0 lb, so their weight line was dead flat along
+    /// zero on an axis running −5 to 5 — a chart of nothing. What moves on a
+    /// bodyweight lift is the reps, so that is the line: the best working set
+    /// of each workout.
+    ///
+    /// - Parameter sets: ONE exercise's sets, each with the workout it belongs
+    ///   to (a sortable key — the session's start), so a two-a-day is two
+    ///   points. `assisted` is a property of the exercise, so it is read off
+    ///   the sets and they are expected to agree.
     static func liftTrend(_ sets: [(workout: Date, set: Set)]) -> Trend {
-        let assisted = sets.contains { $0.set.assisted }
-        let byWorkout = Dictionary(grouping: sets.filter { $0.set.counts }, by: \.workout)
+        let working = sets.filter { $0.set.counts }
+        let assisted = working.contains { $0.set.assisted }
+        let unloaded = !working.isEmpty && working.allSatisfy { $0.set.weight == 0 }
+        let byWorkout = Dictionary(grouping: working, by: \.workout)
         let points = byWorkout.keys.sorted().compactMap { key -> TrendPoint? in
-            let weights = (byWorkout[key] ?? []).map(\.set.weight)
-            guard let value = assisted ? weights.min() : weights.max() else { return nil }
-            return TrendPoint(date: key, value: value)
+            let group = (byWorkout[key] ?? []).map(\.set)
+            let value: Double?
+            if unloaded { value = group.map { Double($0.reps) }.max() }
+            else if assisted { value = group.map(\.weight).min() }
+            else { value = group.map(\.weight).max() }
+            return value.map { TrendPoint(date: key, value: $0) }
         }
-        return Trend(measure: assisted ? .help : .weight, points: points)
+        return Trend(measure: unloaded ? .reps : (assisted ? .help : .weight), points: points)
     }
 
     /// A cardio machine, one point per workout: miles if it records them,

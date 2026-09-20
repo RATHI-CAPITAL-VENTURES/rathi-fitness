@@ -421,7 +421,14 @@ struct TrendsView: View {
 
     private typealias Point = Tally.TrendPoint
 
-    private var series: [Point] {
+    private var series: [Point] { trend.points }
+
+    /// What is selected, as a trend — points AND what they measure.
+    ///
+    /// This returned bare points and `unit` was the constant "lb", so the
+    /// measure `Tally` had worked out was thrown away one line later: an
+    /// assisted pull-up read "80 lb" here and "lb help" on its set screen.
+    private var trend: Tally.Trend {
         let cutoff = range.days.flatMap {
             Calendar.current.date(byAdding: .day, value: -$0, to: .now)
         }
@@ -430,6 +437,7 @@ struct TrendsView: View {
             return weighIns
                 .filter { w in cutoff.map { w.date >= $0 } ?? true }
                 .map { Point(date: $0.date, value: $0.pounds) }
+                .asBodyWeightTrend
         case .exercise(let slug):
             let mine = allSets.filter { $0.exercise?.slug == slug }
                 .filter { entry in cutoff.map { entry.date >= $0 } ?? true }
@@ -438,12 +446,14 @@ struct TrendsView: View {
             // `Tally.liftTrend`, the same call the set screen makes — it also
             // knows that on an assisted machine "hardest" is the LEAST help,
             // which the inline `.max()` here did not.
-            guard let exercise = exercises.first(where: { $0.slug == slug }) else { return [] }
-            return mine.trend(for: exercise).points
+            guard let exercise = exercises.first(where: { $0.slug == slug }) else {
+                return Tally.Trend(measure: .weight, points: [])
+            }
+            return mine.trend(for: exercise)
         }
     }
 
-    private var unit: String { "lb" }
+    private var unit: String { trend.measure.unit }
 
     private var headline: some View {
         let points = series
@@ -454,17 +464,12 @@ struct TrendsView: View {
             let span = last.date.timeIntervalSince(first.date) / 86_400
             return span >= 1 ? change / span * 7 : nil
         }()
-        let goodDirection: Bool = {
-            switch selection {
-            case .body: return (change ?? 0) <= 0
-            case .exercise(let slug):
-                // An assisted machine's progress is the number going DOWN. This
-                // read "up is good" for every lift, so taking 20 lb of help off
-                // was drawn in the colour of a bad month.
-                let assisted = exercises.first { $0.slug == slug }?.assisted ?? false
-                return assisted ? (change ?? 0) <= 0 : (change ?? 0) >= 0
-            }
-        }()
+        // Body weight is its own judgement (this screen treats a cut as the
+        // goal). For a lift the measure knows: an assisted machine's progress
+        // is the number going DOWN, and this used to read "up is good" for
+        // every lift, so taking 20 lb of help off was drawn in the colour of a
+        // bad month.
+        let goodDirection = selection == .body ? (change ?? 0) <= 0 : trend.isProgress
 
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -505,8 +510,8 @@ struct TrendsView: View {
             // The drawing lives in `TrendChart` so the set screen shows this
             // same chart rather than a second one that drifts.
             TrendChart(points: points, unit: unit,
-                       stepped: selection != .body,
-                       minimumPad: selection == .body ? 0.6 : 5)
+                       stepped: selection != .body && trend.measure.isStepped,
+                       minimumPad: selection == .body ? 0.6 : trend.measure.minimumPad)
         }
     }
 
@@ -733,10 +738,8 @@ struct TrendsView: View {
                                 .font(RFDesign.figure(18, relativeTo: .body))
                                 .monospacedDigit()
                                 .foregroundStyle(RFDesign.speech)
-                            if row.assisted {
-                                // Otherwise the column silently mixes two
-                                // opposite meanings under one heading.
-                                Text("help").rfEyebrow(RFDesign.labelDim, size: 8)
+                            if let tag = row.tag {
+                                Text(tag).rfEyebrow(RFDesign.labelDim, size: 8)
                             }
                         }
                         Text(row.change.map(Fmt.signed) ?? "—")
@@ -760,6 +763,10 @@ struct TrendsView: View {
         /// The weight makes it easier, so every judgement about this row runs
         /// the other way — see `Exercise.assisted`.
         var assisted = false
+        /// What `current` is, when it is not plain pounds: "help" on an
+        /// assisted machine, "reps" on a bodyweight lift. Otherwise the column
+        /// silently mixes meanings under one heading.
+        var tag: String? = nil
 
         /// Whether the 30-day change is the good direction. Teal for progress
         /// either way: taking 10 lb off a pull-up assist is exactly as much of
@@ -795,7 +802,9 @@ struct TrendsView: View {
             let change = baseIndex.map { current - tops[$0] }
             return Row(slug: ex.slug, name: ex.name, current: current,
                        change: change, spark: Array(tops.suffix(8)),
-                       assisted: ex.assisted)
+                       assisted: ex.assisted,
+                       tag: trend.measure == .help ? "help"
+                          : trend.measure == .reps ? "reps" : nil)
         }
         .sorted { $0.current > $1.current }
     }

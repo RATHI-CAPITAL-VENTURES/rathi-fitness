@@ -57,12 +57,26 @@ final class WorkoutFlowUITests: XCTestCase {
 
         // The curve under "last three". `-RFDemoHistory` gives the bench six
         // weeks, so there is a line to draw; it sits at the foot of the screen.
-        app.swipeUp()
-        XCTAssertTrue(app.descendants(matching: .any)
-            .matching(identifier: "exercise-trend").firstMatch.waitForExistence(timeout: 5),
+        //
+        // Swiped to in a bounded loop, and back the same way: one fixed swipe
+        // stops reaching the foot the day the screen grows a row, and then the
+        // failure reads as "the chart is missing" when it is merely off-screen.
+        let trend = app.descendants(matching: .any)
+            .matching(identifier: "exercise-trend").firstMatch
+        var swipes = 0
+        while !(trend.exists && trend.isHittable) && swipes < 4 {
+            app.swipeUp()
+            swipes += 1
+        }
+        XCTAssertTrue(trend.exists && trend.isHittable,
                       "a lift with history should show its trend under the last three")
         shoot("02b-set-trend")
-        app.swipeDown()
+        var back = 0
+        while !logButton.isHittable && back < 6 {
+            app.swipeDown()
+            back += 1
+        }
+        XCTAssertTrue(logButton.isHittable, "back at the top, where the workout carries on")
 
         // 3. Logging a set starts the cooldown, and the button changes its mind
         //    about what it is for.

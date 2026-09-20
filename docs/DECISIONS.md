@@ -1743,8 +1743,26 @@ point; and on an assisted machine the maximum is the MOST help, so the Trends
 line plotted the easiest set and rose as you got weaker, the working-weight
 table disagreed with the snapshot (which reports the least), and the headline
 coloured taking help off as a loss. One function, working sets only, least help
-when assisted, and the measure travels with the points so a caller cannot label
-miles "lb".
+when assisted, and the measure travels with the points.
+
+**"So a caller cannot label miles lb" was the claim; review found the caller
+that did.** `TrendsView` took the points and threw the measure away one line
+later, with `unit` a constant "lb". It reads the measure now, and the measure
+carries more than the unit: `minimumPad` (one padding for every unit flattened
+a 2.0 → 2.1 mi gain to a twelfth of the frame and let one MINUTE fill half of
+it) and `isStepped`. A registry, per the house rule — the chart asks the
+measure, it does not branch on the screen.
+
+**A lift with no weight plots reps.** Thirteen catalogue lifts are bodyweight
+and logged at 0 lb; their line was dead flat on an axis from −5 to 5, which is
+the furniture this view says it refuses to be. What moves on a push-up is the
+reps, so that is the line — best working set per workout — and the Trends table
+tags such a row "reps" for the reason it already tagged "help".
+
+Known, and left: today is a point on the line, so between your first working
+set and your top set the summary can read "−5 lb" while you are building up. It
+is true at that moment and it resolves as you climb; hiding today's point until
+the workout ends would throw away the reason to put the chart here.
 
 **MINOR, after first being written as a PATCH.** The bump-level guard fired on
 the new `Views/TrendChart.swift`, and the first answer was `patch-intentional`

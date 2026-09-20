@@ -22,7 +22,8 @@ A **MINOR bump is a milestone** and must ship a retro under
   screen: the same stepped line the Trends tab draws, one point per workout,
   with "+10 lb · 3 weeks" beside it. Today's workout is a point on it, so the
   line moves when you log the set. Cardio plots miles if the machine records
-  them and minutes if it does not. Absent until there are two workouts to join.
+  them and minutes if it does not; a bodyweight lift, logged at 0 lb, plots its
+  best set of reps rather than a flat line along zero. Absent until there are two workouts to join.
   The chart was lifted out of `TrendsView` into `TrendChart` rather than
   redrawn, and both screens read one series (`Tally.liftTrend` /
   `cardioTrend`).
@@ -36,7 +37,13 @@ A **MINOR bump is a milestone** and must ship a retro under
   the least. Both now plot the least help, and taking help off is drawn as
   progress rather than in the colour of a bad month.
 - **A warm-up could be the day's point on a chart.** The same `.max()` counted
-  every set. Working sets only now.
+  every set. Working sets only now — which also means a lift you have only ever
+  warmed up on drops out of the working-weight table instead of listing its
+  warm-up as a working weight.
+- **The Trends tab labelled everything "lb".** An assisted pull-up read "80 lb"
+  there and "lb help" on its own screen. The unit, the chart's padding and
+  whether the line steps all come from what is being measured now
+  (`Tally.TrendMeasure`), on both screens.
 
 ## Earlier
 

@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import RathiFitness
 
 /// One exercise over time — the line at the foot of the set screen and on the
@@ -85,6 +86,156 @@ final class TrendTests: XCTestCase {
         let trend = Tally.liftTrend([(workout(0), set(100))])
         XCTAssertNil(trend.change)
         XCTAssertEqual(trend.points.count, 1)
+        XCTAssertTrue(trend.isProgress, "nothing to compare is not a bad week")
+        XCTAssertNil(trend.summary)
+    }
+
+    // MARK: a lift with no weight
+
+    /// Push-ups are logged at 0 lb. Their weight line was dead flat along zero
+    /// on an axis running −5 to 5 — a chart of nothing. What moves is the reps.
+    func testABodyweightLiftPlotsItsBestSetOfReps() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(0, 8)), (workout(0), set(0, 7)),
+            (workout(1), set(0, 10)), (workout(1), set(0, 9)),
+        ])
+        XCTAssertEqual(trend.measure, .reps)
+        XCTAssertEqual(trend.points.map(\.value), [8, 10])
+        XCTAssertEqual(trend.summary, "+2 reps · 7 days")
+        XCTAssertTrue(trend.isProgress)
+    }
+
+    /// One loaded set — a weighted pull-up — and it is a weight line again.
+    func testALiftIsOnlyUnloadedWhenEveryWorkingSetIs() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(0, 8)), (workout(1), set(25, 5)),
+        ])
+        XCTAssertEqual(trend.measure, .weight)
+        XCTAssertEqual(trend.points.map(\.value), [0, 25])
+    }
+
+    func testAZeroPoundWarmUpDoesNotMakeALoadedLiftUnloaded() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(0, 10, kind: .warmup)), (workout(0), set(95)),
+            (workout(1), set(100)),
+        ])
+        XCTAssertEqual(trend.measure, .weight)
+    }
+
+    // MARK: the line of text beside the chart
+
+    func testTheSummarySaysHowMuchAndOverHowLong() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(45)), (workout(1), set(50)), (workout(3), set(55)),
+        ])
+        XCTAssertEqual(trend.summary, "+10 lb · 3 weeks")
+    }
+
+    /// The first version said "1 days": the count clamped to one, the plural
+    /// chosen from the unclamped zero. And a two-a-day is exactly when this
+    /// chart first appears.
+    func testATwoADaySaysOneDayNotOneDays() {
+        let morning = day0
+        let evening = day0.addingTimeInterval(10 * 3600)
+        let trend = Tally.liftTrend([(morning, set(45)), (evening, set(50))])
+        XCTAssertEqual(trend.days, 0)
+        XCTAssertEqual(trend.summary, "+5 lb · 1 day")
+    }
+
+    func testDaysUntilAFortnightThenWeeks() {
+        func over(_ days: Double) -> String? {
+            Tally.liftTrend([(day0, set(45)),
+                             (day0.addingTimeInterval(days * 86_400), set(50))]).summary
+        }
+        XCTAssertEqual(over(1), "+5 lb · 1 day")
+        XCTAssertEqual(over(13), "+5 lb · 13 days")
+        XCTAssertEqual(over(14), "+5 lb · 2 weeks")
+    }
+
+    func testNoNewsIsNoLine() {
+        XCTAssertNil(Tally.liftTrend([(workout(0), set(100)), (workout(1), set(100))]).summary)
+    }
+
+    func testTakingHelpOffReadsAsItIs() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(100, assisted: true)), (workout(3), set(80, assisted: true)),
+        ])
+        XCTAssertEqual(trend.summary, "\(Fmt.signed(-20)) lb help · 3 weeks")
+        XCTAssertTrue(trend.isProgress)
+    }
+
+    func testMilesKeepTheirDecimals() {
+        let trend = Tally.cardioTrend([
+            (workout(0), bout(1200, 2.0)), (workout(1), bout(1200, 2.25)),
+        ])
+        XCTAssertEqual(trend.summary, "+\(Fmt.distance(0.25)) mi · 7 days")
+    }
+
+    // MARK: from real model objects
+
+    private func context() -> ModelContext {
+        ModelContext(Store.makeContainer(inMemory: true))
+    }
+
+    /// The retro's structural finding: "one point per workout" grouped by DAY
+    /// for as long as `workoutKey` was file-private to the Trends tab, so a
+    /// two-a-day was one point. It is a session now, and the set screen gets
+    /// the same grouping because it is the same function.
+    func testATwoADayIsTwoPointsBecauseSetsGroupBySession() throws {
+        let context = context()
+        let bench = Exercise(name: "Bench Press")
+        context.insert(bench)
+        let cal = Calendar.current
+        let morning = cal.date(from: DateComponents(year: 2026, month: 9, day: 14, hour: 7))!
+        let evening = cal.date(from: DateComponents(year: 2026, month: 9, day: 14, hour: 19))!
+        var entries: [SetEntry] = []
+        for (start, weight) in [(morning, 180.0), (evening, 185.0)] {
+            let session = Session(startedAt: start, dayName: "Push A")
+            context.insert(session)
+            let entry = SetEntry(exercise: bench, weight: weight, reps: 8, setIndex: 1,
+                                 date: start.addingTimeInterval(300))
+            entry.session = session
+            context.insert(entry)
+            entries.append(entry)
+        }
+
+        let trend = entries.trend(for: bench)
+
+        XCTAssertEqual(trend.points.map(\.value), [180, 185])
+        XCTAssertEqual(trend.points.map(\.date), [morning, evening],
+                       "keyed on the session's start, not on the set's own time")
+    }
+
+    /// CloudKit can deliver rows from a device on an older build.
+    func testASetWithNoSessionFallsBackToItsDay() {
+        let context = context()
+        let bench = Exercise(name: "Bench Press")
+        context.insert(bench)
+        let when = Calendar.current.date(
+            from: DateComponents(year: 2026, month: 9, day: 14, hour: 18, minute: 20))!
+        let entry = SetEntry(exercise: bench, weight: 185, reps: 8, setIndex: 1, date: when)
+        context.insert(entry)
+
+        XCTAssertEqual(entry.workoutKey, Calendar.current.startOfDay(for: when))
+    }
+
+    func testCardioAndLiftsAreSentToTheRightSeries() {
+        let context = context()
+        let run = Exercise(name: "Treadmill", loading: .machine, barWeight: 0,
+                           modality: .cardio, metrics: [.duration, .distance])
+        context.insert(run)
+        let entries = [0, 1].map { week -> SetEntry in
+            let entry = SetEntry(exercise: run, weight: 0, reps: 0, setIndex: 1,
+                                 date: workout(week), seconds: 1200,
+                                 distance: 2.0 + Double(week) * 0.1)
+            context.insert(entry)
+            return entry
+        }
+
+        let trend = entries.trend(for: run)
+
+        XCTAssertEqual(trend.measure, .miles, "a treadmill at 0 lb must not become a reps line")
+        XCTAssertEqual(trend.points.count, 2)
     }
 
     func testNothingLoggedIsAnEmptyLineNotACrash() {
@@ -147,7 +298,20 @@ final class TrendTests: XCTestCase {
         XCTAssertEqual(Tally.TrendMeasure.help.unit, "lb help")
         XCTAssertEqual(Tally.TrendMeasure.miles.unit, "mi")
         XCTAssertEqual(Tally.TrendMeasure.minutes.unit, "min")
-        XCTAssertTrue(Tally.TrendMeasure.help.lowerIsBetter)
-        XCTAssertFalse(Tally.TrendMeasure.weight.lowerIsBetter)
+        XCTAssertEqual(Tally.TrendMeasure.reps.unit, "reps")
+        // Exhaustive on purpose: the day someone argues a timed mile makes
+        // `.minutes` lower-is-better, this is the line that has to change.
+        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.lowerIsBetter), [.help])
+    }
+
+    /// One padding for every unit was the bug: half a mile flattens a
+    /// 2.0 → 2.1 gain, and the same half as minutes lets one minute fill half
+    /// the frame.
+    func testEachMeasureBringsPaddingOnItsOwnScale() {
+        XCTAssertLessThan(Tally.TrendMeasure.miles.minimumPad, 0.2)
+        XCTAssertGreaterThanOrEqual(Tally.TrendMeasure.minutes.minimumPad, 1)
+        XCTAssertEqual(Tally.TrendMeasure.weight.minimumPad, 5)
+        XCTAssertEqual(Tally.TrendMeasure.help.minimumPad, 5)
+        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.isStepped), [.weight, .help])
     }
 }

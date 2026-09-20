@@ -122,31 +122,27 @@ struct ExerciseTrend: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(exercise.name) · trend").rfEyebrow()
                     Spacer(minLength: 8)
-                    if let line = summary(of: trend) {
+                    if let line = trend.summary {
                         Text(line)
                             .font(RFDesign.ui(12.5, bold: true))
                             .monospacedDigit()
                             .foregroundStyle(trend.isProgress ? RFDesign.ready : RFDesign.label)
                     }
                 }
+                // Unit, padding and line shape all come from the measure — a
+                // fact about what is plotted, not about which screen plots it.
                 TrendChart(points: trend.points, unit: trend.measure.unit,
-                           stepped: !exercise.isCardio,
-                           minimumPad: exercise.isCardio ? 0.5 : 5,
+                           stepped: trend.measure.isStepped,
+                           minimumPad: trend.measure.minimumPad,
                            height: 132)
                     .accessibilityIdentifier("exercise-trend")
             }
         }
     }
+}
 
-    /// "+10 lb · 26 days". Nothing when it has not moved — "+0 lb" is a line
-    /// of text reporting the absence of news.
-    private func summary(of trend: Tally.Trend) -> String? {
-        guard let change = trend.change, abs(change) >= 0.05 else { return nil }
-        let amount = trend.measure == .miles
-            ? (change > 0 ? "+" : "−") + Fmt.distance(abs(change))
-            : Fmt.signed(change)
-        let span = trend.days
-        let over = span >= 14 ? "\(span / 7) weeks" : "\(max(span, 1)) day\(span == 1 ? "" : "s")"
-        return "\(amount) \(trend.measure.unit) · \(over)"
-    }
+extension Array where Element == Tally.TrendPoint {
+    /// Weigh-ins as a trend. Pounds, joined rather than stepped — the Trends
+    /// tab passes its own tighter padding, because a body moves in tenths.
+    var asBodyWeightTrend: Tally.Trend { Tally.Trend(measure: .weight, points: self) }
 }

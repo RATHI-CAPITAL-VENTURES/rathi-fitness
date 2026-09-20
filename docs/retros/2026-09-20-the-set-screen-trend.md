@@ -33,6 +33,10 @@ the Trends tab that the extraction exposed.
 - **`workoutKey` was a file-private function in `TrendsView.swift`.** The right
   grouping for "one point per workout" already existed and was unreachable from
   anywhere else, which is how a second screen ends up grouping by day again.
+- **I wrote "a caller cannot label miles lb" about a design whose first caller
+  did.** The measure travelled with the points as far as `TrendsView`, which
+  kept the points and dropped it. A property of a type is not a property of its
+  call sites, and the sentence was written from the type.
 - **The bump-level guard asks about capability and I answered about files.**
   First pass: PATCH plus `patch-intentional`, argued from "it is an extraction".
   The guard's own message says "genuinely not new user-visible capability", and
@@ -49,7 +53,12 @@ the Trends tab that the extraction exposed.
 | The Trends headline coloured taking help off as a loss | correctness | direction read from the exercise's `assisted` | landed here |
 | A warm-up could be the day's point on a chart | correctness | working sets only in `liftTrend` | landed here |
 | Cardio had no trend anywhere in the app | feature | `Tally.cardioTrend`: miles, else minutes, never a mix | landed here |
-| The snapshot's `working_weight` is still its own computation, not `Tally.liftTrend` | consistency | none | blocked: it agrees today (least help, working sets) and `SnapshotTests` pin its values; swapping the implementation under a wire contract is a change to make with the CLI fixtures open, not as a rider on a chart. Named here so the third copy is known to exist. |
+| "1 days" beside the chart on a two-a-day — the count clamped, the plural not (review) | correctness | summary moved to `Tally.Trend.summary`, where it can be tested | landed here |
+| A bodyweight lift drew a flat line at 0 lb on an axis from −5 to 5 (review) | correctness | `.reps` measure: best working set per workout | landed here |
+| The Trends tab discarded the measure and labelled an assisted lift "lb" — contradicting this milestone's own DECISIONS entry (review) | consistency | `TrendsView` reads `trend.measure`; table rows tagged "help" / "reps" | landed here |
+| One chart padding for miles and minutes, wrong for both (review) | correctness | `TrendMeasure.minimumPad`, `isStepped` | landed here |
+| `[SetEntry].trend(for:)` and `workoutKey` — the code that moved — had no tests (review) | testing | three model-backed cases, incl. the two-a-day | landed here |
+| The snapshot's `working_weight` is still its own computation, not `Tally.liftTrend` | consistency | none | blocked: it picks the same SET (least help, working sets) but groups by day where `liftTrend` groups by session, so on a two-a-day the two can differ; and `SnapshotTests` pin its values; swapping the implementation under a wire contract is a change to make with the CLI fixtures open, not as a rider on a chart. Named here so the third copy is known to exist. |
 
 ## Follow-ups landed in this milestone
 
