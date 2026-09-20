@@ -112,7 +112,15 @@ if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
     # xcodebuild lists the device as "needs to be unlocked to enable
     # development services". That is "not now" in the plainest sense — it is
     # locked all night — and nothing here can fix it but waiting.
-    grep -q "needs to be unlocked" "$BUILD_LOG" && exit 10
+    #
+    # Scoped to OUR device. xcodebuild lists every paired device, each on its
+    # own line with its own `id:` — the real one, from that morning:
+    #   { platform:iOS, arch:arm64, id:00008120-…, name:…, error:… needs to be
+    #     unlocked to enable development services Please unlock the device. }
+    # Unscoped, the iPad asleep in the kitchen matched this for a job aimed at
+    # the iPhone, and a wrong ECID went quiet for ever by way of someone
+    # else's lock screen.
+    grep -qE "id:$ECID[^}]*needs to be unlocked" "$BUILD_LOG" && exit 10
     # "No destination" is absence ONLY if the phone did not just tell us it is
     # here. A phone reporting itself present with no destination is a wrong
     # ECID — the ECID/UUID swap at the top of this file — and waiting will

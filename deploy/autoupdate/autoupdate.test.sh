@@ -85,9 +85,14 @@ mkdir -p "\$d"
 [ -n "\${STUB_NO_DESTINATION:-}" ] && {
   echo "xcodebuild: error: Unable to find a \${STUB_NO_DESTINATION} matching the provided destination specifier:"
   exit 70; }
+# The line shape is copied from a real failed run, `id:` and all — the first
+# version of this stub had no id, which is why no test could see that the lock
+# check was not scoped to a device. STUB_LOCKED names WHOSE lock screen it is.
 [ -n "\${STUB_LOCKED:-}" ] && {
   echo "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
-  echo "  { platform:iOS, name:Phone, error:Phone needs to be unlocked to enable development services. }"
+  echo "		{ id:\${AU_IOS_ECID} }"
+  echo "	Destinations compatible with the \"Thing\" scheme:"
+  echo "		{ platform:iOS, arch:arm64, id:\${STUB_LOCKED}, name:A Device, error:A Device needs to be unlocked to enable development services Please unlock the device. }"
   exit 70; }
 [ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
 mkdir -p "\$d/Build/Products/Debug-iphoneos/Thing.app"
@@ -202,10 +207,18 @@ teardown
 # Locked all night, with a commit waiting: not an error, and not a log line
 # every ten minutes until morning.
 setup
-  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=1
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=E     # E is AU_IOS_ECID: OUR phone
   run > /dev/null
   quiet "a locked phone is 'not now'"
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# The iPad asleep in the kitchen. Our phone says it is here and xcodebuild
+# cannot find it — a wrong ECID — and someone ELSE's lock screen is in the list.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=SOME-OTHER-DEVICE
+  run > /dev/null
+  says "BUILD FAILED" "a wrong ECID stays loud even when ANOTHER device is locked"
 teardown
 
 # DEVELOPER_DIR pointing at CommandLineTools: xcrun runs, finds no devicectl,
