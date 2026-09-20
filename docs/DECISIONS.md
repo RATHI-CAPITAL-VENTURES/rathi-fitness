@@ -1701,3 +1701,55 @@ a label, and the plate math would subtract the guess. So those are typed
 ("A different bar"), and `barOptions(including:)` keeps a typed weight on the
 menu — a menu that cannot find its own current value shows "—", which reads as
 "no bar" while 55 lb is quietly being subtracted underneath.
+
+## 2026-09-20 — The set screen shows the curve, and it is the Trends curve
+
+**Chosen: `ExerciseTrend` under "last three", drawing `TrendChart` — the chart
+lifted out of `TrendsView` — over `Tally.liftTrend` / `cardioTrend`. Rejected:
+a sparkline; a second, smaller chart written for the set screen; a link to the
+Trends tab.**
+
+Asked for from the gym, with a screenshot: "last three" read 45, 50, 55 and the
+bottom of the screen was empty under it. Three rows cannot say whether that is
+a run or the whole story.
+
+- **Not a sparkline.** `Sparkline` exists and is right for a table row, where
+  the question is "which way". Here there is a whole screen-width and the
+  question is "how far, since when" — which needs an axis.
+- **Not a second chart.** The Trends chart carries a fix that is invisible
+  until it is missing: the area mark's floor is computed, because anchored at
+  zero a 5 lb increase renders as a flat line. A chart rewritten for this screen
+  would have had to rediscover that. So the drawing moved to `TrendChart` and
+  both screens use it.
+- **Not a link.** Between sets, with a timer running, a tap that leaves the
+  screen you log on is a tap you do not make.
+
+**Today is a point on it.** "Last three" deliberately excludes the workout in
+progress; the line includes it, so logging the set moves the line. That is the
+one moment the number is worth looking at.
+
+**Hidden below two workouts**, rather than an empty frame: "No history yet." is
+already said directly above, and an empty chart on a screen read between sets
+is furniture.
+
+**Cardio plots miles, else minutes** — miles when two workouts have a distance,
+since that is what `nextCardioTarget` progresses; minutes for a stair climber
+or a rower whose distance is left blank. Never a mix: a workout with no
+distance is left out of a miles line, not plotted as a collapse to zero.
+
+Moving the series into `Tally` turned up two bugs in the inline version it
+replaced. It took `.max()` of every weight that day, so a warm-up could be the
+point; and on an assisted machine the maximum is the MOST help, so the Trends
+line plotted the easiest set and rose as you got weaker, the working-weight
+table disagreed with the snapshot (which reports the least), and the headline
+coloured taking help off as a loss. One function, working sets only, least help
+when assisted, and the measure travels with the points so a caller cannot label
+miles "lb".
+
+**MINOR, after first being written as a PATCH.** The bump-level guard fired on
+the new `Views/TrendChart.swift`, and the first answer was `patch-intentional`
+on the grounds that the file is an extraction of a chart that already shipped.
+That argues about the FILE. The guard asks about the capability — "genuinely
+not new user-visible capability" — and a chart on a screen that had none is
+user-visible by any reading. The hatch is also label-only on purpose, so a
+commit cannot wave itself through. v0.11.0, with a retro.

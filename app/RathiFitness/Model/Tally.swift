@@ -826,6 +826,104 @@ enum Tally {
         var gymSeconds: Int = 0
     }
 
+    // MARK: - One exercise, over time
+
+    /// One workout's worth of a trend line.
+    struct TrendPoint: Equatable {
+        let date: Date
+        let value: Double
+    }
+
+    /// What a trend line is measuring, which decides its unit and which way is
+    /// up. Carried WITH the points so a caller cannot draw miles labelled "lb"
+    /// or colour an assisted machine's progress as a loss.
+    enum TrendMeasure: Equatable {
+        case weight, help, miles, minutes
+
+        var unit: String {
+            switch self {
+            case .weight: return "lb"
+            case .help: return "lb help"
+            case .miles: return "mi"
+            case .minutes: return "min"
+            }
+        }
+
+        /// On an assisted machine the number going DOWN is the progress.
+        var lowerIsBetter: Bool { self == .help }
+    }
+
+    struct Trend: Equatable {
+        let measure: TrendMeasure
+        let points: [TrendPoint]
+
+        /// Last minus first, or nil when there is nothing to compare.
+        var change: Double? {
+            guard points.count > 1, let first = points.first, let last = points.last
+            else { return nil }
+            return last.value - first.value
+        }
+
+        /// Whether `change` is the direction you were hoping for. Flat counts:
+        /// holding a weight is not a bad week.
+        var isProgress: Bool {
+            guard let change else { return true }
+            return measure.lowerIsBetter ? change <= 0 : change >= 0
+        }
+
+        var days: Int {
+            guard let first = points.first, let last = points.last else { return 0 }
+            return Int((last.date.timeIntervalSince(first.date) / 86_400).rounded())
+        }
+    }
+
+    /// A lift, one point per workout: **the hardest working set.**
+    ///
+    /// The Trends chart computed this inline as `sets.map(\.weight).max()`,
+    /// which is wrong twice. It counted warm-ups, so an ambitious warm-up could
+    /// be the day's point. And on an assisted machine the maximum is the MOST
+    /// help you needed — the easiest set of the day — so the line plotted your
+    /// worst set and rose as you got weaker. Heaviest for a lift, least help
+    /// for an assisted one, working sets only; a workout that was all warm-ups
+    /// has no point rather than a zero.
+    ///
+    /// - Parameter sets: each set with the workout it belongs to (a sortable
+    ///   key — the session's start), so a two-a-day is two points.
+    static func liftTrend(_ sets: [(workout: Date, set: Set)]) -> Trend {
+        let assisted = sets.contains { $0.set.assisted }
+        let byWorkout = Dictionary(grouping: sets.filter { $0.set.counts }, by: \.workout)
+        let points = byWorkout.keys.sorted().compactMap { key -> TrendPoint? in
+            let weights = (byWorkout[key] ?? []).map(\.set.weight)
+            guard let value = assisted ? weights.min() : weights.max() else { return nil }
+            return TrendPoint(date: key, value: value)
+        }
+        return Trend(measure: assisted ? .help : .weight, points: points)
+    }
+
+    /// A cardio machine, one point per workout: miles if it records them,
+    /// minutes if it does not.
+    ///
+    /// Miles when at least two workouts have a distance, because that is the
+    /// number `nextCardioTarget` progresses and the one that answers "am I
+    /// getting further". A stair climber has no distance and a rower's is
+    /// often left blank, so those fall back to the clock rather than drawing a
+    /// line along zero. Never a mix: a workout with no distance is left out of
+    /// a miles line instead of being plotted as a collapse to nothing.
+    static func cardioTrend(_ bouts: [(workout: Date, bout: Bout)]) -> Trend {
+        let byWorkout = Dictionary(grouping: bouts, by: \.workout)
+        let keys = byWorkout.keys.sorted()
+        let miles = keys.compactMap { key -> TrendPoint? in
+            let total = (byWorkout[key] ?? []).reduce(0) { $0 + $1.bout.distance }
+            return total > 0 ? TrendPoint(date: key, value: (total * 100).rounded() / 100) : nil
+        }
+        if miles.count >= 2 { return Trend(measure: .miles, points: miles) }
+        let minutes = keys.compactMap { key -> TrendPoint? in
+            let total = (byWorkout[key] ?? []).reduce(0) { $0 + $1.bout.seconds }
+            return total > 0 ? TrendPoint(date: key, value: (Double(total) / 60).rounded()) : nil
+        }
+        return Trend(measure: .minutes, points: minutes)
+    }
+
     // MARK: - Time in the gym
 
     /// One thing you logged, as far as the clock is concerned.

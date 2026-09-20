@@ -484,6 +484,10 @@ struct SetView: View {
                 .padding(.vertical, 7)
                 if i < recentDays.count - 1 { Divider().overlay(RFDesign.hairline) }
             }
+            // The curve those three rows are the end of. `mine` includes the
+            // workout in progress, so logging a set moves the line.
+            ExerciseTrend(exercise: exercise, sets: mine)
+                .padding(.top, RFDesign.md)
         }
     }
 

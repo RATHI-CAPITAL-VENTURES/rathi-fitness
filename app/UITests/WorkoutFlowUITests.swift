@@ -55,6 +55,15 @@ final class WorkoutFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["25"].exists)
         shoot("02-set-ready")
 
+        // The curve under "last three". `-RFDemoHistory` gives the bench six
+        // weeks, so there is a line to draw; it sits at the foot of the screen.
+        app.swipeUp()
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "exercise-trend").firstMatch.waitForExistence(timeout: 5),
+                      "a lift with history should show its trend under the last three")
+        shoot("02b-set-trend")
+        app.swipeDown()
+
         // 3. Logging a set starts the cooldown, and the button changes its mind
         //    about what it is for.
         logButton.tap()

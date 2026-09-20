@@ -5,19 +5,8 @@ import Charts
 /// Body weight and working weight on one screen, because they answer one
 /// question: am I getting stronger, or just heavier.
 
-/// The workout a set belongs to, as a sortable key.
-///
-/// Both charts below have always said "one point per session" in their own
-/// comments and then grouped by `startOfDay`, because a day was the only thing
-/// there was to group by. A two-a-day therefore showed as one point, taking the
-/// heavier of the two workouts and hiding the other entirely.
-///
-/// Falls back to the day for a set with no session — CloudKit can deliver rows
-/// from a device on an older build, and dropping them from a chart would be a
-/// quieter version of the same bug.
-private func workoutKey(_ entry: SetEntry) -> Date {
-    entry.session?.startedAt ?? Calendar.current.startOfDay(for: entry.date)
-}
+// `SetEntry.workoutKey` — the workout a set belongs to, as a sortable key —
+// lives in TrendChart.swift, beside the chart the set screen shares with this one.
 
 struct TrendsView: View {
     @Environment(\.modelContext) private var context
@@ -430,11 +419,7 @@ struct TrendsView: View {
 
     // MARK: data
 
-    private struct Point: Identifiable {
-        let id = UUID()
-        let date: Date
-        let value: Double
-    }
+    private typealias Point = Tally.TrendPoint
 
     private var series: [Point] {
         let cutoff = range.days.flatMap {
@@ -448,12 +433,13 @@ struct TrendsView: View {
         case .exercise(let slug):
             let mine = allSets.filter { $0.exercise?.slug == slug }
                 .filter { entry in cutoff.map { entry.date >= $0 } ?? true }
-            // One point per session: the top set. A point per set makes a
-            // scribble that hides the thing you came to see.
-            let byWorkout = Dictionary(grouping: mine, by: workoutKey)
-            return byWorkout.keys.sorted().map {
-                Point(date: $0, value: byWorkout[$0]?.map(\.weight).max() ?? 0)
-            }
+            // One point per session: the hardest working set. A point per
+            // set makes a scribble that hides the thing you came to see.
+            // `Tally.liftTrend`, the same call the set screen makes — it also
+            // knows that on an assisted machine "hardest" is the LEAST help,
+            // which the inline `.max()` here did not.
+            guard let exercise = exercises.first(where: { $0.slug == slug }) else { return [] }
+            return mine.trend(for: exercise).points
         }
     }
 
@@ -468,7 +454,17 @@ struct TrendsView: View {
             let span = last.date.timeIntervalSince(first.date) / 86_400
             return span >= 1 ? change / span * 7 : nil
         }()
-        let goodDirection = selection == .body ? (change ?? 0) <= 0 : (change ?? 0) >= 0
+        let goodDirection: Bool = {
+            switch selection {
+            case .body: return (change ?? 0) <= 0
+            case .exercise(let slug):
+                // An assisted machine's progress is the number going DOWN. This
+                // read "up is good" for every lift, so taking 20 lb of help off
+                // was drawn in the colour of a bad month.
+                let assisted = exercises.first { $0.slug == slug }?.assisted ?? false
+                return assisted ? (change ?? 0) <= 0 : (change ?? 0) >= 0
+            }
+        }()
 
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -506,55 +502,11 @@ struct TrendsView: View {
                              + "shape shows up here.")
                 .frame(height: 168)
         } else {
-            // The floor is computed, not left to Chart. A one-argument AreaMark
-            // anchors to zero, which drags the Y domain down to 0 and renders a
-            // 3lb cut over 30 days as a flat line — the chart draws, looks fine,
-            // and shows nothing. `chartYScale` alone does not fix it; the mark
-            // itself has to start somewhere other than zero.
-            let lo = (points.map(\.value).min() ?? 0)
-            let hi = (points.map(\.value).max() ?? 1)
-            let pad = max((hi - lo) * 0.18, selection == .body ? 0.6 : 5)
-            let floor = lo - pad
-            let ceiling = hi + pad
-
-            Chart {
-                ForEach(points) { p in
-                    AreaMark(x: .value("Date", p.date),
-                             yStart: .value(unit, floor),
-                             yEnd: .value(unit, p.value))
-                        .foregroundStyle(.linearGradient(
-                            colors: [RFDesign.ready.opacity(0.22), RFDesign.ready.opacity(0)],
-                            startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(selection == .body ? .linear : .stepEnd)
-                    LineMark(x: .value("Date", p.date), y: .value(unit, p.value))
-                        .foregroundStyle(RFDesign.ready)
-                        .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
-                        .interpolationMethod(selection == .body ? .linear : .stepEnd)
-                }
-                // The endpoint is the point you opened the screen for.
-                if let last = points.last {
-                    PointMark(x: .value("Date", last.date), y: .value(unit, last.value))
-                        .foregroundStyle(RFDesign.ready)
-                        .symbolSize(60)
-                }
-            }
-            .chartYScale(domain: floor...ceiling)
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 3)) { _ in
-                    AxisValueLabel()
-                        .font(RFDesign.ui(10))
-                        .foregroundStyle(RFDesign.labelDim)
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
-                    AxisGridLine().foregroundStyle(Color.white.opacity(0.06))
-                    AxisValueLabel()
-                        .font(RFDesign.ui(10))
-                        .foregroundStyle(RFDesign.labelDim)
-                }
-            }
-            .frame(height: 168)
+            // The drawing lives in `TrendChart` so the set screen shows this
+            // same chart rather than a second one that drifts.
+            TrendChart(points: points, unit: unit,
+                       stepped: selection != .body,
+                       minimumPad: selection == .body ? 0.6 : 5)
         }
     }
 
@@ -828,9 +780,14 @@ struct TrendsView: View {
             guard !ex.isCardio else { return nil }
             let mine = allSets.filter { $0.exercise?.slug == ex.slug }
             guard !mine.isEmpty else { return nil }
-            let byWorkout = Dictionary(grouping: mine, by: workoutKey)
-            let workouts = byWorkout.keys.sorted()
-            let tops = workouts.map { byWorkout[$0]?.map(\.weight).max() ?? 0 }
+            // The same series the chart above and the set screen plot. This
+            // was its own `.max()` over every set, so on an assisted machine
+            // the table's "working weight" was the MOST help of the day while
+            // the snapshot — `docs/SNAPSHOT.md`, "the lowest of the day" —
+            // reported the least. Same lift, same day, two numbers.
+            let trend = mine.trend(for: ex)
+            let workouts = trend.points.map(\.date)
+            let tops = trend.points.map(\.value)
             guard let current = tops.last else { return nil }
             // Compare with the last session at or before the cutoff — "30 days
             // ago" is not a day you necessarily trained.
