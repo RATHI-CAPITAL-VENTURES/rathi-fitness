@@ -1753,6 +1753,28 @@ a 2.0 → 2.1 mi gain to a twelfth of the frame and let one MINUTE fill half of
 it) and `isStepped`. A registry, per the house rule — the chart asks the
 measure, it does not branch on the screen.
 
+That last sentence was written before it was true, which the second review
+pointed out with some justice, since it replaced a sentence withdrawn for the
+same fault. Body weight was still `.weight` plus three `selection == .body`
+checks — line shape, padding, direction — so it was a `Trend` wrong about three
+of its own properties and kept honest by its caller remembering. It is
+`.bodyWeight` now and the three checks are gone. The Trends table was the other
+holdout: its progress colour read `Exercise.assisted`, so an assisted machine
+you no longer need help on — logged at 0 lb, plotting reps — showed "+4" in
+grey beside a headline showing "+4 reps" in teal. It reads
+`measure.lowerIsBetter`, and the table sorts by unit before magnitude
+(`sortGroup`), because 25 reps cannot be ranked against a 30 lb row.
+
+**The measure depends on the window, and on the set screen the window is
+everything.** A lift is `.reps` only when EVERY working set in view is at
+0 lb. On the Trends tab that can flip with the range picker — weighted pull-ups
+three months ago, bodyweight since, reads in reps at 30D and in pounds at 3M —
+and each window is honest about its own unit. On the set screen there is no
+range: one weighted set, ever, keeps the line in pounds, with a cliff to zero
+and a flat line after it. Accepted over the alternative, a line that changes
+unit halfway along, which cannot be read at all. If it turns up in practice the
+answer is a range on the set screen, not a mixed axis.
+
 **A lift with no weight plots reps.** Thirteen catalogue lifts are bodyweight
 and logged at 0 lb; their line was dead flat on an axis from −5 to 5, which is
 the furniture this view says it refuses to be. What moves on a push-up is the

@@ -37,6 +37,12 @@ the Trends tab that the extraction exposed.
   did.** The measure travelled with the points as far as `TrendsView`, which
   kept the points and dropped it. A property of a type is not a property of its
   call sites, and the sentence was written from the type.
+- **…and then I did it again in the correction.** "The chart asks the measure,
+  it does not branch on the screen" replaced the withdrawn sentence, about the
+  same call site, while that call site still had three `selection == .body`
+  branches in it. Twice in one milestone: a claim about the code written from
+  the design instead of from the file. The fix was to make it true rather than
+  to soften it a second time.
 - **The bump-level guard asks about capability and I answered about files.**
   First pass: PATCH plus `patch-intentional`, argued from "it is an extraction".
   The guard's own message says "genuinely not new user-visible capability", and
@@ -57,6 +63,9 @@ the Trends tab that the extraction exposed.
 | A bodyweight lift drew a flat line at 0 lb on an axis from −5 to 5 (review) | correctness | `.reps` measure: best working set per workout | landed here |
 | The Trends tab discarded the measure and labelled an assisted lift "lb" — contradicting this milestone's own DECISIONS entry (review) | consistency | `TrendsView` reads `trend.measure`; table rows tagged "help" / "reps" | landed here |
 | One chart padding for miles and minutes, wrong for both (review) | correctness | `TrendMeasure.minimumPad`, `isStepped` | landed here |
+| The table's progress colour read `Exercise.assisted`, not the measure: a graduated assisted machine showed "+4" grey beside "+4 reps" teal (second review) | correctness | `Row.lowerIsBetter` from `measure.lowerIsBetter` | landed here |
+| The table sorted a rep count among pound values under "Working weight" (second review) | correctness | `TrendMeasure.sortGroup`: pounds, help, reps | landed here |
+| Body weight was `.weight` plus three call-site checks — a `Trend` wrong about its own shape, padding and direction (second review) | structure | `TrendMeasure.bodyWeight`; the checks deleted | landed here |
 | `[SetEntry].trend(for:)` and `workoutKey` — the code that moved — had no tests (review) | testing | three model-backed cases, incl. the two-a-day | landed here |
 | The snapshot's `working_weight` is still its own computation, not `Tally.liftTrend` | consistency | none | blocked: it picks the same SET (least help, working sets) but groups by day where `liftTrend` groups by session, so on a two-a-day the two can differ; and `SnapshotTests` pin its values; swapping the implementation under a wire contract is a change to make with the CLI fixtures open, not as a rider on a chart. Named here so the third copy is known to exist. |
 

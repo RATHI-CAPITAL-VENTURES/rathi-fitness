@@ -43,7 +43,10 @@ A **MINOR bump is a milestone** and must ship a retro under
 - **The Trends tab labelled everything "lb".** An assisted pull-up read "80 lb"
   there and "lb help" on its own screen. The unit, the chart's padding and
   whether the line steps all come from what is being measured now
-  (`Tally.TrendMeasure`), on both screens.
+  (`Tally.TrendMeasure`), on both screens — body weight included, which was
+  three special cases at the call site. The working-weight table judges
+  progress by the measure too, and sorts pounds, then help, then reps, rather
+  than ranking 25 push-ups against a 30 lb row.
 
 ## Earlier
 

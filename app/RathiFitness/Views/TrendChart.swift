@@ -142,7 +142,7 @@ struct ExerciseTrend: View {
 }
 
 extension Array where Element == Tally.TrendPoint {
-    /// Weigh-ins as a trend. Pounds, joined rather than stepped — the Trends
-    /// tab passes its own tighter padding, because a body moves in tenths.
-    var asBodyWeightTrend: Tally.Trend { Tally.Trend(measure: .weight, points: self) }
+    /// Weigh-ins as a trend. `.bodyWeight` carries what makes it different —
+    /// joined, tight padding, down is the goal — so no caller has to remember.
+    var asBodyWeightTrend: Tally.Trend { Tally.Trend(measure: .bodyWeight, points: self) }
 }

@@ -301,7 +301,57 @@ final class TrendTests: XCTestCase {
         XCTAssertEqual(Tally.TrendMeasure.reps.unit, "reps")
         // Exhaustive on purpose: the day someone argues a timed mile makes
         // `.minutes` lower-is-better, this is the line that has to change.
-        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.lowerIsBetter), [.help])
+        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.lowerIsBetter),
+                       [.help, .bodyWeight])
+    }
+
+    /// Body weight was `.weight` plus three `selection == .body` checks at the
+    /// call site — a `Trend` that was wrong about its own line shape, padding
+    /// and direction, kept honest by callers remembering. Its `summary` would
+    /// have called a gain progress.
+    func testBodyWeightKnowsWhatMakesItDifferent() {
+        let cut = Tally.Trend(measure: .bodyWeight, points: [
+            Tally.TrendPoint(date: workout(0), value: 178.2),
+            Tally.TrendPoint(date: workout(4), value: 176.4),
+        ])
+        XCTAssertTrue(cut.isProgress, "on this screen a cut is the goal")
+        XCTAssertFalse(Tally.TrendMeasure.bodyWeight.isStepped, "a reading, not a setting")
+        XCTAssertLessThan(Tally.TrendMeasure.bodyWeight.minimumPad, 1, "a body moves in tenths")
+        XCTAssertEqual(Tally.TrendMeasure.bodyWeight.unit, "lb")
+
+        let gain = Tally.Trend(measure: .bodyWeight, points: cut.points.reversed().enumerated()
+            .map { Tally.TrendPoint(date: workout($0.offset * 4), value: $0.element.value) })
+        XCTAssertFalse(gain.isProgress)
+    }
+
+    /// An assisted machine you no longer need help on: logged at 0 lb, plots
+    /// reps, and MORE reps is progress. The Trends table read direction off
+    /// `Exercise.assisted` instead, and showed "+4" in grey beside a headline
+    /// showing "+4 reps" in teal.
+    func testAGraduatedAssistedMachineIsJudgedAsReps() {
+        let trend = Tally.liftTrend([
+            (workout(0), set(0, 8, assisted: true)), (workout(3), set(0, 12, assisted: true)),
+        ])
+        XCTAssertEqual(trend.measure, .reps)
+        XCTAssertFalse(trend.measure.lowerIsBetter)
+        XCTAssertTrue(trend.isProgress)
+        XCTAssertEqual(trend.summary, "+4 reps · 3 weeks")
+    }
+
+    /// One column cannot rank 25 reps against a 30 lb row.
+    func testATableRanksPoundsBeforeHelpBeforeReps() {
+        typealias M = Tally.TrendMeasure
+        XCTAssertLessThan(M.weight.sortGroup, M.help.sortGroup)
+        XCTAssertLessThan(M.help.sortGroup, M.reps.sortGroup)
+        // (group, −value): push-ups at 25 must not land above a 20 lb raise.
+        let rows: [(name: String, measure: M, current: Double)] = [
+            ("Push-Up", .reps, 25), ("Lateral Raise", .weight, 20),
+            ("Assisted Pull-Up", .help, 80), ("Row", .weight, 30),
+        ]
+        let sorted = rows.sorted {
+            ($0.measure.sortGroup, -$0.current, $0.name) < ($1.measure.sortGroup, -$1.current, $1.name)
+        }
+        XCTAssertEqual(sorted.map(\.name), ["Row", "Lateral Raise", "Assisted Pull-Up", "Push-Up"])
     }
 
     /// One padding for every unit was the bug: half a mile flattens a
@@ -313,5 +363,6 @@ final class TrendTests: XCTestCase {
         XCTAssertEqual(Tally.TrendMeasure.weight.minimumPad, 5)
         XCTAssertEqual(Tally.TrendMeasure.help.minimumPad, 5)
         XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.isStepped), [.weight, .help])
+        XCTAssertEqual(Tally.TrendMeasure.bodyWeight.minimumPad, 0.6)
     }
 }

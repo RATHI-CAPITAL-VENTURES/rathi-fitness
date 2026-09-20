@@ -464,16 +464,16 @@ struct TrendsView: View {
             let span = last.date.timeIntervalSince(first.date) / 86_400
             return span >= 1 ? change / span * 7 : nil
         }()
-        // Body weight is its own judgement (this screen treats a cut as the
-        // goal). For a lift the measure knows: an assisted machine's progress
-        // is the number going DOWN, and this used to read "up is good" for
+        // The measure knows which way is up: a body weight and an assisted
+        // machine both progress DOWNWARDS. This used to read "up is good" for
         // every lift, so taking 20 lb of help off was drawn in the colour of a
         // bad month.
-        let goodDirection = selection == .body ? (change ?? 0) <= 0 : trend.isProgress
+        let goodDirection = trend.isProgress
 
         return VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(latest.map { selection == .body ? Fmt.bodyWeight($0) : Fmt.weight($0) } ?? "—")
+                Text(latest.map { trend.measure == .bodyWeight ? Fmt.bodyWeight($0)
+                                                               : Fmt.weight($0) } ?? "—")
                     .font(RFDesign.figure(58))
                     .monospacedDigit()
                     .foregroundStyle(RFDesign.speech)
@@ -510,8 +510,8 @@ struct TrendsView: View {
             // The drawing lives in `TrendChart` so the set screen shows this
             // same chart rather than a second one that drifts.
             TrendChart(points: points, unit: unit,
-                       stepped: selection != .body && trend.measure.isStepped,
-                       minimumPad: selection == .body ? 0.6 : trend.measure.minimumPad)
+                       stepped: trend.measure.isStepped,
+                       minimumPad: trend.measure.minimumPad)
         }
     }
 
@@ -760,9 +760,14 @@ struct TrendsView: View {
     private struct Row {
         let slug: String; let name: String; let current: Double
         let change: Double?; let spark: [Double]
-        /// The weight makes it easier, so every judgement about this row runs
-        /// the other way — see `Exercise.assisted`.
-        var assisted = false
+        /// Whether a smaller `current` is the better one — from the MEASURE,
+        /// not from `Exercise.assisted`. They differ: an assisted machine you
+        /// no longer need help on is logged at 0 lb, plots reps, and more reps
+        /// is progress. Read off the exercise, that row showed "+4" in grey
+        /// while the headline one tap away showed "+4 reps" in teal.
+        var lowerIsBetter = false
+        /// Pounds, then help, then reps — see `TrendMeasure.sortGroup`.
+        var group = 0
         /// What `current` is, when it is not plain pounds: "help" on an
         /// assisted machine, "reps" on a bodyweight lift. Otherwise the column
         /// silently mixes meanings under one heading.
@@ -774,7 +779,7 @@ struct TrendsView: View {
         /// worse, colouring the wrong one teal — is the chart lying quietly.
         var improved: Bool {
             guard let change, change != 0 else { return false }
-            return assisted ? change < 0 : change > 0
+            return lowerIsBetter ? change < 0 : change > 0
         }
     }
 
@@ -802,11 +807,14 @@ struct TrendsView: View {
             let change = baseIndex.map { current - tops[$0] }
             return Row(slug: ex.slug, name: ex.name, current: current,
                        change: change, spark: Array(tops.suffix(8)),
-                       assisted: ex.assisted,
+                       lowerIsBetter: trend.measure.lowerIsBetter,
+                       group: trend.measure.sortGroup,
                        tag: trend.measure == .help ? "help"
                           : trend.measure == .reps ? "reps" : nil)
         }
-        .sorted { $0.current > $1.current }
+        // Heaviest first WITHIN a unit; name last so equal rows cannot swap
+        // between draws.
+        .sorted { ($0.group, -$0.current, $0.name) < ($1.group, -$1.current, $1.name) }
     }
 
     private func short(_ name: String) -> String {

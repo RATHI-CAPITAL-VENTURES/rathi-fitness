@@ -839,10 +839,17 @@ enum Tally {
     /// or colour an assisted machine's progress as a loss.
     enum TrendMeasure: Equatable, CaseIterable {
         case weight, help, reps, miles, minutes
+        /// What the scale said. Pounds like `.weight`, and nothing else like
+        /// it: a reading rather than a setting, so it is joined not stepped; it
+        /// moves in tenths, so it needs a tenth of the padding; and on this
+        /// app's Trends tab a cut is the goal. It was `.weight` plus three
+        /// `selection == .body` checks at the call site, which is the
+        /// arrangement this enum exists to end.
+        case bodyWeight
 
         var unit: String {
             switch self {
-            case .weight: return "lb"
+            case .weight, .bodyWeight: return "lb"
             case .help: return "lb help"
             case .reps: return "reps"
             case .miles: return "mi"
@@ -850,8 +857,9 @@ enum Tally {
             }
         }
 
-        /// On an assisted machine the number going DOWN is the progress.
-        var lowerIsBetter: Bool { self == .help }
+        /// On an assisted machine the number going DOWN is the progress — and
+        /// so, here, is a body weight.
+        var lowerIsBetter: Bool { self == .help || self == .bodyWeight }
 
         /// The least room a chart leaves above and below, in this unit.
         ///
@@ -865,6 +873,21 @@ enum Tally {
             case .reps: return 2
             case .miles: return 0.1
             case .minutes: return 2
+            case .bodyWeight: return 0.6
+            }
+        }
+
+        /// Where a row of this measure sits in a table sorted "heaviest
+        /// first": pounds, then help, then reps. One column cannot rank 25
+        /// reps against a 30 lb row — sorted on the bare number, push-ups
+        /// landed between a lateral raise and a row, under a heading that says
+        /// "Working weight".
+        var sortGroup: Int {
+            switch self {
+            case .weight, .bodyWeight: return 0
+            case .help: return 1
+            case .reps: return 2
+            case .miles, .minutes: return 3
             }
         }
 
