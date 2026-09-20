@@ -28,7 +28,12 @@ A **MINOR bump is a milestone** and must ship a retro under
   what the design always said an absent device should do. The code was never
   the problem and the phone was never touched. Shared template 1.0.2 → 1.0.3
   (`deploy/autoupdate`, installed by `bootstrap`); the template's test stub had
-  the same wrong assumption as the script, and is fixed with it.
+  the same wrong assumption as the script, and is fixed with it. If xcodebuild
+  itself answers "Unable to find a destination", that is treated as absence
+  too, whatever word `devicectl` used; a missing `devicectl` is loud rather
+  than silently "not now" for ever; and the state is read in a way that cannot
+  lose its answer on a long device report (review found the first version of
+  this fix could, past 64 KiB).
 
 ## 0.11.0 — 2026-09-20
 

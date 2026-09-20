@@ -55,7 +55,8 @@ case "\$*" in
   # device this Mac has never paired with — the one case that does exit 1.
   *"info details"*)   [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
                       echo "Current device information:"
-                      if [ -n "\${STUB_REACHABLE:-}" ]; then echo "    • Device State: connected"
+                      if [ -n "\${STUB_STATE:-}" ]; then echo "    • Device State: \${STUB_STATE}"
+                      elif [ -n "\${STUB_REACHABLE:-}" ]; then echo "    • Device State: connected"
                       else echo "    • Device State: unavailable"; fi ;;
   *"info processes"*) [ -n "\${STUB_RUNNING:-}" ] && echo "9 /x/Thing.app/Thing" ;;
   *"install app"*)    [ -n "\${STUB_INSTALL_FAILS:-}" ] && exit 1; echo "App installed:" ;;
@@ -64,8 +65,16 @@ exit 0
 STUB
     cat > "$BIN/xcodebuild" <<STUB
 #!/bin/bash
-[ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
 d=\$(echo "\$@" | sed 's/.*-derivedDataPath //;s/ .*//')
+# BEFORE it can fail, as the real one does. This used to come after the failure
+# branch, so with STUB_BUILD_FAILS set the directory could never exist and "no
+# build was attempted" — which looks for it — passed while the log beside it
+# said BUILD FAILED. An assertion that cannot fail is not one.
+mkdir -p "\$d"
+[ -n "\${STUB_NO_DESTINATION:-}" ] && {
+  echo "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
+  exit 70; }
+[ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
 mkdir -p "\$d/Build/Products/Debug-iphoneos/Thing.app"
 exit 0
 STUB
@@ -74,7 +83,8 @@ STUB
     chmod +x "$BIN"/*
 }
 teardown() { rm -rf "$TMP"
-    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN; }
+    unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN \
+          STUB_NO_DESTINATION STUB_STATE; }
 
 run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
@@ -148,6 +158,31 @@ setup
   new_commit; export STUB_UNKNOWN=1 STUB_BUILD_FAILS=1   # never paired: exits 1
   run > /dev/null
   quiet "a device this Mac has never met is not an error either"
+teardown
+
+# A state word nobody has seen yet. The deny-match lets it through on purpose;
+# xcodebuild then says there is nothing to build for, and THAT is believed.
+setup
+  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=1
+  run > /dev/null
+  quiet "no destination is absence, whatever devicectl called it"
+  ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# ...but a real build failure on a phone that IS there stays loud.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_BUILD_FAILS=1
+  run > /dev/null
+  says "BUILD FAILED" "a broken build on a present phone is still reported"
+teardown
+
+# The state is on line 1 of more than a pipe buffer of output. With
+# `printf | grep -q` under pipefail this lost the exit 10 to SIGPIPE.
+setup
+  new_commit; export STUB_BUILD_FAILS=1
+  export STUB_STATE="unavailable$(printf '\n%.0s' 1; head -c 200000 /dev/zero | tr '\0' 'x')"
+  run > /dev/null
+  quiet "a long device report cannot lose 'not now' to a closed pipe"
 teardown
 
 setup

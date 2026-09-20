@@ -47,8 +47,19 @@ XCODEBUILD="${AU_XCODEBUILD:-xcodebuild}"
 # Matched on the state observed, not on an allow-list of good ones: a state
 # nobody has seen yet falls through to a build attempt, which fails loudly,
 # rather than into a silent "not now" that would stall installs for ever.
-details=$("$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null) || exit 10
-printf '%s\n' "$details" | grep -qiE 'Device State:[[:space:]]*unavailable' && exit 10
+details=$("$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null)
+rc=$?
+# 127 is not "the device is away", it is "the TOOL is away" — DEVELOPER_DIR
+# wrong, Xcode moved. Swallowing that as "not now" would stall installs for
+# ever without a word, which is the failure the paragraph above refuses.
+if [ "$rc" -eq 127 ]; then log "devicectl not found — check AU_IOS_DEVELOPER_DIR"; exit 1; fi
+[ "$rc" -eq 0 ] || exit 10
+# A herestring, not `printf | grep -q`. Under `pipefail` a grep that exits on
+# its first match leaves printf writing into a closed pipe; past 64 KiB of
+# output printf dies of SIGPIPE, the pipeline is non-zero, `&& exit 10` does
+# not fire, and the absent phone gets built for again. Measured, not guessed:
+# status 141 at exactly 65536 bytes.
+grep -qiE 'Device State:[[:space:]]*unavailable' <<<"$details" && exit 10
 
 # ------------------------------------------------- never interrupt a session
 # Installing over a running app terminates it. For a workout logger that means
@@ -71,6 +82,11 @@ fi
 if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
         -destination "id=$ECID" -derivedDataPath "$DERIVED" \
         -allowProvisioningUpdates build >/tmp/autoupdate-build.log 2>&1; then
+    # xcodebuild's own word for "there is no device to build for". The check at
+    # the top reads one state string devicectl has been SEEN to print; this is
+    # the ground truth behind it, and it holds whatever vocabulary devicectl
+    # invents next. No destination is absence, and absence is "not now".
+    grep -q "Unable to find a destination" /tmp/autoupdate-build.log && exit 10
     log "BUILD FAILED — device left with the build it had"
     tail -5 /tmp/autoupdate-build.log >> "${AU_LOG:-/dev/null}"
     exit 1
