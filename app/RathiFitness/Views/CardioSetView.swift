@@ -375,6 +375,10 @@ struct CardioSetView: View {
                 .padding(.vertical, 7)
                 if i < recentBouts.count - 1 { Divider().overlay(RFDesign.hairline) }
             }
+            // Miles if this machine records them, minutes if not — see
+            // `Tally.cardioTrend`.
+            ExerciseTrend(exercise: exercise, sets: mine)
+                .padding(.top, RFDesign.md)
         }
     }
 

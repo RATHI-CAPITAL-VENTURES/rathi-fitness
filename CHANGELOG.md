@@ -14,59 +14,43 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.10.0 — 2026-09-19
+## 0.11.0 — 2026-09-20
 
 ### Added
 
-- **Do something else, today only.** Hold an exercise on Today → *Do something
-  else today*. The treadmills are taken, so you ride the bike: the row becomes
-  the bike "for Treadmill", riding it ticks the slot off, and tomorrow the plan
-  says treadmill again with nothing to undo. Until now the only door was the
-  plan editor, which changes every week from now on. A swap is a dated `Swap`
-  row rather than a field on the slot, so nothing has to run to clear it. The
-  stand-in inherits sets, reps, rest and minutes and **none of the load** —
-  weight, miles, speed and grade were facts about the other machine — and a
-  heavy day on a stand-in no longer writes itself into the plan's target
-  weight. The picker shelves what you usually do instead first, then anything
-  that does the same job, and reaches into the catalogue. A slot is done
-  when its work is done: sets logged before a swap, or on a stand-in you later
-  swapped away from, still count toward it. Across the lifting/cardio line the
-  stand-in opens on your plan defaults, since the slot has no shape to lend.
-  Shown on the set screen ("Today, instead of Treadmill") and in `gym today`
-  ("· for Treadmill"); `plan[]` in the snapshot is untouched. See `docs/DECISIONS.md`
-  2026-09-19.
-- **Time in the gym.** First log to last — on every past workout, as a lifetime
-  tile on Trends, as `sessions[].gym_seconds` in the snapshot, and per workout
-  and all told in `gym sessions`. A workout that *opens* with cardio counts the
-  bout's own length: a treadmill is logged when you step off, so the raw span
-  read twenty minutes short on every such day and zero on a cardio-only one.
-- **A 25 lb bar**, and *A different bar* to type the weight of a hex, EZ-curl
-  or Smith bar. The bars moved out of an inline list into `PlateMath.bars`.
-
-### Changed
-
-- **A workout that opens with cardio starts when the cardio did.** The session
-  opened on the first *log*, which for a treadmill is when you step off, so
-  `sessions[].started_at` read twenty minutes late. New workouts only. (Apple
-  Health was never affected — it already exports each bout from its own
-  start. This was first written up as a Health fix; it is not one.)
-- **Snapshot schema 7.** `today.items[]` now describes what is being *done*,
-  which for a swapped slot is not what `plan[]` says — a change of meaning, so
-  a bump. `gym` on the Mac refuses a schema-6 file until the phone has updated
-  and rewritten it; open the app once. See `docs/SNAPSHOT.md`.
+- **The trend, at the foot of every exercise.** Under "last three" on the set
+  screen: the same stepped line the Trends tab draws, one point per workout,
+  with "+10 lb · 3 weeks" beside it. Today's workout is a point on it, so the
+  line moves when you log the set. Cardio plots miles if the machine records
+  them and minutes if it does not; a bodyweight lift, logged at 0 lb, plots its
+  best set of reps rather than a flat line along zero. Absent until there are two workouts to join.
+  The chart was lifted out of `TrendsView` into `TrendChart` rather than
+  redrawn, and both screens read one series (`Tally.liftTrend` /
+  `cardioTrend`).
 
 ### Fixed
 
-- **Today's elapsed time agrees with everything else.** It was a private
-  computation beside the row; it now reads `Tally.gymSeconds` like the three
-  new places do, so it also counts an opening cardio bout, and past the hour it
-  reads "1 h 12 min" rather than "72 min".
-- **A bar weight that was not on the menu showed as "—".** That reads as "no
-  bar" while the plate math went on subtracting it. The menu now always
-  includes the bar actually set.
+- **An assisted machine's trend plotted your worst set.** The Trends chart and
+  the working-weight table each took `.max()` of the day's weights — on an
+  assisted pull-up that is the MOST help you needed, so the line rose as you got
+  weaker, and the table disagreed with the snapshot, which has always reported
+  the least. Both now plot the least help, and taking help off is drawn as
+  progress rather than in the colour of a bad month.
+- **A warm-up could be the day's point on a chart.** The same `.max()` counted
+  every set. Working sets only now — which also means a lift you have only ever
+  warmed up on drops out of the working-weight table instead of listing its
+  warm-up as a working weight.
+- **The Trends tab labelled everything "lb".** An assisted pull-up read "80 lb"
+  there and "lb help" on its own screen. The unit, the chart's padding and
+  whether the line steps all come from what is being measured now
+  (`Tally.TrendMeasure`), on both screens — body weight included, which was
+  three special cases at the call site. The working-weight table judges
+  progress by the measure too, and sorts pounds, then help, then reps, rather
+  than ranking 25 push-ups against a 30 lb row.
 
 ## Earlier
 
+- [0.10](./docs/changelog/0.10.md)
 - [0.9](./docs/changelog/0.9.md)
 - [0.8](./docs/changelog/0.8.md)
 - [0.7](./docs/changelog/0.7.md)
