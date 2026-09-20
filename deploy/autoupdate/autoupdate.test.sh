@@ -76,6 +76,12 @@ exit 0
 STUB
     cat > "$BIN/xcodebuild" <<STUB
 #!/bin/bash
+# "I was launched", recorded by the stub ITSELF, beside its own binary. Both
+# earlier witnesses for "no build was attempted" leaned on the script under
+# test — a directory it creates, then a log path it chooses — and each went
+# vacuous the moment that script changed. This cannot: it does not ask the
+# script anything.
+: > "\$(dirname "\$0")/../xcodebuild-ran"
 d=\$(echo "\$@" | sed 's/.*-derivedDataPath //;s/ .*//')
 # BEFORE it can fail, as the real one does. This used to come after the failure
 # branch, so with STUB_BUILD_FAILS set the directory could never exist and "no
@@ -88,11 +94,21 @@ mkdir -p "\$d"
 [ -n "\${STUB_NO_DESTINATION:-}" ] && {
   echo "xcodebuild: error: Unable to find a \${STUB_NO_DESTINATION} matching the provided destination specifier:"
   exit 70; }
-# The line shape is copied from a real failed run, `id:` and all — the first
+# The line shape is copied from a real failed run, 'id:' and all — the first
 # version of this stub had no id, which is why no test could see that the lock
 # check was not scoped to a device. STUB_LOCKED names WHOSE lock screen it is.
 [ -n "\${STUB_LOCKED:-}" ] && {
   echo "xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available"
+  echo ""
+  # As LONG as the real thing, which is the point. This stub was four lines, so
+  # 'tail -5' always contained the header and the assertion that the log keeps
+  # "the line that says WHY" passed with the code that keeps it deleted. The
+  # real log lists every simulator on the Mac; the header is nowhere near the
+  # last five lines, which is exactly how it was lost twice.
+  echo "	Available destinations for the \"Thing\" scheme:"
+  for n in 1 2 3 4 5 6 7 8; do
+    echo "		{ platform:iOS Simulator, arch:arm64, id:0000000\$n-AAAA-BBBB-CCCC-DDDDDDDDDDDD, OS:18.\$n, name:iPhone SE (3rd generation) }"
+  done
   echo ""
   echo "	Destinations compatible with the \"Thing\" scheme:"
   echo "		{ platform:iOS, arch:arm64, id:\${STUB_LOCKED}, name:A Device, error:A Device needs to be unlocked to enable development services Please unlock the device. }"
@@ -122,6 +138,15 @@ run() {
     echo $?
 }
 new_commit() { (cd "$TMP/seed"; echo more >> app/thing; git commit -qam two; git push -q origin main); }
+
+echo "autoupdate — the suite itself"
+# The stubs are written with UNQUOTED heredocs, so a backtick inside one is a
+# command substitution that runs every time `setup` does — comments included.
+# A comment that said `tail -5` hung the whole suite waiting on stdin, and one
+# that said `id:` printed "command not found" on every case, on CI, for a
+# commit, while everything stayed green.
+ok "$(awk '/<<STUB$/{i=1;next} /^STUB$/{i=0} i && /`/' "$0" | wc -l | tr -d ' ')" "0" \
+   "no backtick inside a stub heredoc — they execute"
 
 echo "autoupdate — the spine"
 
@@ -173,7 +198,7 @@ setup
   run > /dev/null
   quiet "an absent device is not an error"
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
-  ok "$([ -d "$TMP/derived" ] && echo built || echo untouched)" "untouched" \
+  ok "$([ -e "$TMP/xcodebuild-ran" ] && echo built || echo untouched)" "untouched" \
      "and no build is attempted for a phone that is not there"
 teardown
 
@@ -241,6 +266,19 @@ setup
   run > /dev/null
   ok "$([ -s "$TMP/derived/autoupdate-build.log.last-quiet" ] && echo kept || echo lost)" \
      "kept" "a quiet exit keeps the build log it decided to stay silent about"
+teardown
+
+# The FIRST quiet exit — `Device State: unavailable` — happens before any build,
+# so there is no build log to keep. It keeps what devicectl said instead: that
+# deny-match is the one this whole fix rests on, against a tool that has
+# already changed its wording once.
+setup
+  new_commit                      # paired, and out of reach
+  run > /dev/null
+  ok "$(grep -c 'Device State: unavailable' "$TMP/derived/devicectl-details.last-quiet" 2>/dev/null || echo 0)" \
+     "1" "an away phone keeps what devicectl said about it"
+  ok "$([ -e "$TMP/xcodebuild-ran" ] && echo built || echo untouched)" \
+     "untouched" "without a build having been attempted"
 teardown
 
 # DEVELOPER_DIR pointing at CommandLineTools: xcrun runs, finds no devicectl,

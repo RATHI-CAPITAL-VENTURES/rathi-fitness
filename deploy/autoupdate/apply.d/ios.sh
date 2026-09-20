@@ -84,7 +84,14 @@ esac
 # output printf dies of SIGPIPE, the pipeline is non-zero, `&& exit 10` does
 # not fire, and the absent phone gets built for again. Measured, not guessed:
 # status 141 at exactly 65536 bytes.
-grep -qiE 'Device State:[[:space:]]*unavailable' <<<"$details" && exit 10
+if grep -qiE 'Device State:[[:space:]]*unavailable' <<<"$details"; then
+    # Quiet, and before any build — so there is no build log to keep. Keep what
+    # devicectl SAID: this string match is the one everything rests on, and
+    # `$details` is otherwise gone the moment the script exits.
+    mkdir -p "$DERIVED"
+    printf '%s\n' "$details" > "$DERIVED/devicectl-details.last-quiet" 2>/dev/null || true
+    exit 10
+fi
 
 # Whether the phone SAYS it is here. Used for one thing only, further down:
 # deciding whether "no destination" may be believed as absence. An allow-list
