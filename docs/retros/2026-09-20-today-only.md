@@ -31,6 +31,15 @@ note or a locker number.
   "Guest" must coexist. The key is (kind) for named kinds and (kind, heading)
   for `other`, compared case-insensitively — and that makes the heading
   un-renameable in place, which had to be decided rather than discovered.
+- **"Needs no clearing" and "cannot go stale" are different claims, and I
+  wrote the second.** The rows genuinely need nothing at midnight. The screen
+  needed something, because nothing re-runs a SwiftUI `body` when the date
+  changes — a fact about all of `TodayView` that this feature merely made
+  matter. The design argument was right and the sentence built on it was not.
+- **A date is not an instant.** The staleness guard I was pleased with compared
+  the phone's calendar to the Mac's. Review found the hole; my first fix added
+  a second calendar comparison and left a smaller one. Third attempt: the
+  phone says when its day ends, and the Mac compares instants.
 - **Privacy ran the opposite way to passes.** `docs/SNAPSHOT.md` is emphatic
   that pass codes never reach the file. These values must, or the feature's
   best use is gone. The line that holds both positions is the combination: not
@@ -46,6 +55,13 @@ note or a locker number.
 | The obvious next chip — the combination — would put a secret in a world-readable file | security | no such kind; a test fails if one is added; the sheet says where notes go | landed here |
 | The outlined/filled chip was duplicated across both set screens | structure | `Chip` in `Components`; both moved | landed here |
 | The CSV export would have silently omitted a new table | completeness | `day-notes-….csv` | landed here |
+| A saved "Towel 31" wore a "+" — the add glyph on a thing already added (review) | UX | kinds are nouns (`tag`); the add chip draws its own plus; a test forbids "plus" on a kind | landed here |
+| `gym` could serve yesterday's locker for 13 h when the phone is a time zone ahead — and my first repair still left a window (review) | correctness | `day_notes.until`, an instant; `gym` compares instants and fails closed | landed here |
+| Two devices → two Locker rows → two chips, two lines read out (review) | correctness | dedupe on read in `DayNotes.on`, latest wins | landed here |
+| Docs claimed the strip cannot go stale; nothing redrew Today at midnight (review) | correctness | `TodayView.dayStamp` on `NSCalendarDayChanged` + on becoming active | landed here |
+| "Other" opened with no cursor; two `other` chips shared one accessibility id (review) | UX / testing | heading gets focus; ids carry the heading; the UI test now opens Other | landed here |
+| `set` trusted an array captured by a sheet's closure (review) | robustness | `set` fetches for itself | landed here |
+| The combination test was a tripwire for a WORD, and the docs called it a guard (review) | testing | `allCases` pinned exactly, hints searched too; docs reworded | landed here |
 | RIA's `gym_log` does not yet say that `today` answers "what's my locker" | docs | none | blocked: that text lives in the RIA repo (`tools/gym.py`), a separate PR there — the CLI output already carries the notes, so she sees them whenever she calls `today`; only the routing hint is missing. |
 | Editing a past day's notes | feature | none | blocked: past days are read-only by design (`PastDayView` — logging writes `Date.now`, and an editable yesterday is how entries land on the wrong day). Reasoned in DECISIONS. |
 

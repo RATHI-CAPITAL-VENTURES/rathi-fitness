@@ -25,6 +25,15 @@ struct TodayView: View {
     @State private var page = 0
     @AppStorage("today.swipeHintSeen") private var swipeHintSeen = false
     /// The slot being swapped, while the picker is up.
+    /// When this screen last decided what day it is.
+    ///
+    /// Almost everything here reads `.now` inside `body`, and nothing re-runs
+    /// `body` at midnight: leave the app open past twelve, or resume it next
+    /// morning, and the header, the plan and yesterday's locker all sat there a
+    /// day behind until something else happened to redraw them. Bumping this
+    /// is that something — `body` reads it, so every `.now` below is re-read.
+    @State private var dayStamp = Date.now
+    @Environment(\.scenePhase) private var scenePhase
     @State private var swapping: PlanItem?
     @AppStorage("today.swapHintSeen") private var swapHintSeen = false
 
@@ -228,6 +237,16 @@ struct TodayView: View {
                     .accessibilityIdentifier("plan-menu")
                 }
             }
+            // Posted off the main thread, hence the hop. And on becoming active,
+            // because a suspended app is not told about a midnight it slept
+            // through in any way worth relying on.
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                .receive(on: RunLoop.main)) { _ in dayStamp = .now }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active, !calendar.isDate(dayStamp, inSameDayAs: .now) {
+                    dayStamp = .now
+                }
+            }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(isPresented: $showingPlan) { PlanView() }
             .sheet(item: $swapping) { item in
@@ -251,7 +270,7 @@ struct TodayView: View {
                 header
                 // On a rest day too. You can park at the gym and take a locker
                 // on a day the plan says nothing about.
-                DayNotesStrip()
+                DayNotesStrip(day: dayStamp)
                 if let day = today {
                     progress(for: day)
                     rows(for: day)

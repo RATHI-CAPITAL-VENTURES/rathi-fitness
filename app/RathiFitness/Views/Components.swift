@@ -161,13 +161,17 @@ struct Chip: View {
     var symbol: String?
     var tint: Color = RFDesign.label
     var filled = false
+    /// One line in a row of chips. `nil` where the chip IS the message — "Same
+    /// as last time — Level 2, row C, by the stairs" must not end in "…".
+    var lineLimit: Int? = 1
 
     var body: some View {
         HStack(spacing: 5) {
             if let symbol {
                 Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
             }
-            Text(text).font(RFDesign.ui(12, bold: filled)).lineLimit(1)
+            Text(text).font(RFDesign.ui(12, bold: filled)).lineLimit(lineLimit)
+                .multilineTextAlignment(.leading)
         }
         .foregroundStyle(filled ? RFDesign.ground : tint)
         .padding(.horizontal, 10).padding(.vertical, 6)

@@ -60,7 +60,26 @@ final class DayNotesUITests: XCTestCase {
         XCTAssertFalse(element("day-note-add-note").exists, "and Note is no longer on offer")
         shoot("03-noted")
 
-        // 3. Tap the chip to take it back.
+        // 3. The "etc": your own heading. The sheet must open with a cursor in
+        //    the heading — it used to open with two empty fields and no
+        //    keyboard, the one kind the first version of this test never opened.
+        element("day-note-add-other").tap()
+        let heading = element("day-note-heading")
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        app.typeText("Towel")                 // no tap: whatever has focus gets it
+        XCTAssertEqual(heading.value as? String, "Towel",
+                       "the heading should already have the keyboard")
+        app.typeText("\n")                    // Next → the value field
+        app.typeText("31")
+        app.buttons["Save"].tap()
+        let towel = element("day-note-other-towel")
+        XCTAssertTrue(towel.waitForExistence(timeout: 5),
+                      "a saved Other gets its own identifier, not a shared one")
+        XCTAssertTrue(app.staticTexts["Towel 31"].exists)
+        XCTAssertTrue(element("day-note-add-other").exists, "and Other is still on offer")
+        shoot("04-other")
+
+        // 4. Tap the chip to take it back.
         locker.tap()
         let remove = element("day-note-remove")
         XCTAssertTrue(remove.waitForExistence(timeout: 5),

@@ -298,7 +298,10 @@ enum DayNoteKind: String, CaseIterable, Identifiable {
         case .locker: return "lock"
         case .parking: return "car"
         case .note: return "note.text"
-        case .other: return "plus"
+        // A NOUN, like the others. This was "plus", which is right on the
+        // outline that adds one and wrong on a filled "Towel 31": an add glyph
+        // on a thing already added. The add chip draws its own "+".
+        case .other: return "tag"
         }
     }
 

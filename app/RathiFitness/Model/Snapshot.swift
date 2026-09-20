@@ -67,11 +67,23 @@ struct Snapshot: Codable {
     /// against a snapshot written on Tuesday and, without the date, Tuesday's
     /// locker is reported as today's — the exact stale answer the phone avoids
     /// by keying notes to a day.
+    ///
+    /// The default is for the memberwise init, NOT decode tolerance: Swift's
+    /// synthesized `init(from:)` ignores it and would throw on a file without
+    /// the key. Nothing decodes a snapshot today (the reader is Python).
     var dayNotes = DayNotesBlock(date: "", items: [])
 
     struct DayNotesBlock: Codable {
-        /// The local day these belong to, `YYYY-MM-DD`.
+        /// The local day these belong to, `YYYY-MM-DD` — for a human reading
+        /// the file. NOT what a reader should test: it is the PHONE's calendar.
         var date: String
+        /// The instant the phone's day ends, as an absolute timestamp. THIS is
+        /// the test: `now < until`. Comparing `date` with the reader's own
+        /// "today" is two calendars pretending to be one — phone in Tokyo, Mac
+        /// in New York, and for thirteen hours after Tokyo's midnight both
+        /// still say "the 21st" while the locker is already yesterday's. An
+        /// instant has no time zone to disagree about.
+        var until: String = ""
         var items: [DayNoteLine]
     }
 
@@ -381,6 +393,8 @@ enum SnapshotBuilder {
             // total order, so identical writes are identical bytes.
             dayNotes: Snapshot.DayNotesBlock(
                 date: Fmt.day(now),
+                until: Fmt.iso(cal.date(byAdding: .day, value: 1,
+                                        to: cal.startOfDay(for: now)) ?? now),
                 items: DayNotes.on(now, among: dayNotes, calendar: cal).map {
                     Snapshot.DayNoteLine(kind: $0.kind, heading: $0.heading, text: $0.text)
                 }))

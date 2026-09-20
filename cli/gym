@@ -285,18 +285,24 @@ def stand_in(item) -> str:
     return f" · for {item['instead_of']}" if item.get("instead_of") else ""
 
 
-def day_notes(data, today=None) -> list:
+def day_notes(data, now=None) -> list:
     """Today's jotted notes — locker, parking, a note — or [] if there are none
     OR if they are not today's.
 
     The snapshot is only as fresh as the last time the app ran. Its notes carry
-    the day they belong to, and a block dated any other day is dropped whole:
-    Tuesday's locker number reported on Thursday is a confident wrong answer,
-    and a wrong locker is worse than none.
+    the instant their day ends, and a block past it is dropped whole: Tuesday's
+    locker number reported on Thursday is a confident wrong answer, and a wrong
+    locker is worse than none.
     """
     block = data.get("day_notes") or {}
-    today = today or dt.datetime.now().strftime("%Y-%m-%d")
-    if block.get("date") != today:
+    # `until` is the instant the PHONE's day ends. Not `date == my today`: that
+    # compares the phone's calendar with the Mac's. Phone in Tokyo, Mac in New
+    # York — for thirteen hours after Tokyo's midnight both still say "the
+    # 21st", and yesterday's locker would be served as today's. Instants have
+    # no time zone to disagree about. Missing or unreadable fails CLOSED.
+    until = parse_ts(block.get("until") or "")
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if until is None or until.tzinfo is None or now >= until:
         return []
     return block.get("items") or []
 

@@ -19,11 +19,9 @@ final class DayNoteTests: XCTestCase {
         (try? context.fetch(FetchDescriptor<DayNote>())) ?? []
     }
 
-    /// `set` as the strip calls it: against what is in the store right now.
     private func set(_ kind: DayNoteKind, _ text: String, label: String = "",
                      on date: Date, in context: ModelContext) {
-        DayNotes.set(kind, text: text, label: label, among: all(context),
-                     in: context, now: date, calendar: cal)
+        DayNotes.set(kind, text: text, label: label, in: context, now: date, calendar: cal)
     }
 
     // MARK: it lasts a day
@@ -71,16 +69,75 @@ final class DayNoteTests: XCTestCase {
     }
 
     /// Before the save, too — a deleted row lingers in a fetch until pending
-    /// changes are processed, and the strip redraws before that.
-    func testTheReplacedValueIsGoneImmediately() {
+    /// changes are processed, and the strip redraws before that. The array
+    /// here is what a view's `@Query` would still be holding: the old row,
+    /// deleted but present, beside the new one.
+    func testTheReplacedValueIsGoneImmediatelyAndTheNewOneIsThere() {
         let context = context()
         set(.locker, "214", on: at(14, 18), in: context)
-        let before = all(context)
-        DayNotes.set(.locker, text: "241", among: before, in: context,
-                     now: at(14, 19), calendar: cal)
+        let held = all(context)
+        set(.locker, "241", on: at(14, 19), in: context)
 
-        let shown = DayNotes.on(at(14), among: before + all(context), calendar: cal)
-        XCTAssertFalse(shown.contains { $0.text == "214" })
+        let shown = DayNotes.on(at(14), among: held + all(context).filter { $0.text == "241" },
+                                calendar: cal)
+
+        XCTAssertEqual(shown.map(\.text), ["241"], "the old one gone AND the new one shown")
+    }
+
+    /// The write fetches for itself. It used to trust the caller's array —
+    /// in the app, a `@Query` captured by a sheet's closure — so a stale array
+    /// meant a second Locker row rather than a replaced one.
+    func testAWriteReplacesWhateverTheCallerWasHolding() throws {
+        let context = context()
+        set(.locker, "214", on: at(14, 18), in: context)
+        try context.save()
+        // Nothing handed in: there is no array to be stale.
+        DayNotes.set(.locker, text: "241", in: context, now: at(14, 19), calendar: cal)
+        try context.save()
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<DayNote>()), 1)
+    }
+
+    // MARK: two devices
+
+    /// The model can have no unique attribute (CloudKit), so a locker saved on
+    /// the phone and another on an offline iPad arrive as two rows for one
+    /// day. Shown as they are: two filled Locker chips, and RIA reading both.
+    func testTwoRowsForOneThingShowAsOneAndTheLatestWins() {
+        let context = context()
+        context.insert(DayNote(kind: .locker, text: "9", date: at(14, 8)))
+        context.insert(DayNote(kind: .locker, text: "214", date: at(14, 18)))
+        context.insert(DayNote(kind: .other, text: "30", label: "Towel", date: at(14, 8)))
+        context.insert(DayNote(kind: .other, text: "31", label: "towel", date: at(14, 18)))
+        context.insert(DayNote(kind: .other, text: "Sam", label: "Guest", date: at(14, 9)))
+
+        let today = DayNotes.on(at(14, 20), among: all(context), calendar: cal)
+
+        XCTAssertEqual(today.map(\.text), ["214", "Sam", "31"])
+    }
+
+    func testTheSnapshotNeverCarriesTwoLockers() throws {
+        let context = context()
+        context.insert(DayNote(kind: .locker, text: "9", date: at(14, 8)))
+        context.insert(DayNote(kind: .locker, text: "214", date: at(14, 18)))
+        try context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: context, now: at(14, 20), appVersion: "t")
+
+        XCTAssertEqual(snapshot.dayNotes.items.map(\.text), ["214"])
+    }
+
+    /// The next edit cleans up what sync left behind.
+    func testSavingClearsEveryDuplicateNotJustOne() throws {
+        let context = context()
+        context.insert(DayNote(kind: .locker, text: "9", date: at(14, 8)))
+        context.insert(DayNote(kind: .locker, text: "214", date: at(14, 18)))
+        try context.save()
+
+        set(.locker, "215", on: at(14, 19), in: context)
+        try context.save()
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<DayNote>()), 1)
     }
 
     func testClearingTheFieldIsTheDelete() throws {
@@ -196,13 +253,40 @@ final class DayNoteTests: XCTestCase {
                        ["Locker", "Parking", "Note", "Towel"])
     }
 
-    /// It is the obvious next chip, and it must not exist: everything here is
-    /// written into a file any process on the Mac can read.
-    func testThereIsNoChipForTheCombination() {
-        let names = DayNoteKind.allCases.flatMap { [$0.rawValue, $0.label.lowercased()] }
-        for word in ["combo", "combination", "code", "pin", "password"] {
-            XCTAssertFalse(names.contains { $0.contains(word) }, word)
+    /// The combination is the obvious next chip and it must not exist:
+    /// everything here is written into a file any process on the Mac can read.
+    ///
+    /// The list is pinned EXACTLY, so adding any kind fails here and has to be
+    /// a decision — a word-search alone is a tripwire for the word, and `case
+    /// dial` walks past it. The word-search stays as the second line, over the
+    /// hints too, since a hint is what tells you what to type.
+    func testTheKindsAreExactlyTheseAndNoneIsForASecret() {
+        XCTAssertEqual(DayNoteKind.allCases, [.locker, .parking, .note, .other],
+                       "a new kind reaches the Mac in cleartext — decide that on purpose")
+        let words = DayNoteKind.allCases.flatMap {
+            [$0.rawValue, $0.label.lowercased(), $0.hint.lowercased()]
         }
+        for secret in ["combo", "combination", "code", "pin", "password", "passcode"] {
+            XCTAssertFalse(words.contains { $0.contains(secret) }, secret)
+        }
+    }
+
+    /// A saved "Towel 31" is a noun. It wore "plus" — the add glyph, on a thing
+    /// already added — because the kind's symbol doubled as the add chip's.
+    func testASavedNoteNeverWearsTheAddGlyph() {
+        for kind in DayNoteKind.allCases {
+            XCTAssertNotEqual(kind.symbol, "plus", kind.rawValue)
+        }
+    }
+
+    func testEveryChipCanBeToldApart() {
+        let towel = DayNote(kind: .other, text: "31", label: "Towel")
+        let guest = DayNote(kind: .other, text: "Sam", label: "Guest")
+        let locker = DayNote(kind: .locker, text: "214")
+
+        XCTAssertNotEqual(DayNotesStrip.identifier(for: towel),
+                          DayNotesStrip.identifier(for: guest))
+        XCTAssertEqual(DayNotesStrip.identifier(for: locker), "day-note-locker")
     }
 
     func testEveryKindCanDescribeItself() {
@@ -227,6 +311,8 @@ final class DayNoteTests: XCTestCase {
         let snapshot = try SnapshotBuilder.build(from: context, now: at(14, 20), appVersion: "t")
 
         XCTAssertEqual(snapshot.dayNotes.date, Fmt.day(at(14)))
+        XCTAssertEqual(snapshot.dayNotes.until, Fmt.iso(cal.startOfDay(for: at(15))),
+                       "the instant the PHONE's day ends — what a reader tests")
         XCTAssertEqual(snapshot.dayNotes.items.map(\.heading), ["Locker", "Towel"])
         XCTAssertEqual(snapshot.dayNotes.items.map(\.text), ["214", "31"])
         XCTAssertEqual(snapshot.dayNotes.items.map(\.kind), ["locker", "other"])

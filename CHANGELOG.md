@@ -35,9 +35,17 @@ A **MINOR bump is a milestone** and must ship a retro under
   the last value under a heading you have used. Never a note — yesterday's
   "knee is sore" offered back as today's is the app putting words in your mouth.
 - **`gym today` prints them**, on a rest day too, so RIA can answer "what's my
-  locker number". The snapshot's `day_notes` block carries the day it belongs
-  to and `gym` drops a block dated any other day: a snapshot is only as fresh as
-  the last time the app ran, and a wrong locker is worse than none.
+  locker number". The snapshot's `day_notes` block carries `until`, the instant
+  the phone's day ends, and `gym` drops a block past it: a snapshot is only as
+  fresh as the last time the app ran, and a wrong locker is worse than none.
+  An instant, not a date — phone in Tokyo and Mac in New York agree on "the
+  21st" for thirteen hours after the locker became yesterday's. Two devices
+  writing a locker for one day show as one, latest wins.
+- **It redraws when the day changes.** Leave the app open past midnight and
+  Today — header, plan and strip — now moves to the new day on
+  `NSCalendarDayChanged`, and on becoming active on a new day. The rows never
+  needed clearing; the screen still needed telling. (All of Today had this, for
+  as long as it has read the clock in `body`.)
 - **There is no chip for the lock's combination, on purpose.** Everything here
   reaches a file any process on the Mac can read.
 - Day notes are in the CSV export (`day-notes-….csv`).

@@ -1838,6 +1838,30 @@ with a test that fails if one appears: a locker number in a world-readable
 folder is harmless, the combination beside it is not. A free-text note can hold
 anything, so the sheet says plainly where it goes.
 
-Left out, knowingly: editing a PAST day's notes (past days are read-only by
+**What review found, because the first version claimed more than it did:**
+
+- *"Nothing has to run at midnight"* is true of the DATA and was false of the
+  SCREEN. Nothing re-ran `body` when the day changed, so an app left open past
+  twelve kept showing yesterday's locker — beside yesterday's date, since all
+  of `TodayView` reads `.now` the same way. `TodayView.dayStamp` is bumped on
+  `NSCalendarDayChanged` and on becoming active on a new day, and the strip is
+  handed its day rather than reading the clock. The rows still need no
+  clearing; the view needs telling to look again, and those are different
+  claims.
+- *The date stamp* compared the phone's calendar with the Mac's. `until` — the
+  instant the phone's day ends — replaces it as the test. My first repair
+  added a second date comparison and still left a window; the fix was to stop
+  comparing calendars at all.
+- *One per kind per day* is something `set` can promise on one device and
+  nothing can promise across two: CloudKit forbids unique attributes, so two
+  lockers for one day WILL arrive. `DayNotes.on` dedupes on read, latest wins,
+  in the one place every reader goes through. `set` also fetches for itself
+  now rather than trusting an array a sheet's closure captured.
+- A saved `other` wore a "+" — the kind's symbol doubled as the add chip's.
+  Kinds are nouns (`tag`); the add chip draws its own plus.
+
+Left out, knowingly: reading a past REST day's notes on the phone — past pages
+exist per workout, so a parking level noted on a day with no session lives on
+only in the export. And editing a PAST day's notes (past days are read-only by
 design — see `PastDayView`), and renaming an `other` heading in place (the
 heading is the row's key; remove and re-add).

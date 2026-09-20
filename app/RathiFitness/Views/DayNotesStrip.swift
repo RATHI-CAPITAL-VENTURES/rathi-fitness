@@ -9,6 +9,12 @@ import SwiftData
 /// Tomorrow every chip is an outline again, and nothing had to run for that to
 /// be true: see `DayNote`.
 struct DayNotesStrip: View {
+    /// The day being shown. Passed in rather than read as `.now` here, so the
+    /// owner decides when "today" changes — see `TodayView.dayStamp`. The rows
+    /// need no clearing at midnight; the SCREEN still has to be told to look
+    /// again, and the first version forgot that and claimed immunity anyway.
+    let day: Date
+
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var snapshots: SnapshotService
     @Query(sort: \DayNote.date) private var all: [DayNote]
@@ -25,7 +31,7 @@ struct DayNotesStrip: View {
         var id: String { kind.rawValue + "·" + label }
     }
 
-    private var todays: [DayNote] { DayNotes.on(.now, among: all) }
+    private var todays: [DayNote] { DayNotes.on(day, among: all) }
 
     /// Named kinds you have not filled in yet, offered as outlines.
     private var unset: [DayNoteKind] {
@@ -37,12 +43,12 @@ struct DayNotesStrip: View {
         VStack(alignment: .leading, spacing: RFDesign.sm) {
             Text("Today only").rfEyebrow()
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
+                HStack(spacing: RFDesign.sm) {
                     ForEach(todays.filter { $0.noteKind.fitsOnAChip },
                             id: \.persistentModelID) { note in
                         chipButton(text: "\(note.heading) \(note.text)",
                                    symbol: note.noteKind.symbol, filled: true,
-                                   id: "day-note-\(note.noteKind.rawValue)") {
+                                   id: Self.identifier(for: note)) {
                             editing = Draft(kind: note.noteKind, label: note.label,
                                             text: note.text)
                         }
@@ -54,7 +60,9 @@ struct DayNotesStrip: View {
                         }
                     }
                     // Always last, always available: the "etc".
-                    chipButton(text: "Other", symbol: DayNoteKind.other.symbol, filled: false,
+                    // "plus" HERE, not on the kind: this is the one chip that
+                    // means "add". A saved one is a noun and wears a tag.
+                    chipButton(text: "Other", symbol: "plus", filled: false,
                                id: "day-note-add-other") {
                         editing = Draft(kind: .other, label: "", text: "")
                     }
@@ -84,17 +92,23 @@ struct DayNotesStrip: View {
             DayNoteSheet(
                 draft: draft,
                 suggestion: DayNotes.lastValue(of: draft.kind, label: draft.label,
-                                               before: .now, among: all),
+                                               before: day, among: all),
                 pastHeadings: DayNotes.pastHeadings(among: all),
                 lastValueFor: { DayNotes.lastValue(of: .other, label: $0,
-                                                   before: .now, among: all) }
+                                                   before: day, among: all) }
             ) { saved in
-                DayNotes.set(saved.kind, text: saved.text, label: saved.label,
-                             among: all, in: context)
+                DayNotes.set(saved.kind, text: saved.text, label: saved.label, in: context)
                 context.saveOrReport("saving a note for today")
                 snapshots.setNeedsWrite(context)
             }
         }
+    }
+
+    /// Unique per chip. Two `other` notes used to share "day-note-other", so
+    /// a test tapping it got whichever sorted first.
+    static func identifier(for note: DayNote) -> String {
+        note.noteKind.isSingular ? "day-note-\(note.noteKind.rawValue)"
+            : "day-note-other-\(Exercise.slugify(note.label))"
     }
 
     private func chipButton(text: String, symbol: String, filled: Bool, id: String,
@@ -113,6 +127,7 @@ struct DayNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: DayNotesStrip.Draft
     @FocusState private var focused: Bool
+    @FocusState private var headingFocused: Bool
     private let wasSet: Bool
     let suggestion: String?
     let pastHeadings: [String]
@@ -152,6 +167,9 @@ struct DayNoteSheet: View {
                     TextField("What is it? — Towel, Guest, Key", text: $draft.label)
                         .font(RFDesign.uiMedium(15))
                         .textFieldStyle(.plain)
+                        .focused($headingFocused)
+                        .submitLabel(.next)
+                        .onSubmit { focused = true }
                         .padding(RFDesign.md)
                         .background(RFDesign.surface,
                                     in: RoundedRectangle(cornerRadius: RFDesign.radiusSmall))
@@ -163,9 +181,10 @@ struct DayNoteSheet: View {
                         .accessibilityIdentifier("day-note-heading")
                     if !pastHeadings.isEmpty && !wasSet {
                         ScrollView(.horizontal) {
-                            HStack(spacing: 8) {
+                            HStack(spacing: RFDesign.sm) {
                                 ForEach(pastHeadings, id: \.self) { heading in
-                                    Button { draft.label = heading } label: {
+                                    // Picked, so the next thing you type is its value.
+                                    Button { draft.label = heading; focused = true } label: {
                                         Chip(text: heading,
                                              filled: draft.label.caseInsensitiveCompare(heading)
                                                 == .orderedSame)
@@ -190,7 +209,8 @@ struct DayNoteSheet: View {
                 if let offered {
                     Button { draft.text = offered } label: {
                         Chip(text: "Same as last time — \(offered)",
-                             symbol: "arrow.uturn.backward", tint: RFDesign.ready)
+                             symbol: "arrow.uturn.backward", tint: RFDesign.ready,
+                             lineLimit: nil)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("day-note-same")
@@ -233,7 +253,12 @@ struct DayNoteSheet: View {
                         .disabled(!canSave)
                 }
             }
-            .onAppear { focused = !needsHeading || !draft.label.isEmpty }
+            // Always a cursor somewhere. "Other" opened with two empty fields
+            // and no keyboard — the one kind the UI test never opened.
+            .onAppear {
+                if needsHeading && draft.label.isEmpty { headingFocused = true }
+                else { focused = true }
+            }
         }
         .presentationDetents([.height(needsHeading ? 400 : 340)])
     }
