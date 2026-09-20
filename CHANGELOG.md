@@ -14,66 +14,50 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.11.1 — 2026-09-20
-
-### Fixed
-
-- **The auto-installer reported an absent phone as a build failure.** v0.11.0
-  merged green while the phone was out of the house, and eight seconds later
-  the log said `BUILD FAILED` / `APPLY FAILED` — and would have said it again
-  every ten minutes until he got home. The installer's "is the device even
-  here?" check trusted the exit code of `devicectl device info details`, which
-  is 0 for a paired phone that is miles away; the text says
-  `Device State: unavailable`. It reads that now and waits silently, which is
-  what the design always said an absent device should do. The code was never
-  the problem and the phone was never touched. Shared template 1.0.2 → 1.0.3
-  (`deploy/autoupdate`, installed by `bootstrap`); the template's test stub had
-  the same wrong assumption as the script, and is fixed with it. If xcodebuild
-  itself answers "Unable to find a destination", that is treated as absence
-  too, whatever word `devicectl` used; a missing `devicectl` is loud rather
-  than silently "not now" for ever; and the state is read in a way that cannot
-  lose its answer on a long device report (review found the first version of
-  this fix could, past 64 KiB). A **locked** phone — which is how this release
-  itself failed to install three times — is "not now" as well. "No destination"
-  is only believed as absence when the phone has not just said it is present;
-  otherwise it is a wrong device id and stays loud.
-
-## 0.11.0 — 2026-09-20
+## 0.12.0 — 2026-09-20
 
 ### Added
 
-- **The trend, at the foot of every exercise.** Under "last three" on the set
-  screen: the same stepped line the Trends tab draws, one point per workout,
-  with "+10 lb · 3 weeks" beside it. Today's workout is a point on it, so the
-  line moves when you log the set. Cardio plots miles if the machine records
-  them and minutes if it does not; a bodyweight lift, logged at 0 lb, plots its
-  best set of reps rather than a flat line along zero. Absent until there are two workouts to join.
-  The chart was lifted out of `TrendsView` into `TrendChart` rather than
-  redrawn, and both screens read one series (`Tally.liftTrend` /
-  `cardioTrend`).
+- **Today only.** A strip under the day's header for what you need to know
+  today and not tomorrow: **Locker**, **Parking**, a **Note**, and **Other**
+  with your own heading (Towel, Guest, Key). What you have set is a filled chip
+  that reads as itself — "Locker 214" — because the point is to glance at it
+  holding a towel; what you have not is an outline to tap. A note is a line of
+  its own rather than a chip that truncates it. Tap anything to change it;
+  clearing the field, or *Remove*, takes it away. On rest days too.
+- **Tomorrow it is blank, and nothing had to run for that to be true.** Each
+  entry is a `DayNote` row that belongs to a day. The alternative — one
+  editable block that something clears at midnight — fails silently the day the
+  clearing does not run, and leaves Tuesday's locker on screen on Thursday,
+  confidently wrong. The past keeps what you wrote: swipe back to a workout and
+  it shows what you noted that day.
+- **Same as last time.** The sheet offers your last locker, parking spot, or
+  the last value under a heading you have used. Never a note — yesterday's
+  "knee is sore" offered back as today's is the app putting words in your mouth.
+- **`gym today` prints them**, on a rest day too, so RIA can answer "what's my
+  locker number". The snapshot's `day_notes` block carries `until`, the instant
+  the phone's day ends, and `gym` drops a block past it: a snapshot is only as
+  fresh as the last time the app ran, and a wrong locker is worse than none.
+  An instant, not a date — phone in Tokyo and Mac in New York agree on "the
+  21st" for thirteen hours after the locker became yesterday's. Two devices
+  writing a locker for one day show as one, latest wins.
+- **It redraws when the day changes.** Leave the app open past midnight and
+  Today — header, plan and strip — now moves to the new day on
+  `NSCalendarDayChanged`, and on becoming active on a new day. The rows never
+  needed clearing; the screen still needed telling. (All of Today had this, for
+  as long as it has read the clock in `body`.)
+- **There is no chip for the lock's combination, on purpose.** Everything here
+  reaches a file any process on the Mac can read.
+- Day notes are in the CSV export (`day-notes-….csv`).
 
-### Fixed
+### Changed
 
-- **An assisted machine's trend plotted your worst set.** The Trends chart and
-  the working-weight table each took `.max()` of the day's weights — on an
-  assisted pull-up that is the MOST help you needed, so the line rose as you got
-  weaker, and the table disagreed with the snapshot, which has always reported
-  the least. Both now plot the least help, and taking help off is drawn as
-  progress rather than in the colour of a bad month.
-- **A warm-up could be the day's point on a chart.** The same `.max()` counted
-  every set. Working sets only now — which also means a lift you have only ever
-  warmed up on drops out of the working-weight table instead of listing its
-  warm-up as a working weight.
-- **The Trends tab labelled everything "lb".** An assisted pull-up read "80 lb"
-  there and "lb help" on its own screen. The unit, the chart's padding and
-  whether the line steps all come from what is being measured now
-  (`Tally.TrendMeasure`), on both screens — body weight included, which was
-  three special cases at the call site. The working-weight table judges
-  progress by the measure too, and sorts pounds, then help, then reps, rather
-  than ranking 25 push-ups against a 30 lb row.
+- The small outlined/filled pill was written out twice, once per set screen,
+  and was about to be written a third time. One `Chip` in `Components` now.
 
 ## Earlier
 
+- [0.11](./docs/changelog/0.11.md)
 - [0.10](./docs/changelog/0.10.md)
 - [0.9](./docs/changelog/0.9.md)
 - [0.8](./docs/changelog/0.8.md)

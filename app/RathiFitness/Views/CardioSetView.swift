@@ -257,22 +257,7 @@ struct CardioSetView: View {
 
     private var noteChip: some View {
         Button { editingNote = true } label: {
-            Text(note.isEmpty ? "Note" : "Note ✓")
-                .font(RFDesign.ui(12, bold: !note.isEmpty))
-                .foregroundStyle(note.isEmpty ? RFDesign.label : RFDesign.ground)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(note.isEmpty ? Color.clear : RFDesign.label)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(note.isEmpty ? RFDesign.hairline : Color.clear,
-                                        lineWidth: 1)
-                        }
-                }
-                // No note is the normal case, and no note means `Color.clear`,
-                // which means almost nothing to press. See docs/DECISIONS.md.
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+            Chip(text: note.isEmpty ? "Note" : "Note ✓", filled: !note.isEmpty)
         }
         .buttonStyle(.plain)
     }

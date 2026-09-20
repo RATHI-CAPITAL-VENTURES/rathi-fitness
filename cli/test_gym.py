@@ -615,6 +615,103 @@ class StandIns(unittest.TestCase):
         self.assertIn("12.5 lb", line)
 
 
+class DayNotes(unittest.TestCase):
+    """Locker, parking, a note — for today, and only for today."""
+
+    @staticmethod
+    def utc(**delta):
+        import datetime
+        return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(**delta)
+
+    def noted(self, until=None, rest_day=False):
+        # Computed per call, never at import: a class attribute bound at
+        # 23:59:58 makes the whole class fail two seconds later.
+        until = until or self.utc(hours=6)
+        data = json.loads(json.dumps(FIXTURE))
+        data["generated_at"] = self.utc(minutes=-5).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data["day_notes"] = {
+            "date": "2026-09-21",
+            "until": until.strftime("%Y-%m-%dT%H:%M:%SZ") if until != "missing" else None,
+            "items": [
+                {"kind": "locker", "heading": "Locker", "text": "A-77"},
+                {"kind": "parking", "heading": "Parking", "text": "Level 2, row C"},
+                {"kind": "other", "heading": "Towel", "text": "31"},
+                {"kind": "note", "heading": "Note", "text": "Left knee — go easy"},
+            ]}
+        if rest_day:
+            data.pop("today")
+        return data
+
+    def test_today_lists_them(self):
+        with fixture(self.noted()):
+            _, out = run("today")
+        self.assertIn("Today only", out)
+        self.assertRegex(out, r"Locker\s+A-77")
+        self.assertRegex(out, r"Towel\s+31")
+        self.assertIn("Left knee — go easy", out)
+
+    def test_yesterdays_locker_is_never_reported_as_todays(self):
+        # The snapshot is only as fresh as the last time the app ran. A wrong
+        # locker number is worse than none.
+        with fixture(self.noted(until=self.utc(days=-2))):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+        self.assertNotRegex(out, r"Locker\s+A-77")
+
+    def test_the_phones_day_is_what_ends_it_not_the_macs(self):
+        # Phone in Tokyo, Mac in New York. It is already tomorrow on the phone
+        # — its day ended a minute ago — while the Mac's calendar still agrees
+        # with the block's `date`. Comparing dates served yesterday's locker
+        # for thirteen hours; comparing instants cannot.
+        data = self.noted(until=self.utc(minutes=-1))
+        with fixture(data):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+        # ...and a minute before the phone's midnight it is still today's.
+        with fixture(self.noted(until=self.utc(minutes=5))):
+            _, out = run("today")
+        self.assertRegex(out, r"Locker\s+A-77")
+
+    def test_a_block_with_no_expiry_fails_closed(self):
+        with fixture(self.noted(until="missing")):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+        data = self.noted()
+        data["day_notes"]["until"] = "2026-09-21T00:00:00"      # no zone: unusable
+        with fixture(data):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+
+    def test_a_phone_with_a_wrong_clock_cannot_keep_its_notes_alive(self):
+        # `until` a year away — a clock set forward — on a snapshot written two
+        # days ago. No day is 36 hours long.
+        data = self.noted(until=self.utc(days=365))
+        data["generated_at"] = self.utc(hours=-48).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with fixture(data):
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+
+    def test_a_rest_day_can_still_have_a_locker(self):
+        with fixture(self.noted(rest_day=True)):
+            _, out = run("today")
+        self.assertIn("Rest day", out)
+        self.assertRegex(out, r"Locker\s+A-77")
+
+    def test_nothing_noted_says_nothing(self):
+        with fixture():
+            _, out = run("today")
+        self.assertNotIn("Today only", out)
+
+    def test_json_carries_them_too_and_drops_a_stale_block(self):
+        with fixture(self.noted()):
+            _, out = run("--json", "today")
+        self.assertEqual([n["heading"] for n in json.loads(out)["day_notes"]],
+                         ["Locker", "Parking", "Towel", "Note"])
+        with fixture(self.noted(until=self.utc(days=-2))):
+            _, out = run("--json", "today")
+        self.assertEqual(json.loads(out)["day_notes"], [])
+
+
 class Machines(unittest.TestCase):
     """Where the seat goes — the thing you otherwise rediscover by sitting down
     and finding out it is wrong."""

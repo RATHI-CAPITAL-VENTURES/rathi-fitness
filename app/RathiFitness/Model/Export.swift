@@ -97,6 +97,21 @@ enum Export {
         return lines.joined(separator: "\n")
     }
 
+    /// What you noted, day by day. Its own file for the reason machines have
+    /// one: a different shape of fact. An export that leaves a table out is a
+    /// backup that silently is not one.
+    static func dayNotesCSV(from context: ModelContext) throws -> String {
+        let notes = try context.fetch(FetchDescriptor<DayNote>())
+        var lines = ["date,kind,heading,text"]
+        for note in notes.sorted(by: {
+            ($0.date, $0.noteKind.order, $0.heading) < ($1.date, $1.noteKind.order, $1.heading)
+        }) where !note.text.isEmpty {
+            lines.append([Fmt.day(note.date), note.noteKind.rawValue,
+                          escape(note.heading), escape(note.text)].joined(separator: ","))
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// RFC 4180: quote anything containing a comma, quote or newline, and double
     /// any embedded quotes. A note saying `felt heavy, shoulder clicked` would
     /// otherwise silently become two columns.
@@ -115,9 +130,11 @@ enum Export {
         let sets = dir.appendingPathComponent("sets-\(day).csv")
         let body = dir.appendingPathComponent("body-\(day).csv")
         let machines = dir.appendingPathComponent("machines-\(day).csv")
+        let notes = dir.appendingPathComponent("day-notes-\(day).csv")
         try csv(from: context).write(to: sets, atomically: true, encoding: .utf8)
         try weighInsCSV(from: context).write(to: body, atomically: true, encoding: .utf8)
         try machinesCSV(from: context).write(to: machines, atomically: true, encoding: .utf8)
-        return [sets, body, machines]
+        try dayNotesCSV(from: context).write(to: notes, atomically: true, encoding: .utf8)
+        return [sets, body, machines, notes]
     }
 }

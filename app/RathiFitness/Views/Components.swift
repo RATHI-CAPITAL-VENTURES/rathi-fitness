@@ -152,6 +152,49 @@ struct ExerciseRow: View {
     }
 }
 
+/// A small labelled pill: outlined when empty, filled when it holds something.
+///
+/// This was written out twice — once on each set screen — and a third copy was
+/// about to go on Today. One now.
+struct Chip: View {
+    var text: String
+    var symbol: String?
+    var tint: Color = RFDesign.label
+    var filled = false
+    /// One line in a row of chips. `nil` where the chip IS the message — "Same
+    /// as last time — Level 2, row C, by the stairs" must not end in "…".
+    var lineLimit: Int? = 1
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let symbol {
+                Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
+            }
+            Text(text).font(RFDesign.ui(12, bold: filled)).lineLimit(lineLimit)
+                .multilineTextAlignment(.leading)
+                // Without this a multi-line Text in an HStack in a Button is
+                // still offered one line's height, and `lineLimit: nil` buys
+                // nothing. Only when wrapping was asked for.
+                .fixedSize(horizontal: false, vertical: lineLimit == nil)
+        }
+        .foregroundStyle(filled ? RFDesign.ground : tint)
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(filled ? tint : Color.clear)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(filled ? Color.clear : RFDesign.hairline, lineWidth: 1)
+                }
+        }
+        // Unfilled is the DEFAULT state, and unfilled means `Color.clear`,
+        // which under `.buttonStyle(.plain)` means the chip is tappable only
+        // where it is opaque: the glyphs and a one-point stroke. Same defect as
+        // `PrimaryButton` had; see docs/DECISIONS.md.
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 /// A thin progress rail, used for the day.
 struct Rail: View {
     var fraction: Double

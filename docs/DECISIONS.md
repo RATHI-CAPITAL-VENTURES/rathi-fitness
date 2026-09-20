@@ -1793,3 +1793,75 @@ That argues about the FILE. The guard asks about the capability — "genuinely
 not new user-visible capability" — and a chart on a screen that had none is
 user-visible by any reading. The hatch is also label-only on purpose, so a
 commit cannot wave itself through. v0.11.0, with a retro.
+
+## 2026-09-20 — Today only is a row per day, not a block that gets cleared
+
+**Chosen: `DayNote` — a dated row per kind per day, shown as a strip of chips on
+Today. Rejected: one editable scratch block cleared at midnight; hanging it off
+`Session`; free-form key/value pairs; reusing the per-set note.**
+
+Asked for as "a temporary section with things like notes or locker number".
+
+- **"Temporary" is the design question, and clearing is the wrong answer to
+  it.** A block that something empties — at midnight, on launch, when the
+  workout closes — is a rule that fails silently the day it does not run, and
+  its failure is Tuesday's locker on screen on Thursday: confidently wrong,
+  which is worse than blank. It is the argument that made `Swap` a dated row
+  (2026-09-19), and it holds for the same reason. A row that belongs to a day
+  needs no clearing; tomorrow it does not match.
+- **Not on `Session`.** A session does not exist until the first set is logged,
+  and you take a locker before that. You can also take one on a rest day.
+- **Enumerated kinds plus `other`, not free-form pairs** — the `MachineSetting`
+  shape. Locker and Parking as one-tap chips is the whole ergonomic case, and
+  free-form means "locker" and "Locker #" are two things. `other` with your own
+  heading is the "etc", and headings you have used come back as chips.
+- **Not the per-set note.** That is about a set ("left shoulder clicked") and is
+  kept with it. "Left knee, go easy" is about the day, and you want it before
+  the first set, not attached to the fourth.
+
+**A value reads as itself.** A filled chip says "Locker 214", not "Locker ✓" —
+the set screen's "Note ✓" pattern is right for something you wrote and wrong
+for something you need to READ with a towel in one hand. A note is a sentence,
+so it is a line; a chip would show "Left kn…".
+
+**Rows are kept, which buys two things:** a past workout shows what you noted
+that day, and the sheet offers "same as last time" for locker, parking and your
+own headings. Never for a note: it is about a day, and yesterday's "knee is
+sore" offered back is the app putting words in your mouth.
+
+**Exported to the Mac, with its date, and without a combination.** "What's my
+locker number" asked of RIA is the best use of this, so `day_notes` is in the
+snapshot — unlike pass codes. Two guards on that. The block carries the day it
+belongs to and `gym` drops any other day's, because the snapshot is only as
+fresh as the app's last run. And there is no chip for the lock's combination,
+with a test that fails if one appears: a locker number in a world-readable
+folder is harmless, the combination beside it is not. A free-text note can hold
+anything, so the sheet says plainly where it goes.
+
+**What review found, because the first version claimed more than it did:**
+
+- *"Nothing has to run at midnight"* is true of the DATA and was false of the
+  SCREEN. Nothing re-ran `body` when the day changed, so an app left open past
+  twelve kept showing yesterday's locker — beside yesterday's date, since all
+  of `TodayView` reads `.now` the same way. `TodayView.dayStamp` is bumped on
+  `NSCalendarDayChanged` and on becoming active on a new day, and the strip is
+  handed its day rather than reading the clock. The rows still need no
+  clearing; the view needs telling to look again, and those are different
+  claims.
+- *The date stamp* compared the phone's calendar with the Mac's. `until` — the
+  instant the phone's day ends — replaces it as the test. My first repair
+  added a second date comparison and still left a window; the fix was to stop
+  comparing calendars at all.
+- *One per kind per day* is something `set` can promise on one device and
+  nothing can promise across two: CloudKit forbids unique attributes, so two
+  lockers for one day WILL arrive. `DayNotes.on` dedupes on read, latest wins,
+  in the one place every reader goes through. `set` also fetches for itself
+  now rather than trusting an array a sheet's closure captured.
+- A saved `other` wore a "+" — the kind's symbol doubled as the add chip's.
+  Kinds are nouns (`tag`); the add chip draws its own plus.
+
+Left out, knowingly: reading a past REST day's notes on the phone — past pages
+exist per workout, so a parking level noted on a day with no session lives on
+only in the export. And editing a PAST day's notes (past days are read-only by
+design — see `PastDayView`), and renaming an `other` heading in place (the
+heading is the row's key; remove and re-add).
