@@ -21,9 +21,14 @@ ok()  { if [ "$1" = "$2" ]; then PASS=$((PASS+1)); echo "  ok   $3";
         else FAIL=$((FAIL+1)); echo "  FAIL $3 (got '$1', wanted '$2')"; fi; }
 says() { if grep -qF "$1" "$LOG"; then PASS=$((PASS+1)); echo "  ok   $2";
          else FAIL=$((FAIL+1)); echo "  FAIL $2 — log has no '$1'"; fi; }
-quiet() { if ! grep -qE "APPLIED|FAILED|REFUSING" "$LOG"; then
-            PASS=$((PASS+1)); echo "  ok   $1";
-          else FAIL=$((FAIL+1)); echo "  FAIL $1 — logged: $(cat "$LOG")"; fi; }
+# grep's THREE outcomes, not two. 1 is "not found" — quiet. Anything above is
+# grep not having run at all, and `if ! grep` read that as quiet too: on Linux
+# a 200 KB environment variable made every exec fail ("Argument list too
+# long"), this printed ok, and CI was green about a case that ran nothing.
+quiet() { grep -qE "APPLIED|FAILED|REFUSING" "$LOG"; local rc=$?
+          if [ "$rc" -eq 1 ]; then PASS=$((PASS+1)); echo "  ok   $1";
+          elif [ "$rc" -eq 0 ]; then FAIL=$((FAIL+1)); echo "  FAIL $1 — logged: $(cat "$LOG")";
+          else FAIL=$((FAIL+1)); echo "  FAIL $1 — could not even read the log (grep exit $rc)"; fi; }
 
 setup() {
     TMP=$(mktemp -d)
@@ -53,11 +58,17 @@ case "\$*" in
   # so the two agreed with each other and with nothing else. A paired phone
   # that is out of reach exits ZERO and says so in the text. STUB_UNKNOWN is a
   # device this Mac has never paired with — the one case that does exit 1.
-  *"info details"*)   [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
+  *"info details"*)   [ -n "\${STUB_XCRUN_RC:-}" ] && exit "\${STUB_XCRUN_RC}"
+                      [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
                       echo "Current device information:"
                       if [ -n "\${STUB_STATE:-}" ]; then echo "    • Device State: \${STUB_STATE}"
                       elif [ -n "\${STUB_REACHABLE:-}" ]; then echo "    • Device State: connected"
-                      else echo "    • Device State: unavailable"; fi ;;
+                      else echo "    • Device State: unavailable"; fi
+                      # A long report is long OUTPUT. It was a 200 KB environment
+                      # variable, which Linux refuses per string at 128 KiB — so
+                      # on the CI runner nothing in that case could be exec'd.
+                      [ -n "\${STUB_LONG:-}" ] && head -c "\${STUB_LONG}" /dev/zero | tr '\0' x
+                      ;;
   *"info processes"*) [ -n "\${STUB_RUNNING:-}" ] && echo "9 /x/Thing.app/Thing" ;;
   *"install app"*)    [ -n "\${STUB_INSTALL_FAILS:-}" ] && exit 1; echo "App installed:" ;;
 esac
@@ -72,7 +83,11 @@ d=\$(echo "\$@" | sed 's/.*-derivedDataPath //;s/ .*//')
 # said BUILD FAILED. An assertion that cannot fail is not one.
 mkdir -p "\$d"
 [ -n "\${STUB_NO_DESTINATION:-}" ] && {
+  echo "xcodebuild: error: Unable to find a \${STUB_NO_DESTINATION} matching the provided destination specifier:"
+  exit 70; }
+[ -n "\${STUB_LOCKED:-}" ] && {
   echo "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
+  echo "  { platform:iOS, name:Phone, error:Phone needs to be unlocked to enable development services. }"
   exit 70; }
 [ -n "\${STUB_BUILD_FAILS:-}" ] && { echo "error: nope"; exit 1; }
 mkdir -p "\$d/Build/Products/Debug-iphoneos/Thing.app"
@@ -84,7 +99,7 @@ STUB
 }
 teardown() { rm -rf "$TMP"
     unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN \
-          STUB_NO_DESTINATION STUB_STATE; }
+          STUB_NO_DESTINATION STUB_STATE STUB_LONG STUB_LOCKED STUB_XCRUN_RC; }
 
 run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
@@ -163,10 +178,48 @@ teardown
 # A state word nobody has seen yet. The deny-match lets it through on purpose;
 # xcodebuild then says there is nothing to build for, and THAT is believed.
 setup
-  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=1
+  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=destination
   run > /dev/null
   quiet "no destination is absence, whatever devicectl called it"
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# The older wording, which three places in this repo had recorded as THE one.
+setup
+  new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=device
+  run > /dev/null
+  quiet "in either of xcodebuild's wordings"
+teardown
+
+# The phone says it is HERE and xcodebuild cannot find it: that is a wrong ECID,
+# and waiting will never fix it. Silent here is silent for ever.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_NO_DESTINATION=destination
+  run > /dev/null
+  says "BUILD FAILED" "a present phone with no destination is a wrong ECID, and loud"
+teardown
+
+# Locked all night, with a commit waiting: not an error, and not a log line
+# every ten minutes until morning.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=1
+  run > /dev/null
+  quiet "a locked phone is 'not now'"
+  ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
+teardown
+
+# DEVELOPER_DIR pointing at CommandLineTools: xcrun runs, finds no devicectl,
+# exits 72. The tool is away, not the phone — silent would be silent for ever.
+setup
+  new_commit; export STUB_XCRUN_RC=72
+  run > /dev/null
+  says "devicectl unavailable" "a missing devicectl (72) is reported, not waited out"
+teardown
+
+setup
+  new_commit; export STUB_XCRUN_RC=127
+  run > /dev/null
+  says "devicectl unavailable" "and so is a missing xcrun (127)"
 teardown
 
 # ...but a real build failure on a phone that IS there stays loud.
@@ -179,8 +232,7 @@ teardown
 # The state is on line 1 of more than a pipe buffer of output. With
 # `printf | grep -q` under pipefail this lost the exit 10 to SIGPIPE.
 setup
-  new_commit; export STUB_BUILD_FAILS=1
-  export STUB_STATE="unavailable$(printf '\n%.0s' 1; head -c 200000 /dev/zero | tr '\0' 'x')"
+  new_commit; export STUB_BUILD_FAILS=1 STUB_LONG=200000
   run > /dev/null
   quiet "a long device report cannot lose 'not now' to a closed pipe"
 teardown

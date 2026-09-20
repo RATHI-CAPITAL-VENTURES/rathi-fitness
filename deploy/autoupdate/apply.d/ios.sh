@@ -11,6 +11,12 @@
 # other belongs gives "Unable to find a device matching the provided
 # destination specifier", which reads like the phone is unplugged when it is
 # sitting there paired.
+#
+# (Observed 2026-09-20 with Xcode 26 beta, from a real failed run: xcodebuild
+# words it "Unable to find a DESTINATION matching the provided destination
+# specifier". "device" above is the older wording. Both are matched below,
+# because the stub in the test suite can only ever agree with whichever one
+# this file believes — see the README's third bug.)
 set -uo pipefail
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${AU_LOG:-/dev/null}"; }
@@ -49,17 +55,30 @@ XCODEBUILD="${AU_XCODEBUILD:-xcodebuild}"
 # rather than into a silent "not now" that would stall installs for ever.
 details=$("$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null)
 rc=$?
-# 127 is not "the device is away", it is "the TOOL is away" — DEVELOPER_DIR
-# wrong, Xcode moved. Swallowing that as "not now" would stall installs for
-# ever without a word, which is the failure the paragraph above refuses.
-if [ "$rc" -eq 127 ]; then log "devicectl not found — check AU_IOS_DEVELOPER_DIR"; exit 1; fi
-[ "$rc" -eq 0 ] || exit 10
+# Not "the device is away" but "the TOOL is away", and swallowing that as "not
+# now" would stall installs for ever without a word. Measured on this Mac:
+#   72   xcrun ran and could not find devicectl — DEVELOPER_DIR pointing at
+#        CommandLineTools, which is THE trap here (xcode-select's default)
+#   127  $XCRUN itself does not exist
+# `1` stays quiet: it is what a never-paired device returns, and also what a
+# bogus DEVELOPER_DIR returns, and the two cannot be told apart.
+case "$rc" in
+    0) ;;
+    72|127) log "devicectl unavailable (exit $rc) — check AU_IOS_DEVELOPER_DIR"; exit 1 ;;
+    *) exit 10 ;;
+esac
 # A herestring, not `printf | grep -q`. Under `pipefail` a grep that exits on
 # its first match leaves printf writing into a closed pipe; past 64 KiB of
 # output printf dies of SIGPIPE, the pipeline is non-zero, `&& exit 10` does
 # not fire, and the absent phone gets built for again. Measured, not guessed:
 # status 141 at exactly 65536 bytes.
 grep -qiE 'Device State:[[:space:]]*unavailable' <<<"$details" && exit 10
+
+# Whether the phone SAYS it is here. Used for one thing only, further down:
+# deciding whether "no destination" may be believed as absence. An allow-list
+# is safe for THAT question, because its failure direction is loud.
+present=0
+grep -qiE 'Device State:[[:space:]]*(connected|available)' <<<"$details" && present=1
 
 # ------------------------------------------------- never interrupt a session
 # Installing over a running app terminates it. For a workout logger that means
@@ -79,16 +98,32 @@ if [ -f project.yml ] && command -v xcodegen >/dev/null 2>&1; then
     xcodegen generate >/dev/null 2>&1 || { log "xcodegen failed"; exit 1; }
 fi
 
+# Per scheme, like DERIVED. It was one fixed path in /tmp for every project on
+# this template — harmless while it only fed `tail -5`, not now that it decides
+# loud versus silent: two projects build concurrently by design, and one could
+# read the other's "no destination" and go quiet about a real failure.
+mkdir -p "$DERIVED"
+BUILD_LOG="${AU_IOS_BUILD_LOG:-$DERIVED/autoupdate-build.log}"
+
 if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
         -destination "id=$ECID" -derivedDataPath "$DERIVED" \
-        -allowProvisioningUpdates build >/tmp/autoupdate-build.log 2>&1; then
-    # xcodebuild's own word for "there is no device to build for". The check at
-    # the top reads one state string devicectl has been SEEN to print; this is
-    # the ground truth behind it, and it holds whatever vocabulary devicectl
-    # invents next. No destination is absence, and absence is "not now".
-    grep -q "Unable to find a destination" /tmp/autoupdate-build.log && exit 10
+        -allowProvisioningUpdates build >"$BUILD_LOG" 2>&1; then
+    # A LOCKED phone. Observed 2026-09-20: devicectl says `connected`, and
+    # xcodebuild lists the device as "needs to be unlocked to enable
+    # development services". That is "not now" in the plainest sense — it is
+    # locked all night — and nothing here can fix it but waiting.
+    grep -q "needs to be unlocked" "$BUILD_LOG" && exit 10
+    # "No destination" is absence ONLY if the phone did not just tell us it is
+    # here. A phone reporting itself present with no destination is a wrong
+    # ECID — the ECID/UUID swap at the top of this file — and waiting will
+    # never fix that, so it must stay loud. This is the permanent silent stall
+    # the deny-match above exists to refuse, and the first version of this
+    # fallback let it back in.
+    if [ "$present" = 0 ] && grep -qE \
+        "Unable to find a (destination|device) matching the provided destination specifier" \
+        "$BUILD_LOG"; then exit 10; fi
     log "BUILD FAILED — device left with the build it had"
-    tail -5 /tmp/autoupdate-build.log >> "${AU_LOG:-/dev/null}"
+    tail -5 "$BUILD_LOG" >> "${AU_LOG:-/dev/null}"
     exit 1
 fi
 

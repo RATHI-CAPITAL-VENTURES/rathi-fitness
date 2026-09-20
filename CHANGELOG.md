@@ -33,7 +33,10 @@ A **MINOR bump is a milestone** and must ship a retro under
   too, whatever word `devicectl` used; a missing `devicectl` is loud rather
   than silently "not now" for ever; and the state is read in a way that cannot
   lose its answer on a long device report (review found the first version of
-  this fix could, past 64 KiB).
+  this fix could, past 64 KiB). A **locked** phone — which is how this release
+  itself failed to install three times — is "not now" as well. "No destination"
+  is only believed as absence when the phone has not just said it is present;
+  otherwise it is a wrong device id and stays loud.
 
 ## 0.11.0 — 2026-09-20
 
