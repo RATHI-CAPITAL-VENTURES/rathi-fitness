@@ -88,8 +88,12 @@ if grep -qiE 'Device State:[[:space:]]*unavailable' <<<"$details"; then
     # Quiet, and before any build — so there is no build log to keep. Keep what
     # devicectl SAID: this string match is the one everything rests on, and
     # `$details` is otherwise gone the moment the script exits.
-    mkdir -p "$DERIVED"
-    printf '%s\n' "$details" > "$DERIVED/devicectl-details.last-quiet" 2>/dev/null || true
+    # Braced, so the 2>/dev/null covers the REDIRECT too. On the line itself it
+    # does not: bash reports a failed `>` before that redirection list applies,
+    # and an unwritable DERIVED then wrote two lines to the error log every ten
+    # minutes on the one path that is supposed to say nothing.
+    { mkdir -p "$DERIVED" &&
+      printf '%s\n' "$details" > "$DERIVED/devicectl-details.last-quiet"; } 2>/dev/null || true
     exit 10
 fi
 

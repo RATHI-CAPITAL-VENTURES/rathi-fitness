@@ -142,11 +142,22 @@ new_commit() { (cd "$TMP/seed"; echo more >> app/thing; git commit -qam two; git
 echo "autoupdate — the suite itself"
 # The stubs are written with UNQUOTED heredocs, so a backtick inside one is a
 # command substitution that runs every time `setup` does — comments included.
-# A comment that said `tail -5` hung the whole suite waiting on stdin, and one
-# that said `id:` printed "command not found" on every case, on CI, for a
-# commit, while everything stayed green.
-ok "$(awk '/<<STUB$/{i=1;next} /^STUB$/{i=0} i && /`/' "$0" | wc -l | tr -d ' ')" "0" \
-   "no backtick inside a stub heredoc — they execute"
+# One that said `id:` printed "command not found" on every case, on CI, for a
+# whole commit, while everything stayed green (in this branch's history). One
+# that said `tail -5` hung the suite waiting on stdin — that one only ever
+# lived in a working tree and was never committed, so take it on trust or not.
+#
+# The delimiter is read off the opener, so this covers a heredoc opened with
+# any word, `<<-`, or a trailing space — the first version matched the literal
+# `<<STUB` at end of line and nothing else, a guard against an invisible bug
+# that an invisible character defeated. A QUOTED delimiter is skipped on
+# purpose: backticks are literal there.
+ok "$(awk '
+  /<<-?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$/ { d=$0; sub(/.*<<-?/,"",d); sub(/[[:space:]]*$/,"",d); inh=1; next }
+  inh && $0 ~ ("^[[:space:]]*" d "[[:space:]]*$") { inh=0; next }
+  inh && /`/ { n++ }
+  END { print n+0 }' "$0")" "0" \
+   "no backtick inside an unquoted heredoc — they execute"
 
 echo "autoupdate — the spine"
 
