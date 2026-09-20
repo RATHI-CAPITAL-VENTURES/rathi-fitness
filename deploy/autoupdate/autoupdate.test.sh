@@ -82,6 +82,9 @@ d=\$(echo "\$@" | sed 's/.*-derivedDataPath //;s/ .*//')
 # build was attempted" — which looks for it — passed while the log beside it
 # said BUILD FAILED. An assertion that cannot fail is not one.
 mkdir -p "\$d"
+[ "\${STUB_NO_DESTINATION:-}" = TIMEOUT ] && {
+  echo "xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available"
+  exit 70; }
 [ -n "\${STUB_NO_DESTINATION:-}" ] && {
   echo "xcodebuild: error: Unable to find a \${STUB_NO_DESTINATION} matching the provided destination specifier:"
   exit 70; }
@@ -89,8 +92,8 @@ mkdir -p "\$d"
 # version of this stub had no id, which is why no test could see that the lock
 # check was not scoped to a device. STUB_LOCKED names WHOSE lock screen it is.
 [ -n "\${STUB_LOCKED:-}" ] && {
-  echo "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
-  echo "		{ id:\${AU_IOS_ECID} }"
+  echo "xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available"
+  echo ""
   echo "	Destinations compatible with the \"Thing\" scheme:"
   echo "		{ platform:iOS, arch:arm64, id:\${STUB_LOCKED}, name:A Device, error:A Device needs to be unlocked to enable development services Please unlock the device. }"
   exit 70; }
@@ -189,6 +192,15 @@ setup
   ok "$(cat "$STATE" 2>/dev/null || echo none)" "none" "and nothing is recorded"
 teardown
 
+# The wording that is actually ON DISK from a real run — and that the first two
+# versions of this fallback did not match at all.
+setup
+  new_commit; export STUB_STATE="disconnected"
+  export STUB_NO_DESTINATION="TIMEOUT"
+  run > /dev/null
+  quiet "'Timed out waiting for all destinations' is absence too"
+teardown
+
 # The older wording, which three places in this repo had recorded as THE one.
 setup
   new_commit; export STUB_STATE="disconnected" STUB_NO_DESTINATION=device
@@ -219,6 +231,16 @@ setup
   new_commit; export STUB_REACHABLE=1 STUB_LOCKED=SOME-OTHER-DEVICE
   run > /dev/null
   says "BUILD FAILED" "a wrong ECID stays loud even when ANOTHER device is locked"
+  says "Timed out waiting" "and the log keeps the line that says WHY, not just a tail"
+teardown
+
+# A quiet exit leaves no line in the job log by design, so it must leave the
+# build log somewhere: it is the only evidence if a quiet path ever misfires.
+setup
+  new_commit; export STUB_REACHABLE=1 STUB_LOCKED=E
+  run > /dev/null
+  ok "$([ -s "$TMP/derived/autoupdate-build.log.last-quiet" ] && echo kept || echo lost)" \
+     "kept" "a quiet exit keeps the build log it decided to stay silent about"
 teardown
 
 # DEVELOPER_DIR pointing at CommandLineTools: xcrun runs, finds no devicectl,

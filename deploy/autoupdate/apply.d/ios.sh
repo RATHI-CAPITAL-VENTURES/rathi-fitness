@@ -12,11 +12,23 @@
 # destination specifier", which reads like the phone is unplugged when it is
 # sitting there paired.
 #
-# (Observed 2026-09-20 with Xcode 26 beta, from a real failed run: xcodebuild
-# words it "Unable to find a DESTINATION matching the provided destination
-# specifier". "device" above is the older wording. Both are matched below,
-# because the stub in the test suite can only ever agree with whichever one
-# this file believes — see the README's third bug.)
+# What xcodebuild has actually been seen to say, and where the evidence is —
+# because a stub can only ever agree with whatever this file believes (README,
+# third bug), so every string matched below is labelled by how it is known:
+#
+#   ON DISK   "Timed out waiting for all destinations matching the provided
+#             destination specifier to become available" — a LOCKED phone,
+#             2026-09-20 11:43, Xcode 26 beta. In this project's job log.
+#   SEEN, ARTIFACT LOST   "Unable to find a destination matching the provided
+#             destination specifier" — an AWAY phone, same morning 11:21, read
+#             out of the build log in a terminal. That file was overwritten by
+#             the next run, and the job log kept only `tail -5`, which cut the
+#             header off. Nothing on this Mac can now show it.
+#   RECORDED EARLIER   "Unable to find a device matching…" — CLAUDE.md's
+#             wording for the ECID/UUID swap, from an older Xcode.
+#
+# That the middle one cannot be pointed at is why failures now log their first
+# `error:` line and quiet exits keep a copy of the build log (below).
 set -uo pipefail
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${AU_LOG:-/dev/null}"; }
@@ -105,6 +117,12 @@ fi
 mkdir -p "$DERIVED"
 BUILD_LOG="${AU_IOS_BUILD_LOG:-$DERIVED/autoupdate-build.log}"
 
+# A quiet exit is a string match against a tool that has already changed its
+# wording once, and "quiet" means it leaves no trace in the job log. The next
+# run truncates $BUILD_LOG — so keep one generation of what we decided to stay
+# silent about. If a quiet path ever misfires, this is the only evidence.
+keep_quiet_evidence() { cp "$BUILD_LOG" "$BUILD_LOG.last-quiet" 2>/dev/null || true; }
+
 if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
         -destination "id=$ECID" -derivedDataPath "$DERIVED" \
         -allowProvisioningUpdates build >"$BUILD_LOG" 2>&1; then
@@ -120,7 +138,11 @@ if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
     # Unscoped, the iPad asleep in the kitchen matched this for a job aimed at
     # the iPhone, and a wrong ECID went quiet for ever by way of someone
     # else's lock screen.
-    grep -qE "id:$ECID[^}]*needs to be unlocked" "$BUILD_LOG" && exit 10
+    # (`${ECID}` braced and delimited: real ECIDs are [0-9A-F-], so nothing to
+    # escape, and an invalid ERE makes grep exit 2 → not quiet → loud.)
+    if grep -qE "id:${ECID}[,}[:space:]][^}]*needs to be unlocked" "$BUILD_LOG"; then
+        keep_quiet_evidence; exit 10
+    fi
     # "No destination" is absence ONLY if the phone did not just tell us it is
     # here. A phone reporting itself present with no destination is a wrong
     # ECID — the ECID/UUID swap at the top of this file — and waiting will
@@ -128,9 +150,13 @@ if ! "$XCODEBUILD" -project "$PROJECT" -scheme "$SCHEME" \
     # the deny-match above exists to refuse, and the first version of this
     # fallback let it back in.
     if [ "$present" = 0 ] && grep -qE \
-        "Unable to find a (destination|device) matching the provided destination specifier" \
-        "$BUILD_LOG"; then exit 10; fi
+        "(Unable to find a (destination|device)|Timed out waiting for all destinations) matching the provided destination specifier" \
+        "$BUILD_LOG"; then keep_quiet_evidence; exit 10; fi
     log "BUILD FAILED — device left with the build it had"
+    # The FIRST error line, then the tail. `tail -5` alone kept the end of a
+    # destination list and threw away the one line that said what was wrong —
+    # twice, on the morning that line was needed.
+    grep -m1 -E "error:" "$BUILD_LOG" >> "${AU_LOG:-/dev/null}"
     tail -5 "$BUILD_LOG" >> "${AU_LOG:-/dev/null}"
     exit 1
 fi
