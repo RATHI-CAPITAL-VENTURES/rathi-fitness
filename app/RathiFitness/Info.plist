@@ -54,14 +54,90 @@
 		<string>Inter-Medium.ttf</string>
 		<string>Inter-SemiBold.ttf</string>
 	</array>
+	<!-- ============================ The glasses ============================
+	     Meta Ray-Ban Display, through Meta's Device Access Toolkit. Every key
+	     in this block was settled on real hardware in a throwaway app first
+	     (branch chore/lens-spike, FINDINGS.md). -->
+
+	<!-- Meta AI hands control back through this scheme once you approve the
+	     app there. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>rathifitness</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Lets the SDK ask iOS whether Meta AI is installed. Meta's setup guide
+	     lists it as required and NEITHER of their sample apps carries it.
+	     Without it: registration reads "unavailable" from launch, Connect
+	     switches to Meta AI, and Meta AI shows nothing at all. No error
+	     anywhere. That cost an hour. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>fb-viewapp</string>
+	</array>
+	<key>MWDAT</key>
+	<dict>
+		<key>AppLinkURLScheme</key>
+		<string>rathifitness://</string>
+		<key>MetaAppID</key>
+		<string>$(META_APP_ID)</string>
+		<key>ClientToken</key>
+		<string>$(CLIENT_TOKEN)</string>
+		<key>TeamID</key>
+		<string>$(DEVELOPMENT_TEAM)</string>
+		<!-- Meta's binary reports crashes home unless told not to. This app
+		     holds Health data; it is told not to. -->
+		<key>CrashReporting</key>
+		<dict>
+			<key>OptOut</key>
+			<true/>
+		</dict>
+	</dict>
+	<!-- From Meta's setup guide, and confirmed on the hardware: the glasses
+	     announce this protocol to iOS (the accessory dump in the spike's console
+	     lists "com.meta.ar.wearable" among "Meta RB Display"'s protocols). -->
+	<key>UISupportedExternalAccessoryProtocols</key>
+	<array>
+		<string>com.meta.ar.wearable</string>
+	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>To show your set and your rest timer on your glasses.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Your glasses fall back to Wi-Fi for anything heavier than text.</string>
+	<!-- Verbatim from Meta's integration guide and both of their sample apps.
+	     It does not look like a real service type and may well be a placeholder
+	     they never replaced; it is kept because it is what the tested
+	     configuration carried. Everything measured so far went over Bluetooth,
+	     so whether the Wi-Fi path works at all is NOT known. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_bonjour._tcp</string>
+	</array>
+
 	<!-- `audio` is load-bearing twice over: it lets the app keep playing your
 	     music with the screen locked, and it keeps the process alive so the
 	     cooldown chime and its haptic actually fire while the phone is in a
 	     pocket. Without it the rest ends as a silent notification. -->
+	<!-- The three after `audio` are the glasses'. With them iOS will relaunch
+	     the app in the background when the glasses connect, phone locked —
+	     seen on the hardware. Meta's sample also declares `processing`; it is
+	     left out because that mode wants BGTaskScheduler identifiers this app
+	     has no use for. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
+		<string>external-accessory</string>
 	</array>
 	<!-- Exposes the snapshot container in Files and, more to the point, on the
 	     Mac at ~/Library/Mobile Documents/iCloud~com~rathi~fitness/Documents.

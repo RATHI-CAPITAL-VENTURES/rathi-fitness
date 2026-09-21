@@ -82,6 +82,24 @@ public enum RFDesign {
               brightness: brightness)
     }
 
+    // MARK: - For the lens
+    //
+    // The glasses face draws its big numeral into a bitmap, and the file that
+    // does it cannot import SwiftUI — Meta's display module exports its own
+    // `Text`, `Button` and `Image`. These hand it the same colours as UIKit
+    // values, so the lens has no second definition of ember or teal to drift.
+
+    #if canImport(UIKit)
+    public static var readyUIColor: UIColor { UIColor(ready) }
+    public static var speechUIColor: UIColor { UIColor(speech) }
+
+    public static func coolUIColor(_ progress: Double) -> UIColor {
+        // Full brightness, unlike the phone's 0.86: the lens is additive, so a
+        // dimmer colour is not a moodier one, only a fainter one.
+        UIColor(coolColor(progress, brightness: 1))
+    }
+    #endif
+
     // MARK: - The room
     //
     // RIAKit's radial pool, same two stops and hard cutoff. Here it takes the

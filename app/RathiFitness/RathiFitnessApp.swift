@@ -14,6 +14,9 @@ struct RathiFitnessApp: App {
     /// reason these two are constructed here rather than declared inline.
     @StateObject private var remote: RemoteControls
     @StateObject private var audio = AudioHub.shared
+    /// The glasses. Off unless switched on in Settings, and while it is off it
+    /// never touches Meta's SDK — see `GlassesFace`.
+    @StateObject private var glasses = GlassesFace()
     /// The one that speaks up when a write does not land. `Saves.shared` rather
     /// than a fresh instance, because the reporter a `Binding` setter reaches
     /// for by default has to be the same one this view is observing.
@@ -34,9 +37,13 @@ struct RathiFitnessApp: App {
                 .environmentObject(music)
                 .environmentObject(remote)
                 .environmentObject(audio)
+                .environmentObject(glasses)
                 .environmentObject(saves)
                 .preferredColorScheme(.dark)
                 .tint(RFDesign.ready)
+                // Meta AI hands back here after you approve this app in it.
+                // Anything that is not theirs is ignored by `handle`.
+                .onOpenURL { url in Task { await glasses.handle(url) } }
                 .onChange(of: scenePhase) { _, phase in
                     // Coming back from the background is the other moment your
                     // Health data has moved: the scale wrote this morning while

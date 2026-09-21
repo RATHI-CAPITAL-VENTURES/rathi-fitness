@@ -16,6 +16,10 @@ struct SetView: View {
     @EnvironmentObject private var rest: RestTimer
     @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
+    @EnvironmentObject private var glasses: GlassesFace
+    /// This screen's name as far as the glasses are concerned — so that only
+    /// the screen that switched the lens on can switch it off. See `arm`.
+    @State private var lensOwner = UUID()
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
 
@@ -128,6 +132,9 @@ struct SetView: View {
         .onAppear(perform: prime)
         .onAppear(perform: armHandsFree)
         .onDisappear(perform: disarmHandsFree)
+        // The lens asks once a second on its own; this is for the changes that
+        // should not wait that long — a logged set, a nudged weight.
+        .onChange(of: lensState) { _, _ in glasses.refresh() }
     }
 
     // MARK: hands-free
@@ -147,11 +154,28 @@ struct SetView: View {
             isResting: { restingHere })
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
+        // The glasses are armed and disarmed with the AirPods, for the same
+        // reason: a pinch may only mean "log the set" while this screen is the
+        // one that knows which set. A pinch goes through `remote.run`, so it is
+        // the same code path a squeeze takes — including "mid-rest, log means
+        // skip" — and there is still one implementation of each action.
+        glasses.arm(owner: lensOwner, source: { lensState }, onPinch: { remote.run($0.remote) })
     }
 
     private func disarmHandsFree() {
         remote.handlers = RemoteControls.Handlers()
         remote.disarm()
+        glasses.disarm(owner: lensOwner)
+    }
+
+    /// The answer to "where am I", for the lens. The same facts as
+    /// `announcement` below, for an eye instead of an ear.
+    private var lensState: LensState {
+        .strength(
+            exercise: exercise.name, day: item.day?.name,
+            nextSet: nextWorkingSet, of: plan.sets,
+            weight: weight, unit: exercise.weightUnit, reps: reps,
+            resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil)
     }
 
     /// The answer to "where am I", for the announce gesture.
