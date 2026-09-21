@@ -113,6 +113,11 @@ struct LensList: Equatable {
         var trailing: String
         var done: Bool
         var action: LensAction
+        /// How far through its sets this row is, 0…1, for the small ring at its
+        /// left — the list's whole job is "where am I", and a ring answers that
+        /// before the words are read. Nil draws no ring: a machine that could
+        /// stand in for another has no progress to show.
+        var progress: Double? = nil
     }
     var eyebrow: String
     var rows: [Row]
@@ -122,8 +127,18 @@ struct LensList: Equatable {
 }
 
 struct LensCard: Equatable {
+    /// One figure with its name: LOAD … 115 × 10. Drawn as a ledger line with a
+    /// dotted leader, which is how a number is found at a glance — by its label,
+    /// on the left, where the eye starts.
+    struct Spec: Equatable {
+        var label: String
+        var value: String
+    }
     var eyebrow: String
     var title: String
+    var specs: [Spec] = []
+    /// Sentences, under the figures: whose place a stand-in is in, why a
+    /// machine has to be logged on the phone.
     var lines: [String]
     var actions: [LensAction]
 }

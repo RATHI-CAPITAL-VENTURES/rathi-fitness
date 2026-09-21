@@ -322,35 +322,96 @@ final class LensTests: XCTestCase {
         XCTAssertNotEqual(LensScreen.list(plan), .list(moved), "a set logged on the phone repaints the list")
     }
 
-    // MARK: the numeral
+    // MARK: what is drawn
 
-    /// The serif ships in the bundle; if it ever stops, `heroImage` returns nil
-    /// and the lens falls back to Meta's heading text rather than drawing a
-    /// number in the wrong face. The unwrap is the assertion about the face.
-    func testTheSerifIsInTheBundleAndTheNumeralIsOnePixelPerPoint() throws {
-        XCTAssertNotNil(UIFont(name: RFDesign.Face.serifBold, size: 100))
-        let image = try XCTUnwrap(LensRenderer.heroImage("1:12", tone: .resting(progress: 0.2)))
-        XCTAssertEqual(image.size, LensRenderer.heroSize)
-        XCTAssertEqual(image.scale, 1, "one pixel per point — the radio pays for every one")
-    }
-
-    /// "182.5 × 12" is as much a hero as "1:12". Shrunk to fit, not cropped —
-    /// asserted on what the fitting produced, because the canvas is 552 wide
-    /// whatever is drawn on it and an assertion about the canvas cannot fail.
-    func testALongNumeralIsShrunkUntilItFitsBothWays() throws {
-        let face = try XCTUnwrap(UIFont(name: RFDesign.Face.serifBold, size: 100))
-        for text in ["1:12", "185 × 8", "182.5 × 12", "1822.5 × 120", "1:02:45"] {
-            let bounds = LensRenderer.fitted(text, in: face, color: .white).size()
-            XCTAssertLessThanOrEqual(bounds.width, LensRenderer.heroSize.width, text)
-            XCTAssertLessThanOrEqual(bounds.height, LensRenderer.heroSize.height, text)
+    /// The fonts ship in the bundle. If they ever stop, every `LensArt` call
+    /// returns nil and the lens falls back to Meta's own text rather than
+    /// drawing in the wrong face — so these unwraps ARE the assertion.
+    func testTheAppsFacesAreInTheBundle() {
+        for face in [RFDesign.Face.serif, RFDesign.Face.serifBold,
+                     RFDesign.Face.sansMedium, RFDesign.Face.sansBold] {
+            XCTAssertNotNil(UIFont(name: face, size: 20), face)
         }
     }
 
-    func testAShortNumeralIsNotShrunkMoreThanItsHeightDemands() throws {
-        let face = try XCTUnwrap(UIFont(name: RFDesign.Face.serifBold, size: 100))
-        let clock = LensRenderer.fitted("1:12", in: face, color: .white).size()
-        let long = LensRenderer.fitted("1822.5 × 120", in: face, color: .white).size()
-        XCTAssertGreaterThan(clock.height, long.height, "the clock gets the room a long load cannot use")
+    func testASetIsDrawnAtLensWidthOnePixelPerPoint() throws {
+        for state in [bench(), bench(resting: .init(remaining: 72, total: 90)), bench(nextSet: 5)] {
+            let image = try XCTUnwrap(LensArt.set(state))
+            XCTAssertEqual(image.size, CGSize(width: LensArt.width, height: LensArt.setHeight))
+            XCTAssertEqual(image.scale, 1, "one pixel per point — the radio pays for every one")
+        }
+    }
+
+    /// 552 + the renderer's 24 each side is the lens's 600, and the block, its
+    /// padding, the gap and a row of buttons have to come in under 600 tall.
+    func testTheSetBlockLeavesRoomForItsButtons() {
+        XCTAssertEqual(LensArt.width + 48, 600)
+        XCTAssertLessThanOrEqual(LensArt.setHeight + 48 + 12 + 80, 600)
+    }
+
+    /// The ends of the ramp must draw: an arc from nothing to nothing, and a
+    /// full turn, are both where a path API likes to misbehave.
+    func testTheRingDrawsAtBothEndsOfARest() {
+        XCTAssertNotNil(LensArt.set(bench(resting: .init(remaining: 90, total: 90))))
+        XCTAssertNotNil(LensArt.set(bench(resting: .init(remaining: 0, total: 90))))
+    }
+
+    /// The number gets the room; what to do with it sits beneath.
+    func testTheHeroIsSplitIntoTheNumberAndWhatToDoWithIt() {
+        XCTAssertEqual(LensArt.split("185 × 8").big, "185")
+        XCTAssertEqual(LensArt.split("185 × 8").small, "× 8")
+        XCTAssertEqual(LensArt.split("182.5 × 12").big, "182.5")
+        XCTAssertEqual(LensArt.split("12 reps").big, "12")
+        XCTAssertEqual(LensArt.split("12 reps").small, "reps")
+        XCTAssertEqual(LensArt.split("1:12").big, "1:12")
+        XCTAssertNil(LensArt.split("1:12").small)
+    }
+
+    /// Asserted on what the fitting PRODUCED. The canvas is 552 wide whatever is
+    /// drawn on it, so an assertion about the canvas cannot fail.
+    func testALongNumberIsShrunkUntilItFitsInsideTheRing() throws {
+        let face = try XCTUnwrap(UIFont(name: RFDesign.Face.serifBold, size: 10))
+        let room = (LensArt.ringRadius - LensArt.ringStroke) * 2 - 36
+        for text in ["95", "185", "182.5", "1822.5", "1:12", "1:02:45"] {
+            let width = LensArt.line(text, face, from: 124, downTo: 44, within: room, .white).size().width
+            XCTAssertLessThanOrEqual(width, room, text)
+        }
+        let short = LensArt.line("95", face, from: 124, downTo: 44, within: room, .white).size().height
+        let long = LensArt.line("1822.5", face, from: 124, downTo: 44, within: room, .white).size().height
+        XCTAssertGreaterThan(short, long, "a short number keeps the size a long one cannot use")
+    }
+
+    func testARowIsDrawnWithOrWithoutItsRing() throws {
+        let lift = LensList.Row(title: "Triceps Extension", trailing: "2 of 3", done: false,
+                                action: .open(0), progress: 2.0 / 3)
+        let standIn = LensList.Row(title: "Pec Deck", trailing: "usual swap", done: false, action: .open(0))
+        for row in [lift, standIn] {
+            let image = try XCTUnwrap(LensArt.row(row))
+            XCTAssertEqual(image.size, CGSize(width: LensArt.width, height: LensArt.rowHeight))
+        }
+    }
+
+    /// A card is as tall as what it has to say, and no taller: the lens is 600
+    /// high and the buttons need their share.
+    func testACardGrowsWithItsSpecsAndStillLeavesRoomForButtons() throws {
+        let bare = LensCard(eyebrow: "PUSH · 3 OF 6", title: "Cable Fly", lines: [], actions: [.start])
+        var full = bare
+        full.specs = [.init(label: "Load", value: "35 × 12"), .init(label: "Sets", value: "3"),
+                      .init(label: "Rest", value: "1:00"), .init(label: "Pulley", value: "7"),
+                      .init(label: "Seat", value: "4")]
+        full.lines = ["Today, instead of Pec Deck"]
+        let small = try XCTUnwrap(LensArt.card(bare)).size.height
+        let large = try XCTUnwrap(LensArt.card(full)).size.height
+        XCTAssertGreaterThan(large, small)
+        XCTAssertLessThanOrEqual(large + 48 + 12 + 80, 600, "five specs and a sentence still fit above the buttons")
+    }
+
+    func testAVeryLongExerciseNameStillDraws() {
+        let name = "Single-Arm Half-Kneeling Landmine Press with Pause"
+        XCTAssertNotNil(LensArt.card(LensCard(eyebrow: "PUSH", title: name, lines: [], actions: [])))
+        XCTAssertNotNil(LensArt.row(.init(title: name, trailing: "182.5 × 12", done: false, action: .open(0), progress: 0)))
+        XCTAssertNotNil(LensArt.set(.strength(exercise: name, day: "Push", nextSet: 1, of: 3,
+                                              weight: 182.5, unit: "lb", reps: 12, resting: nil)))
     }
 
     // MARK: the switch

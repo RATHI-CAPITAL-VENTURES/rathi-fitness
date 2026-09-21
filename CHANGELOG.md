@@ -14,6 +14,26 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.14.1 — 2026-09-21
+
+### Changed
+
+- **The lens looks like this app now.** Everything above the buttons is drawn in
+  Fraunces and Inter instead of Meta's grey cards and system type.
+  - **A set is the ring.** Full and teal with the number inside it when you are
+    ready — "95" over "× 10" — and during a rest it *fills* as you recover, in
+    the cooldown's colour: ember for three quarters, then teal. It is the phone's
+    ring, where you can see it without looking.
+  - **A card is a ledger**: the name, then LOAD · SETS · REST and your machine
+    settings, each with a dotted leader to its figure.
+  - **Each row has a small ring** showing how far through its sets it is; a
+    finished one is ticked and dimmed.
+- **Buttons are still Meta's**, on purpose: which one is lit is the glasses'
+  business, and a drawn button could not show it.
+- **Settings → Glasses shows how long the last frame took.** The ring is about
+  twice the pixels of the numeral that was timed at 155 ms, and has not itself
+  been measured on the glasses. This is the measurement.
+
 ## 0.14.0 — 2026-09-21
 
 ### Added
