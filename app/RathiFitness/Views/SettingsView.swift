@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject private var snapshots: SnapshotService
     @EnvironmentObject private var music: MusicController
     @EnvironmentObject private var remote: RemoteControls
+    @EnvironmentObject private var glasses: GlassesFace
     @EnvironmentObject private var audio: AudioHub
 
     @State private var working = false
@@ -43,6 +44,7 @@ struct SettingsView: View {
                 defaultsSection
                 soundSection
                 handsFreeSection
+                glassesSection
                 musicSection
                 exportSection
                 dataSection
@@ -111,6 +113,8 @@ struct SettingsView: View {
                        value: remote.enabled
                            ? RemoteControls.Gesture.triple.action.shortLabel : "off",
                        lit: remote.enabled)
+            StatusLine(label: "Glasses", value: glassesStatusValue,
+                       lit: glasses.status.isConnected)
             StatusLine(label: "Snapshot",
                        value: snapshots.lastWritten.map(Fmt.timeOfDay) ?? "not yet",
                        lit: snapshots.lastWritten != nil,
@@ -394,6 +398,91 @@ struct SettingsView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// One word for "Right now". The section below has room for the sentence.
+    private var glassesStatusValue: String {
+        switch glasses.status {
+        case .off: return "off"
+        case .unavailable: return "unavailable"
+        case .needsRegistration: return "not connected"
+        case .registering: return "connecting…"
+        case .waitingForGlasses: return "glasses away"
+        case .connected: return glasses.isShowing ? "showing" : "connected"
+        }
+    }
+
+    /// Meta Ray-Ban Display glasses: the set screen, in the lens.
+    @ViewBuilder private var glassesSection: some View {
+        SettingsSection(
+            title: "Glasses",
+            footer: "Meta Ray-Ban Display. While a set screen is open on the phone, the lens "
+                  + "shows the same thing — what to lift, then the rest counting down — and a "
+                  + "pinch on the wristband logs the set or skips the rest. Swipe your thumb "
+                  + "to move between buttons. It mirrors the phone: choose the exercise here, "
+                  + "then put the phone away.\n\n"
+                  + "Taking the glasses off ends their connection and putting them back on "
+                  + "restores it within a few seconds; nothing is lost either way, because the "
+                  + "phone is what keeps the workout.\n\n"
+                  + "Needs Developer Mode in the Meta AI app: Settings → App Info → tap the "
+                  + "version five times, with the glasses connected. It switches itself off "
+                  + "after a glasses firmware update."
+        ) {
+            ToggleRow(label: "Show sets on my glasses", isOn: glasses.enabled,
+                      showsDivider: glasses.enabled) { glasses.enabled.toggle() }
+            if glasses.enabled {
+                switch glasses.status {
+                case .off:
+                    EmptyView()
+                case .unavailable(let why):
+                    SettingRow(label: "Not available", detail: why, showsDivider: false) { EmptyView() }
+                case .needsRegistration:
+                    ActionRow(label: "Connect in Meta AI", symbol: "eyeglasses",
+                              showsDivider: false) { Task { await glasses.register() } }
+                case .registering:
+                    SettingRow(label: "Waiting for Meta AI…",
+                               detail: "Approve Fitness there, and it will bring you back.",
+                               showsDivider: false) { EmptyView() }
+                case .waitingForGlasses:
+                    SettingRow(label: "Glasses away",
+                               detail: "Connected to Meta AI. Put them on, unfolded — this turns "
+                                     + "green by itself.") { EmptyView() }
+                    ActionRow(label: "Disconnect from Meta AI", symbol: "xmark.circle",
+                              tint: RFDesign.ember, showsDivider: false) {
+                        Task { await glasses.unregister() }
+                    }
+                case .connected(let name):
+                    SettingRow(label: name,
+                               detail: glasses.isShowing ? "Showing your set." : "Ready. Open an exercise.") {
+                        Image(systemName: "eyeglasses")
+                            .font(.system(size: 13))
+                            .foregroundStyle(RFDesign.ready)
+                    }
+                    ActionRow(label: "Disconnect from Meta AI", symbol: "xmark.circle",
+                              tint: RFDesign.ember, showsDivider: false) {
+                        Task { await glasses.unregister() }
+                    }
+                }
+                if glasses.needsGlassesAppUpdate {
+                    ActionRow(label: "Update the app on your glasses", symbol: "arrow.down.circle",
+                              tint: RFDesign.ember, showsDivider: false) {
+                        Task { await glasses.openGlassesAppUpdate() }
+                    }
+                }
+                if glasses.needsFirmwareUpdate {
+                    ActionRow(label: "Update your glasses", symbol: "arrow.down.circle",
+                              tint: RFDesign.ember, showsDivider: false) {
+                        Task { await glasses.openFirmwareUpdate() }
+                    }
+                }
+                if let error = glasses.lastError {
+                    Text(error)
+                        .font(RFDesign.ui(12.5))
+                        .foregroundStyle(RFDesign.ember)
+                        .padding(.top, 8)
                 }
             }
         }

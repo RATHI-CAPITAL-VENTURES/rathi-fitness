@@ -24,6 +24,7 @@ struct CardioSetView: View {
     @EnvironmentObject private var rest: RestTimer
     @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
+    @EnvironmentObject private var glasses: GlassesFace
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
 
@@ -107,6 +108,7 @@ struct CardioSetView: View {
         .onAppear(perform: prime)
         .onAppear(perform: armHandsFree)
         .onDisappear(perform: disarmHandsFree)
+        .onChange(of: lensState) { _, _ in glasses.refresh() }
     }
 
     private var roomHue: Double {
@@ -487,11 +489,21 @@ struct CardioSetView: View {
             isResting: { restingHere })
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
+        // See SetView: the lens is a third caller of the same actions.
+        glasses.arm(source: { lensState }, onPinch: { remote.run($0.remote) })
     }
 
     private func disarmHandsFree() {
         remote.handlers = RemoteControls.Handlers()
         remote.disarm()
+        glasses.disarm()
+    }
+
+    private var lensState: LensState {
+        .cardio(
+            exercise: exercise.name, day: item.day?.name, seconds: seconds,
+            resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil,
+            canLog: hasSomethingToLog)
     }
 
     private var announcement: String {

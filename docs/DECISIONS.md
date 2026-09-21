@@ -1865,3 +1865,123 @@ exist per workout, so a parking level noted on a day with no session lives on
 only in the export. And editing a PAST day's notes (past days are read-only by
 design — see `PastDayView`), and renaming an `other` heading in place (the
 heading is the row's key; remove and re-add).
+
+## 2026-09-21 — The glasses mirror the set screen; they do not drive it
+
+**Chosen: Meta Ray-Ban Display glasses show whichever set screen is open on the
+phone, and a pinch lands on `RemoteControls`. Rejected: Meta's Web App path,
+drawing the whole lens as one image, and letting the lens choose the exercise —
+the last one for now, not for good.**
+
+The glasses turned out to be a second pair of AirPods with a screen. The
+hands-free work had already built the seam: `RemoteControls` turns an outside
+gesture into `logSet`, `skipRest` or `extendRest`, already knows that "log"
+means "skip" mid-rest, and already works with the phone locked. A pinch on a lens
+button is `remote.run(action.remote)`. There is still one implementation of each
+action, and the lens is its third caller.
+
+What the lens *shows* comes from the same place the "where am I" sentence does.
+`SetView.announcement` answers that question for an ear; `SetView.lensState`
+answers it for an eye, from the same facts. `LensState` is a plain value — four
+lines and at most two buttons — so everything between the set screen and Meta's
+SDK is a comparison of two structs, and that is the part the tests can reach.
+
+**Why it mirrors and does not drive.** Logging a set lives in `SetView`'s
+`@State`, deliberately: a comment there explains that a squeeze on the Trends tab
+must never log a phantom set, so the handlers exist only while that screen does.
+Opening an exercise therefore means opening a *screen*, and a locked phone cannot
+do that. Choosing or swapping an exercise from the lens needs the workout loop to
+live in the model, which is a refactor of a 650-line view and its own milestone.
+The hardware is ready for it — a tall list scrolls, the first row arrives lit —
+and the plan is written down in the project's glasses artifact.
+
+**Rejected: Meta's Web App path.** It runs on the glasses with only local
+storage, and it gets real swipes, which native does not. But this app's data
+lives on the phone on purpose, so it works in a basement; a web app would need
+its own copy of the plan and a network to sync it — a second source of truth in
+the one place with no signal.
+
+**Rejected: the whole lens as one bitmap.** It would look exactly like the app.
+A button inside a picture cannot be highlighted or pinched, so everything you
+act on stays a native `Button`. The numeral alone is drawn — see below.
+
+### It was run on the hardware before any of this was written
+
+A throwaway app (`com.rathi.fitness.lensspike`, branch `chore/lens-spike`, never
+merged) asked the glasses the questions the documentation does not answer. Its
+`FINDINGS.md` is the evidence; the results that shaped this code:
+
+| Question | Answer | What it decided |
+| -------- | ------ | --------------- |
+| Does a display session start on these glasses? | Yes — ~0.7 s from connect to content | Neither Meta bug feared (#180, #292) applies |
+| Do pinches arrive? | Yes | Input works end to end |
+| What does one send cost? | 47 ms as text, 155 ms with a drawn numeral; 118 sends, 0 failed | A per-second clock is affordable either way |
+| Does silence end a session? | No — 30 s survived | A still screen needs no fast heartbeat; it gets a 20 s one to stay inside what was tested |
+| What does end a session? | Taking the glasses off | `Session ended by device` is routine, never shown as an error; reconnect on a 5 s retry |
+| Does a tall list scroll? | Yes | Phase 2's exercise list can be a plain column |
+| Which button is lit on arrival? | The first | The common action goes first: *Log set*, *Skip* |
+| What does Meta's "back" tap do? | Leaves the app; the app is not told | Any multi-screen lens UI needs its own Back button |
+| Is the `processing` background mode needed? | No | Left out — it wants BGTaskScheduler identifiers this app has no use for |
+
+**One conclusion was wrong for ten minutes and is recorded as such.** Three early
+sessions were ended by the glasses — 7.7 s after a lone send, 23.6 s into a
+silent one, 1.6 s after a pinch — and beside a two-minute run that lived at one
+send a second, that read as an idle timer. It was written down as one. A ladder
+of lengthening silences then survived every rung to 30 s. The drops were the
+wearer taking the glasses off. Three data points with no pattern in common was
+the clue; a confident sentence was written anyway.
+
+### The numeral is drawn; the price was measured first
+
+Meta's vocabulary is a flex box, three sizes of text, buttons, 116 fixed icons
+and an image. No custom fonts. But `Image` takes a `UIImage` — the documentation
+does not mention it, the compiled interface does — so the big number is drawn in
+Fraunces, in the cooldown's own colour, and sent as a 552 × 190 bitmap at one
+pixel per point. It costs about 110 ms more per tick than Meta's heading text.
+
+The colour matters more here than on the phone. `coolHue` holds ember for three
+quarters of a rest and hands over to teal at the end, so that you catch the
+change in your peripheral vision without reading the number. That was designed
+for a phone you are not looking at. A numeral floating at the edge of your sight
+is the better home for it. Progress is derived from the whole seconds left, not
+read off the clock: two states built inside the same second must compare equal,
+or the pacer sees a change on every call and the radio runs flat out.
+
+The bitmap is opaque black and sits on **no** card. Transparency is not safe to
+assume — an SDK that re-encodes to JPEG turns clear pixels white — and black
+inside Meta's grey panel is a visible hole, where black on an additive display
+is nothing. *This is the one visual choice made without seeing it; if it looks
+wrong in the lens, this paragraph is where to start.*
+
+### What Meta's material gets wrong
+
+Each of these cost real time, and none produces an error message:
+
+- **`LSApplicationQueriesSchemes: fb-viewapp` is required, and neither of Meta's
+  sample apps carries it.** Their setup guide lists it. Without it registration
+  reads `unavailable` from launch, Connect switches to Meta AI, and Meta AI shows
+  nothing at all.
+- **Developer Mode must be switched on while the glasses are connected**, because
+  that is what installs Meta's developer component on them. Until it is,
+  registration *succeeds* and every session dies in 0.2 s with `Device
+  unavailable` — indistinguishable from Meta's open bug #292.
+- **There is one Developer Mode toggle, not two** (Meta AI → Settings → App Info
+  → tap the version five times). Older guidance describes a glasses-level one
+  that no longer exists. It switches itself off after a glasses firmware update.
+- **Only one third-party app can be registered at a time** in Developer Mode;
+  registering this one unregisters the last.
+- **Registering twice is an error**, not a no-op — so Settings offers Connect
+  only while unregistered.
+
+### What this costs, said plainly
+
+A closed-source Meta binary (`MWDATCore` 28 MB, `MWDATDisplay` 1.9 MB — 30 of the
+debug build's 45 MB, measured) is
+now linked into an app that holds Health data. It is opted out of Meta's crash
+reporting (`MWDAT › CrashReporting › OptOut`), no privacy manifest was found in
+it, and while the Settings switch is off the app never calls into it at all —
+`GlassesFace` does not so much as configure the SDK. The deployment target moved
+from iOS 17.0 to 17.2 because SDK 0.9.0 requires it. The SDK is pinned to exactly
+0.9.0: three releases in three months each removed or renamed public API. And
+Meta offers no route to ship a display app to glasses that are not in Developer
+Mode, which for an app with one user is not a cost.

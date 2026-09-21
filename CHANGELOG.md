@@ -14,49 +14,61 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.12.0 — 2026-09-20
+## 0.13.0 — 2026-09-21
 
 ### Added
 
-- **Today only.** A strip under the day's header for what you need to know
-  today and not tomorrow: **Locker**, **Parking**, a **Note**, and **Other**
-  with your own heading (Towel, Guest, Key). What you have set is a filled chip
-  that reads as itself — "Locker 214" — because the point is to glance at it
-  holding a towel; what you have not is an outline to tap. A note is a line of
-  its own rather than a chip that truncates it. Tap anything to change it;
-  clearing the field, or *Remove*, takes it away. On rest days too.
-- **Tomorrow it is blank, and nothing had to run for that to be true.** Each
-  entry is a `DayNote` row that belongs to a day. The alternative — one
-  editable block that something clears at midnight — fails silently the day the
-  clearing does not run, and leaves Tuesday's locker on screen on Thursday,
-  confidently wrong. The past keeps what you wrote: swipe back to a workout and
-  it shows what you noted that day.
-- **Same as last time.** The sheet offers your last locker, parking spot, or
-  the last value under a heading you have used. Never a note — yesterday's
-  "knee is sore" offered back as today's is the app putting words in your mouth.
-- **`gym today` prints them**, on a rest day too, so RIA can answer "what's my
-  locker number". The snapshot's `day_notes` block carries `until`, the instant
-  the phone's day ends, and `gym` drops a block past it: a snapshot is only as
-  fresh as the last time the app ran, and a wrong locker is worse than none.
-  An instant, not a date — phone in Tokyo and Mac in New York agree on "the
-  21st" for thirteen hours after the locker became yesterday's. Two devices
-  writing a locker for one day show as one, latest wins.
-- **It redraws when the day changes.** Leave the app open past midnight and
-  Today — header, plan and strip — now moves to the new day on
-  `NSCalendarDayChanged`, and on becoming active on a new day. The rows never
-  needed clearing; the screen still needed telling. (All of Today had this, for
-  as long as it has read the clock in `body`.)
-- **There is no chip for the lock's combination, on purpose.** Everything here
-  reaches a file any process on the Mac can read.
-- Day notes are in the CSV export (`day-notes-….csv`).
+- **The set screen, on your glasses.** Meta Ray-Ban Display, switched on in
+  Settings → Glasses. While a set screen is open on the phone the lens shows the
+  same thing: the exercise, **185 × 8**, which set you are on, and a *Log set*
+  button. Pinch it and the lens becomes the rest clock, with *Skip* and *+30 s*.
+  The phone can be locked and in a pocket.
+- **It is a third caller, not a second copy.** A pinch lands on
+  `RemoteControls.run`, the same function an AirPods squeeze and the on-screen
+  button reach — including "mid-rest, log means skip". There is still one
+  implementation of each action.
+- **The number is in the app's own face, and the rest has the app's own
+  colour.** Meta's SDK offers three sizes of its own text and no custom fonts,
+  but its `Image` accepts a bitmap, so the numeral is drawn in Fraunces and
+  follows the cooldown ramp — ember while you recover, teal when you are ready.
+  That signal was designed to be caught without looking; the edge of your vision
+  is where it belongs. Measured first: 155 ms a frame against 47 ms for plain
+  text, both far inside a one-second tick.
+- **The button you want is the one already lit.** The glasses highlight the
+  first button when a screen appears, so *Log set* and *Skip* are a pinch and
+  nothing else.
+- **Taking your glasses off is not an error.** It ends their session — Meta
+  reports it as one — and nothing says when they go back on. The app says
+  nothing either, retries quietly every five seconds while a set screen is open,
+  and re-sends where you were. On the hardware a fresh session shows content in
+  about 0.7 s.
+- **Off means off.** Until the switch is on, the app never calls Meta's code —
+  it does not even configure the SDK. Meta's crash reporting is opted out.
 
 ### Changed
 
-- The small outlined/filled pill was written out twice, once per set screen,
-  and was about to be written a third time. One `Chip` in `Components` now.
+- **iOS 17.2 is now the floor**, up from 17.0. Meta's SDK 0.9.0 requires it.
+- The app carries Meta's `MWDATCore` and `MWDATDisplay` frameworks — 30 MB of a
+  45 MB debug build — pinned to exactly 0.9.0, because each of the last three
+  releases removed or renamed public API.
+
+### Notes
+
+- **Mirrors, does not drive.** You choose the exercise on the phone. Choosing or
+  swapping from the lens needs the workout loop to live outside `SetView`, and
+  is the next milestone; the hardware questions it depends on (a tall list
+  scrolls, the first row arrives lit) are already answered.
+- Every hardware claim above comes from a throwaway test app run on the glasses
+  before this was written — branch `chore/lens-spike`, `spike/lens/FINDINGS.md`.
+  Two things are **not** yet tested: ten minutes locked in a pocket (27 seconds
+  is the longest on record), and what a notification does mid-set.
+- Needs Developer Mode in the Meta AI app (Settings → App Info → tap the version
+  five times, glasses connected). Meta has no other way to run a display app
+  yet, and it switches itself off after a glasses firmware update.
 
 ## Earlier
 
+- [0.12](./docs/changelog/0.12.md)
 - [0.11](./docs/changelog/0.11.md)
 - [0.10](./docs/changelog/0.10.md)
 - [0.9](./docs/changelog/0.9.md)
