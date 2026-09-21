@@ -155,6 +155,8 @@ final class WorkoutDriverTests: XCTestCase {
         driver.pinched(.back, at: now)
         XCTAssertEqual(list?.rows.map(\.title), ["Cable Fly", "Bench Press", "Treadmill"])
         XCTAssertEqual(list?.rows.first?.trailing, "1 of 3")
+        XCTAssertEqual(list?.rows.first?.progress ?? 0, 1.0 / 3, accuracy: 0.001, "and its ring is a third full")
+        XCTAssertEqual(list?.rows[1].progress, 0)
     }
 
     // MARK: a card
@@ -163,7 +165,8 @@ final class WorkoutDriverTests: XCTestCase {
         driver.touch(at: now)
         open("Bench Press")
         XCTAssertEqual(card?.title, "Bench Press")
-        XCTAssertEqual(card?.lines.first, "185 × 8 · 2 sets · 1:30 rest")
+        XCTAssertEqual(card?.specs.map(\.label), ["Load", "Sets", "Rest"])
+        XCTAssertEqual(card?.specs.map(\.value), ["185 × 8", "2", "1:30"])
         XCTAssertEqual(card?.actions, [.start, .taken, .back])
     }
 

@@ -2123,3 +2123,51 @@ a second workout of the same planned day could not be logged, because progress
 was counted by calendar day where the phone counts by session; and a rest day
 with the glasses on fetched every set ever logged once a second to keep arriving
 at nothing.
+
+## 2026-09-21 — The lens is drawn, except for what you pinch
+
+**Chosen: direction B, "Ring" — everything above the buttons is one drawing in
+the app's own faces, and the rest screen is the phone's `CooldownRing`. Rejected:
+"Ledger" (type only, cheapest), "Edge" (everything hugging the bottom, the
+middle of the lens left empty), and drawing the buttons too.**
+
+Three directions were mocked at true 600 × 600 on black beside a reconstruction
+of what the lens showed (Meta's grey cards and system font, the numeral alone in
+Fraunces, three equal buttons in a row). B was picked. It is the most
+recognisable: the ring is the one shape this app owns, and on the lens it does
+what it does on the phone — full and teal when you are ready, filling in the
+cooldown's colour while you rest, ember for three quarters and teal at the end.
+
+What is drawn (`LensArt`, in `LensRenderer.swift`):
+
+- **A set**: where you are, the exercise, the ring, and inside it the number
+  with what to do with it beneath — "185" over "× 8". Split because the number is
+  the thing read from across a rack; fitted because "182.5" has to go in the
+  same ring as "95".
+- **A card**: the name in Fraunces, then a ledger — LOAD … 115 × 10 — with dotted
+  leaders, because a figure is found by its label, on the left, where the eye
+  starts. `LensCard` gained `specs` for this; the machine's settings are specs
+  too, so "Seat … 4" reads like the rest.
+- **A row**: a small ring showing how far through its sets it is, the name, the
+  figure. `LensList.Row` gained `progress`. A stand-in offered by "Taken" has no
+  progress and draws no ring.
+
+**Buttons are not drawn, and rows are drawn only inside Meta's frame.** Which
+element is lit is the glasses' business; the app is never told. A drawn button
+could not show that it was lit, so buttons stay Meta's. A row is a bitmap *inside*
+a tappable box that keeps Meta's card background, so the highlight the glasses
+draw still has something to light. If that turns out not to read on the
+hardware, the fallback is one line: the native row is still there, used whenever
+a drawing returns nil.
+
+**Looked at before it was sent.** The drawings were rendered to PNG from a
+throwaway test and viewed — ready, a long weight, early and late in a rest, done,
+a card, four kinds of row — because a drawing routine checked only by
+`XCTAssertNotNil` has been checked for existing, not for being right.
+
+**What is not known: the cost.** A 552 × 220 numeral measured 155 ms a frame
+against 47 ms for text. The set block is 552 × 420, about twice the pixels, sent
+once a second during a rest, and has not been timed. Settings → Glasses now shows
+how long the last frame took, which is the measurement. If it is near a second,
+the ring stays and the tick slows — two seconds is fine for a rest clock — before
+the drawing is given up.

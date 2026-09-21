@@ -460,7 +460,7 @@ struct SettingsView: View {
                 case .connected(let name):
                     SettingRow(label: name,
                                detail: glasses.isShowing
-                                   ? "On the lens now."
+                                   ? "On the lens now" + (glasses.lastFrameMs.map { " · last frame \($0) ms" } ?? "") + "."
                                    : (glasses.idleReason ?? "Connecting to the lens…")) {
                         Image(systemName: "eyeglasses")
                             .font(.system(size: 13))

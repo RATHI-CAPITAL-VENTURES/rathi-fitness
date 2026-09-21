@@ -226,9 +226,14 @@ final class WorkoutDriver {
         let rows = ordered.enumerated().map { index, slot -> LensList.Row in
             let exercise = Swaps.exercise(for: slot)!
             let finished = done.contains { $0 === slot }
+            let sets = max(1, Swaps.prescription(for: slot, doing: exercise).sets)
+            let worked = exercise.isCardio
+                ? Workout.performed(slot, in: board.todaysSets).count
+                : Workout.working(slot, in: board.todaysSets).count
             return LensList.Row(title: exercise.name,
                                 trailing: finished ? "done" : trailing(slot, exercise, board),
-                                done: finished, action: .open(index))
+                                done: finished, action: .open(index),
+                                progress: finished ? 1 : min(1, Double(worked) / Double(sets)))
         }
         let list = LensList(
             eyebrow: "\(board.day.name.uppercased()) · \(done.count) OF \(slots.count) DONE",
@@ -269,21 +274,23 @@ final class WorkoutDriver {
         }
         // Where the seat goes is the thing you need BEFORE you start, and the
         // reason a card exists between the list and the first set.
-        let settings = exercise.settings.map { "\($0.setting.label) \($0.value)" }
-        if !settings.isEmpty { lines.append(settings.joined(separator: " · ")) }
+        let settings = exercise.settings.map { LensCard.Spec(label: $0.setting.label, value: $0.value) }
 
         if exercise.isCardio {
-            if plan.seconds > 0 { lines.insert(Fmt.minutes(plan.seconds), at: 0) }
+            let time = plan.seconds > 0 ? [LensCard.Spec(label: "Time", value: Fmt.minutes(plan.seconds))] : []
             lines.append("Log it on your phone — its numbers come off the console.")
             return LensCard(eyebrow: eyebrow(board, position), title: exercise.name,
-                            lines: lines, actions: [.back])
+                            specs: time + settings, lines: lines, actions: [.back])
         }
         let opening = Workout.opening(for: item, doing: exercise, doneHere: doneHere(exercise, board),
                                       in: board.allSets, calendar: calendar)
         let load = opening.weight > 0 ? "\(Fmt.weight(opening.weight)) × \(opening.reps)" : "\(opening.reps) reps"
-        lines.insert("\(load) · \(plan.sets) sets · \(Fmt.clock(plan.restSeconds)) rest", at: 0)
+        let specs = [LensCard.Spec(label: "Load", value: load),
+                     LensCard.Spec(label: "Sets", value: "\(plan.sets)"),
+                     LensCard.Spec(label: "Rest", value: Fmt.clock(plan.restSeconds))]
         let finished = Workout.isDone(item, in: board.todaysSets)
-        return LensCard(eyebrow: eyebrow(board, position), title: exercise.name, lines: lines,
+        return LensCard(eyebrow: eyebrow(board, position), title: exercise.name,
+                        specs: specs + settings, lines: lines,
                         // A finished lift can still be opened — a fifth set is
                         // your call — but it is not what arrives lit.
                         actions: finished ? [.back, .start] : [.start, .taken, .back])

@@ -47,6 +47,11 @@ final class GlassesFace: ObservableObject {
     @Published private(set) var needsGlassesAppUpdate = false
     /// Why nothing is on the lens, when nothing is. Nil while something is.
     @Published private(set) var idleReason: String?
+    /// How long the glasses took to accept the last screen, in milliseconds.
+    /// On show in Settings because the drawn screens cost more than text and the
+    /// ring has never been timed: 47 ms for text and 155 ms for a 552 × 220
+    /// numeral were measured; the ring is about twice those pixels.
+    @Published private(set) var lastFrameMs: Int?
 
     @Published var enabled: Bool = UserDefaults.standard.bool(forKey: "glasses.enabled") {
         didSet {
@@ -398,8 +403,13 @@ final class GlassesFace: ObservableObject {
         }
         // Live as the send starts — see `LensGate.open`.
         gate.open(ticket)
+        let began = ContinuousClock.now
         do {
             try await display.send(view)
+            let took = began.duration(to: .now).components
+            let ms = Int(took.seconds) * 1000 + Int(took.attoseconds / 1_000_000_000_000_000)
+            // Once a second would redraw Settings once a second for nothing.
+            if lastFrameMs.map({ abs($0 - ms) > 25 }) ?? true { lastFrameMs = ms }
             // The glasses may have come off, or a set screen opened or closed,
             // while that was in the air. Either way `gate.close()` has already
             // run; what must not happen is this marking the screen as showing.
