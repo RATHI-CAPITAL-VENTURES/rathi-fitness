@@ -8,12 +8,13 @@ import UIKit
 
 /// The fourth face: Meta Ray-Ban Display glasses, showing the set screen.
 ///
-/// It mirrors; it does not drive. Whichever set screen is open on the phone
-/// describes itself as a `LensState`, this sends it, and a pinch on the lens
-/// comes back as a `LensAction` that lands on `RemoteControls` — the same place
-/// an AirPods squeeze does. So the glasses are, to the rest of the app, a
-/// second pair of AirPods with a screen. Choosing an exercise from the lens
-/// needs the workout loop to live outside a view, and is a later piece of work.
+/// Two layers. While a set screen is open on the phone the lens MIRRORS it: the
+/// screen describes itself as a `LensState`, this sends it, and a pinch comes
+/// back as a `LensAction` that lands on `RemoteControls` — the same place an
+/// AirPods squeeze does. With no set screen open, the layer underneath shows:
+/// `WorkoutDriver`, which runs the workout from the lens with the phone locked.
+/// The phone wins whenever it is in use, because two things deciding which set
+/// you are on is one too many.
 ///
 /// Everything below that touches Meta's SDK was first written as a throwaway
 /// app and run on the hardware (branch `chore/lens-spike`, `FINDINGS.md`).
@@ -44,6 +45,8 @@ final class GlassesFace: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var needsFirmwareUpdate = false
     @Published private(set) var needsGlassesAppUpdate = false
+    /// Why nothing is on the lens, when nothing is. Nil while something is.
+    @Published private(set) var idleReason: String?
 
     @Published var enabled: Bool = UserDefaults.standard.bool(forKey: "glasses.enabled") {
         didSet {
@@ -75,11 +78,26 @@ final class GlassesFace: ObservableObject {
     /// Bumped whenever a session ends. A send that was in flight when the
     /// glasses came off must not mark its screen as showing.
     private var sessionEpoch = 0
+    /// Bumped whenever a set screen arms or disarms — whenever WHO is speaking
+    /// through the lens changes. `display.send` is an `await`, and SwiftUI can
+    /// open or close a set screen in the middle of it; a screen drawn for one
+    /// layer must never have its ticket opened for the other.
+    private var layerEpoch = 0
 
-    // What to show, and what a pinch does. Set by the screen that is open.
+    // What to show, and what a pinch does.
+    typealias Source = @MainActor () -> LensScreen?
+    typealias Handler = @MainActor (LensAction) -> Void
+
+    /// The open set screen, if there is one. It is on top.
     private var owner: UUID?
-    private var source: (@MainActor () -> LensState?)?
-    private var onPinch: (@MainActor (LensAction) -> Void)?
+    private var screenSource: Source?
+    private var screenPinch: Handler?
+    /// The driver, underneath, for when no set screen is open.
+    private var hostSource: Source?
+    private var hostPinch: Handler?
+
+    private var source: Source? { screenSource ?? hostSource }
+    private var onPinch: Handler? { screenSource != nil ? screenPinch : hostPinch }
     private var pump: Task<Void, Never>?
     private var pacer = LensPacer()
     private var gate = LensGate()
@@ -255,12 +273,11 @@ final class GlassesFace: ObservableObject {
     /// `onDisappear`; nothing in the app goes set screen to set screen today,
     /// but the day something does, the old screen's goodbye would otherwise
     /// switch off the lens the new screen had just switched on.
-    func arm(owner: UUID,
-             source: @escaping @MainActor () -> LensState?,
-             onPinch: @escaping @MainActor (LensAction) -> Void) {
+    func arm(owner: UUID, source: @escaping Source, onPinch: @escaping Handler) {
         self.owner = owner
-        self.source = source
-        self.onPinch = onPinch
+        screenSource = source
+        screenPinch = onPinch
+        layerEpoch += 1
         // Whatever is on the lens was drawn for some other screen.
         gate.close()
         pacer.forget()
@@ -276,12 +293,46 @@ final class GlassesFace: ObservableObject {
     func disarm(owner: UUID) {
         guard owner == self.owner else { return }
         self.owner = nil
-        source = nil
-        onPinch = nil
-        pump?.cancel()
-        pump = nil
-        endSession(clearingLens: true)
+        screenSource = nil
+        screenPinch = nil
+        layerEpoch += 1
+        // Whatever is on the lens was the set screen's.
+        gate.close()
+        pacer.forget()
+        guard hostSource != nil else {
+            pump?.cancel()
+            pump = nil
+            endSession(clearingLens: true)
+            return
+        }
+        // The driver is underneath. It takes over on the session that is
+        // already up, rather than dropping the lens and raising it again.
+        onScreenClosed?()
+        refresh()
     }
+
+    // With a host installed the pump never stops of its own accord: one task
+    // waking once a second for the life of the process. That is cheap only
+    // because `beatOnce` returns on its FIRST line when the glasses are not
+    // connected, before asking anyone for a screen. Keep that guard first.
+
+    /// The layer underneath every set screen: `WorkoutDriver`. Set once, at
+    /// launch. It may return nil — a rest day, no workout anywhere near — and
+    /// then nothing of ours is on the lens and the session is given back.
+    func host(source: @escaping Source, onPinch: @escaping Handler,
+              idle: @escaping @MainActor () -> String,
+              onScreenClosed: @escaping @MainActor () -> Void) {
+        hostSource = source
+        hostPinch = onPinch
+        hostIdle = idle
+        self.onScreenClosed = onScreenClosed
+        startPumpIfNeeded()
+    }
+
+    /// Tells the driver a set screen just closed, so it re-reads the store —
+    /// the sets logged on the phone happened without it.
+    private var onScreenClosed: (@MainActor () -> Void)?
+    private var hostIdle: (@MainActor () -> String)?
 
     private func startPumpIfNeeded() {
         guard enabled, source != nil, pump == nil else { return }
@@ -320,23 +371,40 @@ final class GlassesFace: ObservableObject {
     }
 
     private func beatOnce() async {
-        guard enabled, status.isConnected, let state = source?() else { return }
+        guard enabled, status.isConnected else { return }
+        guard let state = source?() else {
+            // Nothing of ours belongs on the lens. A display session is the
+            // WHOLE lens for as long as it lasts, so it is given back rather
+            // than held dark.
+            if session != nil { endSession(clearingLens: true) }
+            let why = hostIdle?()
+            if idleReason != why { idleReason = why }
+            return
+        }
+        if idleReason != nil { idleReason = nil }
         guard await ensureLens() else { return }
         guard pacer.shouldSend(state), let display else { return }
 
         let epoch = sessionEpoch
+        let layer = layerEpoch
         let ticket = gate.reserve()
+        // Bound NOW, to the layer this screen was drawn for — not looked up when
+        // the pinch arrives. Found in review: open an exercise on the phone
+        // while a repaint was in the air and, for about a second, the bench's
+        // "Log set" on the lens would have logged a cable fly.
+        let handler = onPinch
         let view = LensRenderer.view(for: state) { [weak self] action in
-            Task { @MainActor in self?.pinched(action, ticket: ticket) }
+            Task { @MainActor in self?.pinched(action, ticket: ticket, handler: handler) }
         }
+        // Live as the send starts — see `LensGate.open`.
+        gate.open(ticket)
         do {
             try await display.send(view)
-            // The glasses may have come off while that was in the air. If so
-            // the lens is blank whatever the send reported, and saying
-            // otherwise would hold the next screen back for a whole heartbeat.
-            guard epoch == sessionEpoch else { return }
+            // The glasses may have come off, or a set screen opened or closed,
+            // while that was in the air. Either way `gate.close()` has already
+            // run; what must not happen is this marking the screen as showing.
+            guard epoch == sessionEpoch, layer == layerEpoch else { return }
             pacer.sent(state)
-            gate.open(ticket)
             isShowing = true
         } catch {
             // Most often the glasses came off mid-send. The session-error
@@ -348,9 +416,9 @@ final class GlassesFace: ObservableObject {
     }
 
     /// A button on the lens. See `LensGate` for why most of these are refused.
-    private func pinched(_ action: LensAction, ticket: Int) {
-        guard gate.accept(ticket) else { return }
-        onPinch?(action)
+    private func pinched(_ action: LensAction, ticket: Int, handler: Handler?) {
+        guard gate.accept(ticket, writes: action.writes) else { return }
+        handler?(action)
         // Repaint even if nothing visible changed. The ticket is spent, so
         // until a new screen goes out the lens shows a button that does
         // nothing — and the new screen is also how the wearer learns the pinch

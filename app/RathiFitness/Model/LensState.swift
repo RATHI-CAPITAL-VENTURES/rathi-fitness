@@ -41,30 +41,91 @@ struct LensState: Equatable {
     var actions: [LensAction]
 }
 
-/// What a pinch can mean. A registry, so the label the lens shows, the thing
-/// the app does and the list Settings could one day offer are one table.
+/// What a pinch can mean.
 ///
-/// Every case lands on `RemoteControls`, the same place an AirPods squeeze
-/// does. There is one implementation of "log the set" in this app and the lens
-/// is its third caller, not a second copy.
-enum LensAction: String, CaseIterable, Equatable {
+/// The first three land on `RemoteControls`, the same place an AirPods squeeze
+/// does: there is one implementation of "log the set" in this app and the lens
+/// is its third caller, not a second copy. The rest are the lens finding its
+/// way around — they have no meaning to the AirPods, which have no screen to
+/// find their way around.
+enum LensAction: Hashable {
     case logSet, skipRest, extendRest
+    /// One rep fewer than the screen says, before you log it. The lens cannot
+    /// type, but "I got 7, not 8" is the one correction a set needs most.
+    case fewerReps
+    /// Row `n` of whatever list is showing.
+    case open(Int)
+    case start, taken, back, list
+    /// Hand the lens back. The app cannot be quit from the glasses any other
+    /// way: Meta's own "back" gesture leaves it, and the next repaint a second
+    /// later takes the lens again.
+    case close
 
     var label: String {
         switch self {
         case .logSet: return "Log set"
         case .skipRest: return "Skip"
         case .extendRest: return "+30 s"
+        case .fewerReps: return "−1 rep"
+        case .open: return "Open"
+        case .start: return "Start"
+        case .taken: return "Taken"
+        case .back: return "Back"
+        case .list: return "Today"
+        case .close: return "Close"
         }
     }
 
-    var remote: RemoteControls.Action {
+    /// True for a pinch that writes to the training log. These get the gate's
+    /// extra guard; finding your way around, or skipping a rest, does not.
+    var writes: Bool { self == .logSet }
+
+    /// The `RemoteControls` action this is, if it is one.
+    var remote: RemoteControls.Action? {
         switch self {
         case .logSet: return .logSet
         case .skipRest: return .skipRest
         case .extendRest: return .extendRest
+        case .fewerReps, .open, .start, .taken, .back, .list, .close: return nil
         }
     }
+}
+
+// MARK: - The three kinds of screen
+
+/// Everything the lens can be showing. One value, so "did it change" and "which
+/// pinch belongs to it" are asked of the whole screen whatever kind it is.
+enum LensScreen: Equatable {
+    /// One exercise, mid-set or resting. The only kind the phone can mirror.
+    case set(LensState)
+    /// Rows to choose from: today's plan, or what could stand in for a machine.
+    case list(LensList)
+    /// One thing, with what you can do about it.
+    case card(LensCard)
+}
+
+/// A column of rows. Measured on the hardware: a list taller than the lens
+/// scrolls under a thumb swipe, and the FIRST row is lit when it appears — so
+/// what goes first is a decision, not a sort order.
+struct LensList: Equatable {
+    struct Row: Equatable {
+        var title: String
+        var trailing: String
+        var done: Bool
+        var action: LensAction
+    }
+    var eyebrow: String
+    var rows: [Row]
+    /// Beneath the rows. Meta's "back" gesture leaves the app altogether and
+    /// the app is not told, so any list you can get into needs its own way out.
+    var footer: [LensAction] = []
+}
+
+struct LensCard: Equatable {
+    var eyebrow: String
+    var title: String
+    var lines: [String]
+    var actions: [LensAction]
 }
 
 // MARK: - From a set screen
@@ -188,16 +249,16 @@ extension LensState {
 struct LensPacer {
     static let heartbeat: TimeInterval = 20
 
-    private(set) var lastSent: LensState?
+    private(set) var lastSent: LensScreen?
     private(set) var lastSentAt: Date?
 
-    func shouldSend(_ state: LensState, at now: Date = .now) -> Bool {
+    func shouldSend(_ state: LensScreen, at now: Date = .now) -> Bool {
         guard let lastSent, let lastSentAt else { return true }
         if state != lastSent { return true }
         return now.timeIntervalSince(lastSentAt) >= Self.heartbeat
     }
 
-    mutating func sent(_ state: LensState, at now: Date = .now) {
+    mutating func sent(_ state: LensScreen, at now: Date = .now) {
         lastSent = state
         lastSentAt = now
     }
@@ -233,31 +294,41 @@ struct LensPacer {
 /// the last pinch did. Leaving a screen, or losing the glasses, voids whatever
 /// ticket was live.
 struct LensGate {
-    /// A pinch sooner than this after the last accepted one cannot be a
-    /// reaction to the new screen — a repaint takes ~0.2 s and a person at
-    /// least as long again to see it. It is the tail of the previous pinch.
-    static let minimumGap: TimeInterval = 0.5
+    /// A pinch that WRITES a set sooner than this after the last accepted pinch
+    /// is refused: it cannot be a considered reaction to the new screen, it is
+    /// the tail of a flurry. Log → Skip → Log in six tenths of a second is how a
+    /// set nobody lifted gets written.
+    ///
+    /// Only writes. The first version applied this to every pinch, and on its
+    /// first day in a gym it refused a deliberate Skip straight after a Log —
+    /// which is harmless, and exactly what you do when you did not need the rest.
+    static let writeGap: TimeInterval = 1.0
 
     private var next = 0
     private(set) var live: Int?
     private var lastAccepted: Date?
 
-    /// A ticket for a screen that is about to be sent. Not live yet: a pinch
-    /// cannot arrive for a screen the glasses have not got.
+    /// A ticket for a screen that is about to be sent.
     mutating func reserve() -> Int {
         next += 1
         return next
     }
 
-    /// The send landed; that screen is what the wearer is looking at.
+    /// That screen is what the wearer is, or is about to be, looking at.
+    ///
+    /// Called as the send STARTS, not when it lands. Waiting for it to land left
+    /// the new screen's buttons dead for the ~150 ms the send takes — every
+    /// second, during a rest — and nothing is risked by not waiting: nobody can
+    /// pinch a button the glasses have not drawn, and a late pinch from the
+    /// screen being replaced carries the old ticket and is refused.
     mutating func open(_ ticket: Int) {
         live = ticket
     }
 
     /// True once per screen, and only for the screen on the lens.
-    mutating func accept(_ ticket: Int, at now: Date = .now) -> Bool {
+    mutating func accept(_ ticket: Int, writes: Bool = true, at now: Date = .now) -> Bool {
         guard ticket == live else { return false }
-        if let lastAccepted, now.timeIntervalSince(lastAccepted) < Self.minimumGap { return false }
+        if writes, let lastAccepted, now.timeIntervalSince(lastAccepted) < Self.writeGap { return false }
         live = nil
         lastAccepted = now
         return true

@@ -17,6 +17,9 @@ struct RathiFitnessApp: App {
     /// The glasses. Off unless switched on in Settings, and while it is off it
     /// never touches Meta's SDK — see `GlassesFace`.
     @StateObject private var glasses = GlassesFace()
+    /// Runs the workout from the lens when no set screen is open. Made in
+    /// `.task`, once the store is ready.
+    @State private var driver: WorkoutDriver?
     /// The one that speaks up when a write does not land. `Saves.shared` rather
     /// than a fresh instance, because the reporter a `Binding` setter reaches
     /// for by default has to be the same one this view is observing.
@@ -51,6 +54,10 @@ struct RathiFitnessApp: App {
                     // which on a phone can be weeks apart — this app had two
                     // weigh-ins on record and a scale that writes daily.
                     guard phase == .active else { return }
+                    // Opening the app is how you say "I am at the gym": the
+                    // lens shows the workout for a while after, and not before.
+                    driver?.touch()
+                    glasses.refresh()
                     Task { await health.syncNow(container.mainContext) }
                 }
                 .task {
@@ -115,6 +122,21 @@ struct RathiFitnessApp: App {
                         context.saveOrReport("recording your schedule")
                     }
                     context.saveOrReport("grouping your history into workouts")
+                    // The layer under every set screen: with none open, the
+                    // lens shows today's list and runs the workout itself.
+                    // Here rather than in `init` because it needs the store,
+                    // and after the backfill because it counts sessions.
+                    //
+                    // BEFORE the awaits below, not after. It sat at the end of
+                    // this task at first, behind Health and Music, and the first
+                    // time it was tried on the glasses nothing appeared: those
+                    // awaits can take as long as they like, and the snapshot
+                    // that is written last had not been written for six hours.
+                    let lens = WorkoutDriver(context: context, rest: rest, snapshots: snapshots)
+                    driver = lens
+                    glasses.host(source: { lens.screen() }, onPinch: { lens.pinched($0) },
+                                 idle: { lens.idleReason }, onScreenClosed: { lens.screenClosed() })
+                    lens.touch()
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and
                     // this sync never runs — the permission is fine, nobody

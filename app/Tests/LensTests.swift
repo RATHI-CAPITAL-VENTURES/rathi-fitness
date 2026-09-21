@@ -140,22 +140,22 @@ final class LensTests: XCTestCase {
     // MARK: when to send
 
     func testTheFirstScreenAlwaysGoesOut() {
-        XCTAssertTrue(LensPacer().shouldSend(bench()))
+        XCTAssertTrue(LensPacer().shouldSend(.set(bench())))
     }
 
     func testAnUnchangedScreenIsNotSentAgain() {
         var pacer = LensPacer()
         let now = Date()
-        pacer.sent(bench(), at: now)
-        XCTAssertFalse(pacer.shouldSend(bench(), at: now.addingTimeInterval(1)))
-        XCTAssertFalse(pacer.shouldSend(bench(), at: now.addingTimeInterval(19)))
+        pacer.sent(.set(bench()), at: now)
+        XCTAssertFalse(pacer.shouldSend(.set(bench()), at: now.addingTimeInterval(1)))
+        XCTAssertFalse(pacer.shouldSend(.set(bench()), at: now.addingTimeInterval(19)))
     }
 
     func testAChangeGoesOutAtOnce() {
         var pacer = LensPacer()
         let now = Date()
-        pacer.sent(bench(), at: now)
-        XCTAssertTrue(pacer.shouldSend(bench(weight: 190), at: now.addingTimeInterval(0.1)))
+        pacer.sent(.set(bench()), at: now)
+        XCTAssertTrue(pacer.shouldSend(.set(bench(weight: 190)), at: now.addingTimeInterval(0.1)))
     }
 
     /// A session survived thirty seconds of silence on the hardware, and thirty
@@ -165,17 +165,17 @@ final class LensTests: XCTestCase {
         XCTAssertLessThan(LensPacer.heartbeat, 30)
         var pacer = LensPacer()
         let now = Date()
-        pacer.sent(bench(), at: now)
-        XCTAssertTrue(pacer.shouldSend(bench(), at: now.addingTimeInterval(LensPacer.heartbeat)))
+        pacer.sent(.set(bench()), at: now)
+        XCTAssertTrue(pacer.shouldSend(.set(bench()), at: now.addingTimeInterval(LensPacer.heartbeat)))
     }
 
     /// After the glasses come off and go back on the lens is blank, whatever we
     /// last sent — so the same screen has to go out again.
     func testAfterADropTheSameScreenGoesOutAgain() {
         var pacer = LensPacer()
-        pacer.sent(bench())
+        pacer.sent(.set(bench()))
         pacer.forget()
-        XCTAssertTrue(pacer.shouldSend(bench()))
+        XCTAssertTrue(pacer.shouldSend(.set(bench())))
     }
 
     // MARK: the actions
@@ -186,9 +186,32 @@ final class LensTests: XCTestCase {
         XCTAssertEqual(LensAction.logSet.remote, .logSet)
         XCTAssertEqual(LensAction.skipRest.remote, .skipRest)
         XCTAssertEqual(LensAction.extendRest.remote, .extendRest)
-        for action in LensAction.allCases {
+    }
+
+    /// Finding your way around the lens means nothing to the AirPods. If one of
+    /// these ever mapped to a `RemoteControls` action, a mirrored set screen —
+    /// which forwards whatever has one — would act on a button it never drew.
+    func testNavigationIsNotARemoteAction() {
+        for action in everyAction() {
             XCTAssertFalse(action.label.isEmpty)
+            let isRemote = [LensAction.logSet, .skipRest, .extendRest].contains(action)
+            XCTAssertEqual(action.remote != nil, isRemote, action.label)
         }
+    }
+
+    /// `LensAction` lost `CaseIterable` when `.open` gained a row number. The
+    /// switch below is what keeps this list honest: add a case and this file
+    /// stops compiling until it is listed here — and so covered above.
+    private func everyAction() -> [LensAction] {
+        let all: [LensAction] = [.logSet, .skipRest, .extendRest, .fewerReps, .open(0),
+                                 .start, .taken, .back, .list, .close]
+        for action in all {
+            switch action {
+            case .logSet, .skipRest, .extendRest, .fewerReps, .open,
+                 .start, .taken, .back, .list, .close: break
+            }
+        }
+        return all
     }
 
     /// Through the real `RemoteControls`, because that is the path a pinch
@@ -198,7 +221,7 @@ final class LensTests: XCTestCase {
         var logged = 0, skipped = 0
         controls.handlers = RemoteControls.Handlers(
             logSet: { logged += 1 }, skipRest: { skipped += 1 }, isResting: { false })
-        controls.run(LensAction.logSet.remote)
+        controls.run(LensAction.logSet.remote!)
         XCTAssertEqual(logged, 1)
         XCTAssertEqual(skipped, 0)
     }
@@ -212,7 +235,7 @@ final class LensTests: XCTestCase {
         var logged = 0, skipped = 0
         controls.handlers = RemoteControls.Handlers(
             logSet: { logged += 1 }, skipRest: { skipped += 1 }, isResting: { true })
-        controls.run(LensAction.logSet.remote)
+        controls.run(LensAction.logSet.remote!)
         XCTAssertEqual(logged, 0)
         XCTAssertEqual(skipped, 1)
     }
@@ -242,6 +265,61 @@ final class LensTests: XCTestCase {
         }
         (view.children.last as? ButtonGroup)?.buttons.first?.onClick?()
         wait(for: [pinched], timeout: 1)
+    }
+
+    // MARK: a list and a card, in Meta's vocabulary
+
+    private var plan: LensList {
+        LensList(eyebrow: "PUSH · 1 OF 3 DONE", rows: [
+            .init(title: "Bench Press", trailing: "2 of 4", done: false, action: .open(0)),
+            .init(title: "Cable Fly", trailing: "35 × 12", done: false, action: .open(1)),
+            .init(title: "Treadmill", trailing: "done", done: true, action: .open(2)),
+        ])
+    }
+
+    /// Built the way Meta's own sample builds its menu — a column of tappable
+    /// cards — because that is the shape that was seen to scroll on the glasses.
+    func testAListIsItsEyebrowThenOneTappableCardPerRow() {
+        let view = LensRenderer.view(for: .list(plan)) { _ in }
+        XCTAssertEqual(view.children.count, 4)
+        let rows = view.children.dropFirst().compactMap { $0 as? FlexBox }
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertTrue(rows.allSatisfy { $0.onClick != nil }, "a row that cannot be pinched is a label")
+    }
+
+    func testEachRowReportsItsOwnPlaceInTheList() {
+        var pinched: [LensAction] = []
+        let view = LensRenderer.view(for: .list(plan)) { pinched.append($0) }
+        for row in view.children.compactMap({ $0 as? FlexBox }) { row.onClick?() }
+        XCTAssertEqual(pinched, [.open(0), .open(1), .open(2)])
+    }
+
+    /// Meta's back gesture leaves the app and the app is not told, so a list
+    /// you can get into carries its own way out.
+    func testAListsFooterIsAButtonGroupAfterTheRows() {
+        var list = plan
+        list.footer = [.back]
+        let view = LensRenderer.view(for: .list(list)) { _ in }
+        XCTAssertEqual((view.children.last as? ButtonGroup)?.buttons.map(\.label), ["Back"])
+    }
+
+    func testACardLightsItsFirstAction() {
+        let card = LensCard(eyebrow: "PUSH · 3 OF 6", title: "Cable Fly",
+                            lines: ["35 × 12 · 3 sets · 1:00 rest", "Pulley 7"],
+                            actions: [.start, .taken, .back])
+        let view = LensRenderer.view(for: .card(card)) { _ in }
+        let group = view.children.last as? ButtonGroup
+        XCTAssertEqual(group?.buttons.map(\.label), ["Start", "Taken", "Back"])
+        XCTAssertEqual(group?.buttons.first?.style, .primary)
+    }
+
+    /// The pacer and the gate ask "did the screen change" of the whole screen,
+    /// whatever kind it is — a list and a card with the same words are not the
+    /// same screen, and a set that logged is not the list it came from.
+    func testAChangedRowIsAChangedScreen() {
+        var moved = plan
+        moved.rows[0].trailing = "3 of 4"
+        XCTAssertNotEqual(LensScreen.list(plan), .list(moved), "a set logged on the phone repaints the list")
     }
 
     // MARK: the numeral
@@ -320,8 +398,8 @@ final class LensTests: XCTestCase {
         let screen = gate.reserve()
         gate.open(screen)
         let start = Date()
-        for beat in 0..<3 where gate.accept(screen, at: start.addingTimeInterval(Double(beat) * 0.3)) {
-            controls.run(LensAction.logSet.remote)
+        for beat in 0..<3 where gate.accept(screen, writes: true, at: start.addingTimeInterval(Double(beat) * 0.3)) {
+            controls.run(LensAction.logSet.remote!)
         }
         XCTAssertEqual(logged, 1)
         XCTAssertTrue(resting, "and the rest it started is still running")
@@ -348,14 +426,48 @@ final class LensTests: XCTestCase {
     }
 
     /// A refused pinch does not spend the new screen's ticket — otherwise the
-    /// tail of a double-pinch would kill the button that replaced it.
-    func testTheTailOfTheLastPinchDoesNotSpendTheNewScreen() {
+    /// tail of a flurry would kill the button that replaced it.
+    func testARefusedWriteDoesNotSpendTheNewScreen() {
         var gate = LensGate()
         let now = Date()
         let first = gate.reserve(); gate.open(first)
-        XCTAssertTrue(gate.accept(first, at: now))
+        XCTAssertTrue(gate.accept(first, writes: true, at: now))
         let second = gate.reserve(); gate.open(second)
-        XCTAssertFalse(gate.accept(second, at: now.addingTimeInterval(0.2)), "too soon to be a reaction to it")
-        XCTAssertTrue(gate.accept(second, at: now.addingTimeInterval(1)), "and still there when it is")
+        XCTAssertFalse(gate.accept(second, writes: true, at: now.addingTimeInterval(0.4)), "too soon to be considered")
+        XCTAssertTrue(gate.accept(second, writes: true, at: now.addingTimeInterval(1.5)), "and still there when it is")
+    }
+
+    /// Found on the first day in a gym: Log, then straight away Skip, and the
+    /// Skip was refused. The guard against flurries was on every pinch; it
+    /// belongs only on the ones that write. Skipping a rest you did not need is
+    /// harmless however fast you do it.
+    func testSkipStraightAfterLogIsAllowed() {
+        var gate = LensGate()
+        let now = Date()
+        let ready = gate.reserve(); gate.open(ready)
+        XCTAssertTrue(gate.accept(ready, writes: LensAction.logSet.writes, at: now))
+        let resting = gate.reserve(); gate.open(resting)
+        XCTAssertTrue(gate.accept(resting, writes: LensAction.skipRest.writes, at: now.addingTimeInterval(0.2)))
+    }
+
+    /// ...and the flurry it exists for is still stopped. Log → Skip → Log inside
+    /// a second: the third pinch is the phantom set, and it is the one refused.
+    func testLogSkipLogInsideASecondWritesOneSet() {
+        var gate = LensGate()
+        let now = Date()
+        var written = 0
+        for (offset, action) in [(0.0, LensAction.logSet), (0.3, .skipRest), (0.6, .logSet)] {
+            let screen = gate.reserve(); gate.open(screen)
+            if gate.accept(screen, writes: action.writes, at: now.addingTimeInterval(offset)), action.writes {
+                written += 1
+            }
+        }
+        XCTAssertEqual(written, 1)
+    }
+
+    func testOnlyLoggingASetCountsAsAWrite() {
+        for action in everyAction() {
+            XCTAssertEqual(action.writes, action == .logSet, action.label)
+        }
     }
 }

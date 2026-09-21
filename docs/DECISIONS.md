@@ -1985,3 +1985,141 @@ from iOS 17.0 to 17.2 because SDK 0.9.0 requires it. The SDK is pinned to exactl
 0.9.0: three releases in three months each removed or renamed public API. And
 Meta offers no route to ship a display app to glasses that are not in Developer
 Mode, which for an app with one user is not a cost.
+
+## 2026-09-21 — The lens drives, and the workout moved out of the views to let it
+
+**Chosen: a headless `WorkoutDriver` under the set-screen mirror, with the
+workout's logic extracted to `Workout` and the views calling it. Rejected: a
+second copy of that logic for the lens, pushing a `SetView` programmatically, a
+Meta Web App, and logging cardio from the lens.**
+
+v0.13.0 mirrored whichever set screen was open, which meant the phone came out
+of the pocket once per exercise. This removes that: with no set screen open the
+lens shows today's exercises as a list, one of them as a card (what to lift, and
+where the seat goes — the thing you need *before* you start), then the same
+set-and-rest loop, and after the last set what is next, already lit. "Taken"
+offers what could stand in. A whole session with the phone locked.
+
+**The logic moved; it was not copied.** Which day it is lived in `TodayView`.
+What weight to open on and how a set is written lived in `SetView`. Each was a
+private function over that view's `@Query` results, which was fine while a view
+was the only thing that could ask — and a locked phone has no views. They are
+now `Workout.today`, `.isDone`, `.opening`, `.rest(after:)` and `.logStrength`,
+taking the rows they reason over as arguments: the views pass their `@Query`
+arrays, the driver passes a fetch. `SetView` and `TodayView` lost ~70 lines and
+call the same functions. A second implementation of "how a set is written" is
+the bug this feature is most afraid of; making it structurally impossible was
+worth touching two screens that were working.
+
+**Rejected: opening `SetView` from the lens.** Tempting, because then nothing
+moves. But SwiftUI does not run a pushed view's `onAppear` while the app is
+backgrounded, so its handlers would never arm; the AirPods path works locked
+only because the screen was opened *before* the phone was.
+
+**Two layers, and the phone wins.** `GlassesFace` holds a set screen's source on
+top and the driver's underneath. Open an exercise on the phone and the lens
+mirrors it; close it and the driver resumes on the session that is already up,
+re-reading the store, since the phone's sets happened without it. Two things
+deciding which set you are on is one too many, and the one in your hand is right.
+
+**It does not take the lens unless you are training.** A display session is the
+*whole* lens for as long as it lasts. Glasses that showed your workout on the
+walk to work would be glasses you stop wearing. So the driver returns nothing —
+and `GlassesFace` hands the session back rather than hold it dark — except for
+fifteen minutes after you touch the app, or while a workout is open and its last
+set is under thirty minutes old. Opening the app at the gym is how you say "I am
+here"; you were already doing that to check in.
+
+**What "open it from the glasses" would take, and why not now.** Asked directly.
+A native app cannot have an icon on the glasses: the phone drives the lens. The
+route to an icon is Meta's *Web Apps* — a page added under Meta AI → App
+Connections → Web Apps, which then sits in the glasses' app grid. But Meta lists
+offline support as unsupported, storage is 5 MB of `localStorage`, and nothing
+documented lets a web app talk to the iPhone app. It would need a server holding
+the plan and a write path into the phone's store — the snapshot is half of that,
+and the `inbox/` the README describes ("not built yet") is the other half. A
+real project, not a toggle, and it would not work in a basement.
+
+**Lifts only, and the code says so.** A bout's numbers — distance, speed,
+incline, heart rate — come off the machine's console afterwards, and the lens
+cannot type. "Log as planned" would write a run you may not have run. A
+machine's card shows the plan and sends you to the phone, where, mirrored, it is
+still on the lens. `nextUp` skips machines for the same reason.
+
+**"−1 rep" is the one correction.** The lens cannot type a weight. But "I got
+seven, not eight" is the correction a set most often needs, it is one button, and
+it is about the set in hand: the next set opens on the plan's reps again, as the
+phone's does.
+
+**The order of a list is a decision, because the first row arrives lit**
+(measured): what you are part-way through, then what is left in the plan's
+order, then what is done. The usual case is a pinch and no swipe.
+
+### Found by review, before it reached a gym
+
+The first build of v0.13.0 treated a pinch as "do the action" rather than "the
+button on *that* screen was pressed", and could write a set nobody lifted three
+ways — a cardio log changed nothing the lens showed, so it never repainted and
+the same live button took pinch after pinch; three fast pinches went log → skip
+the rest → log; a button drawn for the bench could fire after the squat was
+opened. `LensGate` gives every sent screen a ticket, honours a pinch only for
+the screen on the lens, and spends it — nothing more is accepted until a *new*
+screen has gone out, which by construction shows what the last pinch did. The
+driver adds the belt: it will not log mid-rest or past the last set, whoever
+asks. Both are tested without glasses.
+
+### Found by the second review, and by an afternoon of wearing it
+
+A second independent review compared the refactor line by line and found **no
+behaviour change** — the move was a move. It did find two ways the driver could
+still write wrong data, and the first afternoon of real use found three things
+no review could:
+
+- **A pinch could cross layers.** `display.send` is an `await`, and SwiftUI can
+  open or close a set screen in the middle of it. The send resumed, checked only
+  that the *session* was the same, and re-opened the gate for a screen drawn for
+  the layer that had just gone — while the handler was looked up late, so it
+  landed on the other one. Pick up the phone, open the cable fly, and for about
+  a second the bench's *Log set* on the lens logged a cable fly. Now a
+  `layerEpoch` is bumped on every arm and disarm, and the handler is **bound when
+  the screen is drawn**, not resolved when the pinch arrives: a ticket can only
+  ever reach the layer it was drawn for.
+- **Numbers in hand went stale.** Start the bench on the lens at 185, open it on
+  the phone, move to 205, log, close — and the lens, which set `weight` exactly
+  once, in `begin`, wrote the next set at 185 and fed 185 to the plan. When a set
+  screen closes the driver now works the opening out again from the store.
+- **Skip was refused straight after Log** (found wearing it). Two causes, both in
+  `LensGate`. A ticket went live only when the send had *landed*, which left each
+  new screen's buttons dead for the ~150 ms a drawn numeral takes — every second
+  of a rest. And the guard against flurries refused *any* pinch within half a
+  second of the last, when the only dangerous one is a pinch that **writes**.
+  Tickets now go live as the send starts (nobody can pinch a button that has not
+  been drawn, and a late pinch from the old screen carries the old ticket); and
+  only `logSet` has to wait a second after the last accepted pinch. Log → Skip →
+  Log inside a second still writes one set — that is tested — and Log → Skip is
+  instant.
+- **It could not be closed from the glasses** (found wearing it). Meta's back
+  gesture leaves the app, and a second later the next repaint took the lens back;
+  the only way out was to quit the app on the phone. The list now ends in
+  **Close**, last so it is never the row that arrives lit. It stays closed even
+  mid-workout, and only the phone reopens it — a pinch cannot, because the point
+  of closing is that the lens is no longer ours to draw buttons on.
+- **No way back to the list from a rest** (found wearing it). After the last set
+  the lens showed only *Skip* and *+30 s* until the clock ran out. A rest is when
+  you look for the next machine; it now offers *Today* as well, and leaving does
+  not cancel the rest.
+- **Nothing appeared at all, the first time.** The driver was built at the end of
+  the launch task, behind the Health and Music awaits, and they had not returned
+  — the snapshot, written last, was six hours stale. It is built before them now.
+  And "pick a workout with the calendar button" could not have worked: that pick
+  was `TodayView`'s `@State`. It is `Workout.chosen` now, dated, so Legs picked on
+  Tuesday is not still the workout on Wednesday. Settings → Glasses says *why* the
+  lens is empty when it is, because "rest day", "not started" and "broken" looked
+  identical from the outside.
+
+Also from the review: the wrap-up card said "3 of 3 done" with the treadmill
+untouched (it now names what is left, counted over the same slots as the list);
+a second workout of the same planned day could not be logged, because progress
+was counted by calendar day where the phone counts by session; and a rest day
+with the glasses on fetched every set ever logged once a second to keep arriving
+at nothing.
