@@ -1,0 +1,57 @@
+name: LensSpike
+options:
+  bundleIdPrefix: com.rathi
+  deploymentTarget:
+    # The Meta SDK's floor since 0.9.0. The real app is on 17.0 and would have
+    # to follow — one of the things this spike exists to price.
+    iOS: "17.2"
+  createIntermediateGroups: true
+
+packages:
+  MetaWearablesDAT:
+    url: https://github.com/facebook/meta-wearables-dat-ios
+    # Exact, never a range: 0.7 -> 0.8 -> 0.9 each removed or renamed API.
+    exactVersion: 0.9.0
+
+settings:
+  base:
+    MARKETING_VERSION: "0.0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: DCCFA8MX7A
+    # Developer Mode. Meta: "MetaAppID = 0 is for Developer Mode" — no
+    # Wearables Developer Center project, no client token.
+    META_APP_ID: "0"
+    CLIENT_TOKEN: ""
+
+targets:
+  LensSpike:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.2"
+    sources:
+      - path: LensSpike
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+    dependencies:
+      - package: MetaWearablesDAT
+        product: MWDATCore
+      - package: MetaWearablesDAT
+        product: MWDATDisplay
+    settings:
+      base:
+        # Its own bundle id on purpose: registering with Meta AI is per-app, and
+        # the app you train with should not be the one that finds out whether
+        # this works.
+        PRODUCT_BUNDLE_IDENTIFIER: com.rathi.fitness.lensspike
+        INFOPLIST_FILE: LensSpike/Info.plist
+        CODE_SIGN_ENTITLEMENTS: LensSpike/LensSpike.entitlements
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  LensSpike:
+    build:
+      targets:
+        LensSpike: all
