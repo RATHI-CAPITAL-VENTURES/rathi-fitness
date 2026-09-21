@@ -25,6 +25,7 @@ struct CardioSetView: View {
     @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
     @EnvironmentObject private var glasses: GlassesFace
+    @State private var lensOwner = UUID()
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
 
@@ -490,18 +491,23 @@ struct CardioSetView: View {
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
         // See SetView: the lens is a third caller of the same actions.
-        glasses.arm(source: { lensState }, onPinch: { remote.run($0.remote) })
+        glasses.arm(owner: lensOwner, source: { lensState }, onPinch: { remote.run($0.remote) })
     }
 
     private func disarmHandsFree() {
         remote.handlers = RemoteControls.Handlers()
         remote.disarm()
-        glasses.disarm()
+        glasses.disarm(owner: lensOwner)
     }
 
+    /// `slotBouts` is here so that logging a bout CHANGES this. A strength log
+    /// starts a rest and the lens visibly becomes a clock; a single cardio bout
+    /// starts nothing, and without the count the lens looked identical after a
+    /// pinch — so it never repainted, and the same live button took another.
     private var lensState: LensState {
         .cardio(
             exercise: exercise.name, day: item.day?.name, seconds: seconds,
+            boutsDone: slotBouts, of: plan.sets,
             resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil,
             canLog: hasSomethingToLog)
     }

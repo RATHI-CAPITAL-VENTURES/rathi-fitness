@@ -17,6 +17,9 @@ struct SetView: View {
     @Query private var sessions: [Session]
     @EnvironmentObject private var remote: RemoteControls
     @EnvironmentObject private var glasses: GlassesFace
+    /// This screen's name as far as the glasses are concerned — so that only
+    /// the screen that switched the lens on can switch it off. See `arm`.
+    @State private var lensOwner = UUID()
 
     @Query(sort: \SetEntry.date, order: .reverse) private var allSets: [SetEntry]
 
@@ -156,13 +159,13 @@ struct SetView: View {
         // one that knows which set. A pinch goes through `remote.run`, so it is
         // the same code path a squeeze takes — including "mid-rest, log means
         // skip" — and there is still one implementation of each action.
-        glasses.arm(source: { lensState }, onPinch: { remote.run($0.remote) })
+        glasses.arm(owner: lensOwner, source: { lensState }, onPinch: { remote.run($0.remote) })
     }
 
     private func disarmHandsFree() {
         remote.handlers = RemoteControls.Handlers()
         remote.disarm()
-        glasses.disarm()
+        glasses.disarm(owner: lensOwner)
     }
 
     /// The answer to "where am I", for the lens. The same facts as

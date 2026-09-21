@@ -95,19 +95,33 @@ enum LensRenderer {
             UIColor.black.setFill()
             context.fill(CGRect(origin: .zero, size: heroSize))
 
-            // As large as fits. "1:12" and "182.5 × 12" are both heroes, and a
-            // fixed size would either crop the second or waste the first.
-            var size: CGFloat = 170
-            var drawn = NSAttributedString()
-            while size > 40 {
-                drawn = NSAttributedString(string: text, attributes: [
-                    .font: serif.withSize(size), .foregroundColor: color, .kern: -size / 45,
-                ])
-                if drawn.size().width <= heroSize.width { break }
-                size -= 6
-            }
+            let drawn = fitted(text, in: serif, color: color)
             let bounds = drawn.size()
-            drawn.draw(at: CGPoint(x: 0, y: (heroSize.height - bounds.height) / 2))
+            // Never above the canvas: a serif's line box is taller than its
+            // digits, and a negative origin would shave the tops off them.
+            drawn.draw(at: CGPoint(x: 0, y: max(0, (heroSize.height - bounds.height) / 2)))
+        }
+    }
+
+    static let largestNumeral: CGFloat = 170
+    static let smallestNumeral: CGFloat = 28
+
+    /// As large as fits, both ways. "1:12" and "182.5 × 12" are both heroes; a
+    /// fixed size would crop the second or waste the first. Height is checked
+    /// as well as width because the tallest size that fits across does not
+    /// necessarily fit down.
+    static func fitted(_ text: String, in face: UIFont, color: UIColor) -> NSAttributedString {
+        var size = largestNumeral
+        while true {
+            let drawn = NSAttributedString(string: text, attributes: [
+                .font: face.withSize(size), .foregroundColor: color, .kern: -size / 45,
+            ])
+            let bounds = drawn.size()
+            let fits = bounds.width <= heroSize.width && bounds.height <= heroSize.height
+            // At the floor it is drawn regardless. Cropped small beats absent,
+            // and nothing a set screen can produce gets anywhere near here.
+            if fits || size <= smallestNumeral { return drawn }
+            size -= 4
         }
     }
 }

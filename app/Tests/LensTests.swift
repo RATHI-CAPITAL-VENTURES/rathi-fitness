@@ -72,14 +72,43 @@ final class LensTests: XCTestCase {
         XCTAssertTrue(state.actions.isEmpty)
     }
 
+    private func treadmill(seconds: Int = 1231, done: Int = 0, of bouts: Int = 1,
+                           canLog: Bool = true) -> LensState {
+        .cardio(exercise: "Treadmill", day: "Push", seconds: seconds,
+                boutsDone: done, of: bouts, resting: nil, canLog: canLog)
+    }
+
     func testCardioOffersTheLogOnlyWhenThereIsSomethingToLog() {
-        let empty = LensState.cardio(exercise: "Treadmill", day: "Push", seconds: 0,
-                                     resting: nil, canLog: false)
-        XCTAssertTrue(empty.actions.isEmpty)
-        let set = LensState.cardio(exercise: "Treadmill", day: "Push", seconds: 1200,
-                                   resting: nil, canLog: true)
-        XCTAssertEqual(set.hero, "20 min")
-        XCTAssertEqual(set.actions, [.logSet])
+        XCTAssertTrue(treadmill(seconds: 0, canLog: false).actions.isEmpty)
+        XCTAssertEqual(treadmill().actions, [.logSet])
+    }
+
+    /// The phone's hero says 20:31. A mirror that says "21 min" about the same
+    /// clock is a mirror that disagrees with the thing it mirrors.
+    func testTheCardioClockReadsTheWayThePhonesDoes() {
+        XCTAssertEqual(treadmill(seconds: 1231).hero, Fmt.duration(1231))
+        XCTAssertEqual(treadmill(seconds: 1231).hero, "20:31")
+    }
+
+    /// THE bug the review found. A strength log starts a rest, so the lens
+    /// visibly becomes a clock. A cardio log starts nothing — and the first
+    /// build's cardio state did not mention bouts, so the lens was identical
+    /// before and after, never repainted, and the same live *Log set* took
+    /// pinch after pinch, each one another twenty-minute bout in the log.
+    func testLoggingACardioBoutChangesWhatTheLensShows() {
+        XCTAssertNotEqual(treadmill(done: 0, of: 3), treadmill(done: 1, of: 3))
+        XCTAssertNotEqual(treadmill(done: 0, of: 1), treadmill(done: 1, of: 1))
+    }
+
+    func testAFinishedMachineOffersNothingToPinch() {
+        let done = treadmill(done: 1, of: 1)
+        XCTAssertEqual(done.hero, "Done")
+        XCTAssertTrue(done.actions.isEmpty, "the dismiss animation is a third of a second of live button otherwise")
+        XCTAssertTrue(treadmill(done: 3, of: 3).actions.isEmpty)
+    }
+
+    func testIntervalsSayWhichOneYouAreOn() {
+        XCTAssertEqual(treadmill(done: 1, of: 3).detail, "Interval 2 of 3")
     }
 
     // MARK: the cooldown colour
@@ -217,18 +246,33 @@ final class LensTests: XCTestCase {
 
     // MARK: the numeral
 
-    /// The serif ships in the bundle; if it ever stops, the lens falls back to
-    /// Meta's heading text rather than drawing a number in the wrong face.
-    func testTheNumeralIsDrawnInTheAppsOwnFaceAtLensWidth() throws {
+    /// The serif ships in the bundle; if it ever stops, `heroImage` returns nil
+    /// and the lens falls back to Meta's heading text rather than drawing a
+    /// number in the wrong face. The unwrap is the assertion about the face.
+    func testTheSerifIsInTheBundleAndTheNumeralIsOnePixelPerPoint() throws {
+        XCTAssertNotNil(UIFont(name: RFDesign.Face.serifBold, size: 100))
         let image = try XCTUnwrap(LensRenderer.heroImage("1:12", tone: .resting(progress: 0.2)))
         XCTAssertEqual(image.size, LensRenderer.heroSize)
         XCTAssertEqual(image.scale, 1, "one pixel per point — the radio pays for every one")
     }
 
-    /// "182.5 × 12" is as much a hero as "1:12". Shrinking to fit, not cropping.
-    func testALongNumeralStillFits() throws {
-        let image = try XCTUnwrap(LensRenderer.heroImage("1822.5 × 120", tone: .ready))
-        XCTAssertEqual(image.size.width, LensRenderer.heroSize.width)
+    /// "182.5 × 12" is as much a hero as "1:12". Shrunk to fit, not cropped —
+    /// asserted on what the fitting produced, because the canvas is 552 wide
+    /// whatever is drawn on it and an assertion about the canvas cannot fail.
+    func testALongNumeralIsShrunkUntilItFitsBothWays() throws {
+        let face = try XCTUnwrap(UIFont(name: RFDesign.Face.serifBold, size: 100))
+        for text in ["1:12", "185 × 8", "182.5 × 12", "1822.5 × 120", "1:02:45"] {
+            let bounds = LensRenderer.fitted(text, in: face, color: .white).size()
+            XCTAssertLessThanOrEqual(bounds.width, LensRenderer.heroSize.width, text)
+            XCTAssertLessThanOrEqual(bounds.height, LensRenderer.heroSize.height, text)
+        }
+    }
+
+    func testAShortNumeralIsNotShrunkMoreThanItsHeightDemands() throws {
+        let face = try XCTUnwrap(UIFont(name: RFDesign.Face.serifBold, size: 100))
+        let clock = LensRenderer.fitted("1:12", in: face, color: .white).size()
+        let long = LensRenderer.fitted("1822.5 × 120", in: face, color: .white).size()
+        XCTAssertGreaterThan(clock.height, long.height, "the clock gets the room a long load cannot use")
     }
 
     // MARK: the switch
@@ -240,9 +284,78 @@ final class LensTests: XCTestCase {
         let glasses = GlassesFace()
         XCTAssertFalse(glasses.enabled)
         XCTAssertEqual(glasses.status, .off)
-        glasses.arm(source: { nil }, onPinch: { _ in })
+        let screen = UUID()
+        glasses.arm(owner: screen, source: { nil }, onPinch: { _ in })
         glasses.refresh()
         XCTAssertFalse(glasses.isShowing)
-        glasses.disarm()
+        glasses.disarm(owner: screen)
+    }
+
+    // MARK: which pinch counts
+    //
+    // The worst thing this feature can do is write a set you did not lift.
+    // Each of these is a way the first build could, found in review.
+
+    func testAPinchIsHonouredOncePerScreen() {
+        var gate = LensGate()
+        let screen = gate.reserve()
+        gate.open(screen)
+        XCTAssertTrue(gate.accept(screen))
+        // The lens has not repainted; it still shows the same button.
+        XCTAssertFalse(gate.accept(screen), "the second pinch on a stale button is not a second set")
+        XCTAssertFalse(gate.accept(screen))
+    }
+
+    /// Log → (lens not yet repainted) pinch → pinch. In the first build the
+    /// second became "skip the rest" and the third, finding no rest, logged a
+    /// set nobody performed. Through the gate the handler runs exactly once.
+    func testThreeFastPinchesLogOneSet() {
+        let controls = RemoteControls(music: MusicController())
+        var logged = 0, resting = false
+        controls.handlers = RemoteControls.Handlers(
+            logSet: { logged += 1; resting = true },
+            skipRest: { resting = false },
+            isResting: { resting })
+        var gate = LensGate()
+        let screen = gate.reserve()
+        gate.open(screen)
+        let start = Date()
+        for beat in 0..<3 where gate.accept(screen, at: start.addingTimeInterval(Double(beat) * 0.3)) {
+            controls.run(LensAction.logSet.remote)
+        }
+        XCTAssertEqual(logged, 1)
+        XCTAssertTrue(resting, "and the rest it started is still running")
+    }
+
+    /// A button drawn for the bench must not fire once you have opened the squat.
+    func testAPinchFromAScreenThatHasBeenReplacedIsRefused() {
+        var gate = LensGate()
+        let bench = gate.reserve()
+        gate.open(bench)
+        gate.close()                      // left the bench
+        let squat = gate.reserve()
+        gate.open(squat)
+        XCTAssertFalse(gate.accept(bench))
+        XCTAssertTrue(gate.accept(squat))
+    }
+
+    /// A ticket is not live until its screen has landed: nobody can pinch a
+    /// button the glasses have not been sent.
+    func testAScreenThatNeverArrivedCannotBePinched() {
+        var gate = LensGate()
+        let unsent = gate.reserve()
+        XCTAssertFalse(gate.accept(unsent))
+    }
+
+    /// A refused pinch does not spend the new screen's ticket — otherwise the
+    /// tail of a double-pinch would kill the button that replaced it.
+    func testTheTailOfTheLastPinchDoesNotSpendTheNewScreen() {
+        var gate = LensGate()
+        let now = Date()
+        let first = gate.reserve(); gate.open(first)
+        XCTAssertTrue(gate.accept(first, at: now))
+        let second = gate.reserve(); gate.open(second)
+        XCTAssertFalse(gate.accept(second, at: now.addingTimeInterval(0.2)), "too soon to be a reaction to it")
+        XCTAssertTrue(gate.accept(second, at: now.addingTimeInterval(1)), "and still there when it is")
     }
 }

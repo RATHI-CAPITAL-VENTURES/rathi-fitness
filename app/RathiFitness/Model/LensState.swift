@@ -124,23 +124,43 @@ extension LensState {
             tone: .ready, actions: [.logSet])
     }
 
-    /// A machine. One bout rather than sets, so the number is the clock.
+    /// A machine. Bouts rather than sets, and the number is the clock — written
+    /// the way the phone's own hero writes it (`20:31`, not "21 min"), because
+    /// a mirror that disagrees with the thing it mirrors is worse than none.
     ///
-    /// - Parameter canLog: false until there is something on the clock to log —
-    ///   the same rule the cardio screen applies to its own button, so the lens
-    ///   never offers a pinch that would do nothing.
+    /// - Parameters:
+    ///   - boutsDone: bouts already logged in this slot today. It is on the lens
+    ///     for a reason beyond information: logging a bout changes NOTHING else
+    ///     this screen shows, and a lens that looks identical after a pinch is a
+    ///     lens that gets pinched again. The first build did exactly that.
+    ///   - canLog: false until there is something on the clock to log — the
+    ///     same rule the cardio screen applies to its own button, so the lens
+    ///     never offers a pinch that would do nothing.
     static func cardio(
-        exercise: String, day: String?, seconds: Int, resting: Rest?, canLog: Bool
+        exercise: String, day: String?, seconds: Int,
+        boutsDone: Int, of bouts: Int, resting: Rest?, canLog: Bool
     ) -> LensState {
+        let bouts = max(1, bouts)
+        let finished = boutsDone >= bouts
         if let resting {
             return LensState(
                 eyebrow: "RESTING", title: exercise,
-                hero: Fmt.clock(resting.remaining), detail: "Until the next interval",
+                hero: Fmt.clock(resting.remaining),
+                detail: "Then interval \(min(boutsDone + 1, bouts)) of \(bouts)",
                 tone: .resting(progress: resting.progress), actions: [.skipRest, .extendRest])
         }
+        if finished {
+            // No button, like a finished lift: nothing is left to log, and the
+            // phone is about to leave this screen anyway.
+            return LensState(
+                eyebrow: (day ?? "Done").uppercased(), title: exercise, hero: "Done",
+                detail: bouts == 1 ? "Logged" : "\(bouts) of \(bouts) intervals",
+                tone: .done, actions: [])
+        }
+        let progress = bouts == 1 ? "On the clock" : "Interval \(boutsDone + 1) of \(bouts)"
         return LensState(
             eyebrow: (day ?? "Cardio").uppercased(), title: exercise,
-            hero: Fmt.minutes(seconds), detail: canLog ? "On the clock" : "Set the clock on your phone",
+            hero: Fmt.duration(seconds), detail: canLog ? progress : "Set the clock on your phone",
             tone: .ready, actions: canLog ? [.logSet] : [])
     }
 
@@ -187,5 +207,64 @@ struct LensPacer {
     mutating func forget() {
         lastSent = nil
         lastSentAt = nil
+    }
+}
+
+// MARK: - Which pinch counts
+
+/// Ties a pinch to the screen it was drawn on, and honours each screen once.
+///
+/// The worst thing this feature can do is write a set you did not lift, and the
+/// first build could, three ways — all found in review before it reached a
+/// gym, all the same mistake: a pinch was treated as "do the action" rather
+/// than "the button on THAT screen was pressed".
+///
+/// - A lens that has not repainted yet still shows *Log set*. Pinch it again
+///   and the second pinch became "skip the rest" (the AirPods rule); a third
+///   found no rest running and logged a set nobody performed.
+/// - A cardio log changed nothing the lens showed, so it never repainted at
+///   all, and every further pinch appended another twenty-minute bout.
+/// - A button drawn for the bench could fire after you had opened the squat,
+///   and log a squat.
+///
+/// So: every screen sent gets a ticket. A pinch is honoured only if its ticket
+/// is the one on the lens, and honouring it spends the ticket — nothing more is
+/// accepted until a NEW screen has gone out, which by construction shows what
+/// the last pinch did. Leaving a screen, or losing the glasses, voids whatever
+/// ticket was live.
+struct LensGate {
+    /// A pinch sooner than this after the last accepted one cannot be a
+    /// reaction to the new screen — a repaint takes ~0.2 s and a person at
+    /// least as long again to see it. It is the tail of the previous pinch.
+    static let minimumGap: TimeInterval = 0.5
+
+    private var next = 0
+    private(set) var live: Int?
+    private var lastAccepted: Date?
+
+    /// A ticket for a screen that is about to be sent. Not live yet: a pinch
+    /// cannot arrive for a screen the glasses have not got.
+    mutating func reserve() -> Int {
+        next += 1
+        return next
+    }
+
+    /// The send landed; that screen is what the wearer is looking at.
+    mutating func open(_ ticket: Int) {
+        live = ticket
+    }
+
+    /// True once per screen, and only for the screen on the lens.
+    mutating func accept(_ ticket: Int, at now: Date = .now) -> Bool {
+        guard ticket == live else { return false }
+        if let lastAccepted, now.timeIntervalSince(lastAccepted) < Self.minimumGap { return false }
+        live = nil
+        lastAccepted = now
+        return true
+    }
+
+    /// Whatever is on the lens no longer speaks for the app.
+    mutating func close() {
+        live = nil
     }
 }
