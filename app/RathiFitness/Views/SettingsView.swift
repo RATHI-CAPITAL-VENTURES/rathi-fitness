@@ -459,7 +459,9 @@ struct SettingsView: View {
                     }
                 case .connected(let name):
                     SettingRow(label: name,
-                               detail: glasses.isShowing ? "Showing your set." : "Ready. Open an exercise.") {
+                               detail: glasses.isShowing
+                                   ? "On the lens now."
+                                   : (glasses.idleReason ?? "Connecting to the lens…")) {
                         Image(systemName: "eyeglasses")
                             .font(.system(size: 13))
                             .foregroundStyle(RFDesign.ready)

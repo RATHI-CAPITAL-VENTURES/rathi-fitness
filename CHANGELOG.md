@@ -14,60 +14,64 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.13.0 — 2026-09-21
+## 0.14.0 — 2026-09-21
 
 ### Added
 
-- **The set screen, on your glasses.** Meta Ray-Ban Display, switched on in
-  Settings → Glasses. While a set screen is open on the phone the lens shows the
-  same thing: the exercise, **185 × 8**, which set you are on, and a *Log set*
-  button. Pinch it and the lens becomes the rest clock, with *Skip* and *+30 s*.
-  The phone can be locked and in a pocket.
-- **It is a third caller, not a second copy.** A pinch lands on
-  `RemoteControls.run`, the same function an AirPods squeeze and the on-screen
-  button reach — including "mid-rest, log means skip". There is still one
-  implementation of each action.
-- **The number is in the app's own face, and the rest has the app's own
-  colour.** Meta's SDK offers three sizes of its own text and no custom fonts,
-  but its `Image` accepts a bitmap, so the numeral is drawn in Fraunces and
-  follows the cooldown ramp — ember while you recover, teal when you are ready.
-  That signal was designed to be caught without looking; the edge of your vision
-  is where it belongs. Measured first: 155 ms a frame against 47 ms for plain
-  text, both far inside a one-second tick.
-- **The button you want is the one already lit.** The glasses highlight the
-  first button when a screen appears, so *Log set* and *Skip* are a pinch and
-  nothing else.
-- **Taking your glasses off is not an error.** It ends their session — Meta
-  reports it as one — and nothing says when they go back on. The app says
-  nothing either, retries quietly every five seconds while a set screen is open,
-  and re-sends where you were. On the hardware a fresh session shows content in
-  about 0.7 s.
-- **Off means off.** Until the switch is on, the app never calls Meta's code —
-  it does not even configure the SDK. Meta's crash reporting is opted out.
+- **The lens runs the workout.** With no exercise open on the phone, your
+  glasses show **today's exercises as a list**. Swipe your thumb to move, pinch
+  to open one. What you are part-way through comes first, then what is left in
+  the plan's order, then what is done — because the first row is the one that
+  arrives lit, so the usual case is a pinch and no swipe.
+- **A card before the first set**: what to lift, how many sets, the rest, and
+  **where the seat goes** — the thing you need before you start. *Start ·
+  Taken · Back.*
+- **Then the loop the phone has**, without the phone: *Log set*, the rest clock,
+  and after the last set **what is next, already lit**. It skips to the next
+  unfinished lift and wraps, so passing on a busy rack and coming back works.
+- **−1 rep.** The lens cannot type, but "I got seven, not eight" is the
+  correction a set most needs. It is about the set in hand; the next one opens
+  on the plan again.
+- **Taken.** The machine is busy: the lens offers what could stand in — what you
+  usually do instead first, then anything that does the same job — the same
+  ranking the phone's picker uses. Today only; the plan is untouched.
+- **The phone still wins.** Open an exercise on it and the lens mirrors that;
+  close it and the list comes back, caught up on what you logged.
+- **Close**, at the foot of the list, hands the lens back — until you next open
+  the app on the phone. Without it the only way out was quitting the app: Meta's
+  own back gesture leaves, and the next repaint a second later returned.
+- **Today**, on the rest screen, goes back to the list without cancelling the
+  rest. A rest is when you look for the next machine.
+- **Settings → Glasses says why the lens is empty** when it is: nothing planned,
+  closed from the glasses, or waiting for you to open the app.
+- **The calendar button on Today reaches the lens.** Pick a workout off-schedule
+  and the glasses show that one.
 
 ### Changed
 
-- **iOS 17.2 is now the floor**, up from 17.0. Meta's SDK 0.9.0 requires it.
-- The app carries Meta's `MWDATCore` and `MWDATDisplay` frameworks — 30 MB of a
-  45 MB debug build — pinned to exactly 0.9.0, because each of the last three
-  releases removed or renamed public API.
+- **The workout's logic moved out of the views**, into `Workout`. Which day it
+  is, what is done, what weight to open on and how a set is written were private
+  functions inside `TodayView` and `SetView`; a locked phone has no views, and
+  the lens needs the same answers. The views now call the shared functions —
+  they were moved, not copied, so the lens and the phone cannot disagree about
+  how a set is written. No behaviour change on the phone.
 
 ### Notes
 
-- **Mirrors, does not drive.** You choose the exercise on the phone. Choosing or
-  swapping from the lens needs the workout loop to live outside `SetView`, and
-  is the next milestone; the hardware questions it depends on (a tall list
-  scrolls, the first row arrives lit) are already answered.
-- Every hardware claim above comes from a throwaway test app run on the glasses
-  before this was written — branch `chore/lens-spike`, `spike/lens/FINDINGS.md`.
-  Two things are **not** yet tested: ten minutes locked in a pocket (27 seconds
-  is the longest on record), and what a notification does mid-set.
-- Needs Developer Mode in the Meta AI app (Settings → App Info → tap the version
-  five times, glasses connected). Meta has no other way to run a display app
-  yet, and it switches itself off after a glasses firmware update.
+- **It takes the lens only around a workout.** A display session is the whole
+  lens, so the list shows for fifteen minutes after you touch the app, or while
+  a workout is open and its last set is under half an hour old. Otherwise the
+  lens is handed back. Opening the app at the gym is how you say you are there.
+- **Lifts only from the lens.** A treadmill's numbers come off its console and
+  the lens cannot type; "log as planned" would write a run you may not have
+  run. A machine's card sends you to the phone, where it still mirrors.
+- **No icon on the glasses.** A native app cannot have one — the phone drives
+  the lens. Meta's Web Apps can, but they need the internet, hold 5 MB, and
+  cannot talk to the phone's store. Written up in `docs/DECISIONS.md`.
 
 ## Earlier
 
+- [0.13](./docs/changelog/0.13.md)
 - [0.12](./docs/changelog/0.12.md)
 - [0.11](./docs/changelog/0.11.md)
 - [0.10](./docs/changelog/0.10.md)

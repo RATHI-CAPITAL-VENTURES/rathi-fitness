@@ -23,6 +23,60 @@ enum LensRenderer {
 
     typealias Pinch = @Sendable (LensAction) -> Void
 
+    static func view(for screen: LensScreen, onPinch: @escaping Pinch) -> FlexBox {
+        switch screen {
+        case .set(let state): return view(for: state, onPinch: onPinch)
+        case .list(let list): return view(for: list, onPinch: onPinch)
+        case .card(let card): return view(for: card, onPinch: onPinch)
+        }
+    }
+
+    /// Rows, built the way Meta's own sample builds its menu — a column of
+    /// tappable cards — because that is the shape that was seen to scroll.
+    static func view(for list: LensList, onPinch: @escaping Pinch) -> FlexBox {
+        FlexBox(direction: .column, spacing: 10) {
+            Text(list.eyebrow, style: .meta, color: .secondary)
+            for row in list.rows {
+                FlexBox(direction: .row, spacing: 12, crossAlignment: .center) {
+                    Text(row.title, style: .body, color: row.done ? .secondary : .primary)
+                    Text(row.trailing, style: .meta, color: .secondary)
+                }
+                .padding(20)
+                .background(.card)
+                .onTap { onPinch(row.action) }
+            }
+            if !list.footer.isEmpty { buttons(list.footer, onPinch: onPinch) }
+        }
+    }
+
+    static func view(for card: LensCard, onPinch: @escaping Pinch) -> FlexBox {
+        FlexBox(direction: .column, spacing: 12) {
+            FlexBox(direction: .column, spacing: 6) {
+                Text(card.eyebrow, style: .meta, color: .secondary)
+                Text(card.title, style: .heading)
+                for line in card.lines {
+                    Text(line, style: .body, color: .secondary)
+                }
+            }
+            .padding(24)
+            .background(.card)
+            if !card.actions.isEmpty { buttons(card.actions, onPinch: onPinch) }
+        }
+    }
+
+    /// The first button is the one the glasses light on arrival, so it is the
+    /// one drawn as the answer.
+    private static func buttons(_ actions: [LensAction], onPinch: @escaping Pinch) -> ButtonGroup {
+        ButtonGroup {
+            for (index, action) in actions.enumerated() {
+                Button(label: action.label,
+                       style: index == 0 ? .primary : .secondary,
+                       iconName: icon(for: action),
+                       onClick: { onPinch(action) })
+            }
+        }
+    }
+
     /// One whole screen. The SDK has no partial update, so this is called again
     /// for every second of a rest.
     static func view(for state: LensState, onPinch: @escaping Pinch) -> FlexBox {
@@ -44,30 +98,25 @@ enum LensRenderer {
             // to JPEG would turn clear pixels white — and black inside Meta's
             // grey panel is a visible hole, where black on nothing is nothing.
             .background(hero == nil ? .card : .none)
-            if !state.actions.isEmpty {
-                ButtonGroup {
-                    for (index, action) in state.actions.enumerated() {
-                        Button(
-                            label: action.label,
-                            // The first button is the one the glasses light on
-                            // arrival, so it is the one drawn as the answer.
-                            style: index == 0 ? .primary : .secondary,
-                            iconName: icon(for: action),
-                            onClick: { onPinch(action) })
-                    }
-                }
-            }
+            if !state.actions.isEmpty { buttons(state.actions, onPinch: onPinch) }
         }
     }
 
     /// Meta's glyph for each action. A switch rather than a field on
     /// `LensAction` so that file stays free of Meta's types — and exhaustive, so
     /// a fourth action does not compile until it has an icon.
-    static func icon(for action: LensAction) -> IconName {
+    static func icon(for action: LensAction) -> IconName? {
         switch action {
-        case .logSet: return .checkmark
+        case .logSet, .start: return .checkmark
         case .skipRest: return .triangleRightVerticalLine
         case .extendRest: return .plus
+        case .back: return .arrowLeft
+        case .close: return .x
+        case .list: return .threeHorizontalLines
+        case .taken: return .twoArrowsClockwise
+        // A minus sign is not among Meta's 116 glyphs, and a wrong one is worse
+        // than none: the label already says "−1 rep".
+        case .fewerReps, .open: return nil
         }
     }
 

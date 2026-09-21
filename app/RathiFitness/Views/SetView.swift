@@ -159,7 +159,8 @@ struct SetView: View {
         // one that knows which set. A pinch goes through `remote.run`, so it is
         // the same code path a squeeze takes — including "mid-rest, log means
         // skip" — and there is still one implementation of each action.
-        glasses.arm(owner: lensOwner, source: { lensState }, onPinch: { remote.run($0.remote) })
+        glasses.arm(owner: lensOwner, source: { .set(lensState) },
+                    onPinch: { if let action = $0.remote { remote.run(action) } })
     }
 
     private func disarmHandsFree() {
@@ -505,8 +506,12 @@ struct SetView: View {
     private func prime() {
         guard !started else { return }
         started = true
-        weight = todays.last?.weight ?? suggestion?.weight ?? plan.weight
-        reps = todays.last.map { _ in plan.reps } ?? suggestion?.reps ?? plan.reps
+        // `Workout.opening`, not a rule of this screen's own: the glasses open an
+        // exercise with the phone locked and have to land on the same numbers.
+        let opening = Workout.opening(for: item, doing: exercise, doneHere: todays,
+                                      in: allSets, calendar: calendar)
+        weight = opening.weight
+        reps = opening.reps
     }
 
     /// In a superset you walk to the next machine, you do not rest.
@@ -515,61 +520,23 @@ struct SetView: View {
     /// rather than "Cooldown" — the whole reason the pairing has to exist in
     /// the model at all is that the timer is otherwise actively wrong here.
     private var restForThisSet: (seconds: Int, caption: String) {
-        guard item.supersetGroup > 0, let day = item.day else {
-            return (plan.restSeconds, "Cooldown")
-        }
-        let group = day.orderedItems.filter { $0.supersetGroup == item.supersetGroup }
-        let isLast = group.last?.persistentModelID == item.persistentModelID
-        return isLast ? (plan.restSeconds, "Cooldown") : (20, "Move")
+        Workout.rest(after: item, doing: exercise)
     }
 
     private func logSet() {
-        // Records are judged against history WITHOUT this set — including it
-        // would make every set a record for beating itself.
-        // Records compare weight and reps, never volume — so no bodyweight is
-        // needed and none is invented.
-        let history = mine.map {
-            $0.tally(bodyWeight: nil)
-        }
-        let candidate = Tally.Set(weight: weight, reps: reps, kind: kind,
-                                  assisted: exercise.assisted)
-        withAnimation(RFDesign.settle) {
-            record = Tally.headline(for: candidate, history: history)
-        }
-        // Two channels for every outcome: a record gets its own rising pattern
-        // and its own rising tone, an ordinary set gets the short one. This is
-        // the confirmation you get when the phone never left your pocket.
-        if record != nil {
-            Haptics.shared.play(.record)
-            AudioHub.shared.play(.record)
-        } else {
-            Haptics.shared.play(.logged)
-            AudioHub.shared.play(.logged)
-        }
-
-        let entry = SetEntry(exercise: exercise, weight: weight, reps: reps,
-                             setIndex: nextSet, kind: kind, rpe: rpe, note: note)
-        // Opened here, on the first set, rather than when the screen appears —
-        // walking into a workout and walking out again without lifting should
-        // not leave an empty session in your history.
-        entry.session = Sessions.current(for: item.day, in: context)
-        context.insert(entry)
-        // The plan follows what you actually lift. Without this the row goes on
-        // showing 45 after you have been doing 50 for a month — the suggestion
-        // told you to move up, you moved up, and the checklist never noticed.
-        //
-        // Not for a stand-in. `targetWeight` belongs to the slot's OWN exercise:
-        // a heavy day on the dumbbells must not become next week's barbell
-        // target, which is what writing it through would do.
-        if !isStandIn,
-           let advanced = Tally.advancedTarget(current: item.targetWeight,
-                                               targetReps: item.targetReps,
-                                               set: candidate) {
-            item.targetWeight = advanced
-        }
+        // The writing is `Workout.logStrength`'s — the glasses log sets too, and
+        // there is one implementation of that. What is left here is this
+        // screen's own: the banner, the fields it resets, and the rest.
+        // Judged, and confirmed, BEFORE the write: `mine` must not contain this
+        // set, and the buzz in your pocket should not wait behind a save.
+        let found = Workout.record(weight: weight, reps: reps, kind: kind,
+                                   exercise: exercise, history: mine)
+        withAnimation(RFDesign.settle) { record = found }
+        Workout.confirm(record: found)
+        Workout.logStrength(item: item, exercise: exercise, weight: weight, reps: reps,
+                            kind: kind, rpe: rpe, note: note, setIndex: nextSet, in: context)
         note = ""              // notes are per set, not sticky
         if kind == .warmup { kind = .working }   // warm-ups come first, once
-        context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.

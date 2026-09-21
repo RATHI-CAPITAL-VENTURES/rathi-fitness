@@ -47,10 +47,7 @@ struct TodayView: View {
     /// twice, and twenty sets in one of them still advance it once.
     private var sessionDates: [Date] { sessions.map(\.startedAt) }
 
-    private var lastSession: Date? {
-        allSets.filter { !calendar.isDate($0.date, inSameDayAs: .now) }
-            .map(\.date).max()
-    }
+    private var lastSession: Date? { Workout.lastSessionDate(in: allSets, calendar: calendar) }
 
     private var isTrainingDay: Bool {
         Rotation.isTrainingDay(.now, config: config, lastSession: lastSession,
@@ -64,22 +61,17 @@ struct TodayView: View {
     /// then latches nil forever.
     private var today: PlannedDay? {
         if let chosen = overrideDay ?? launchArgumentDay { return chosen }
-        switch config.mode {
-        case .weekday:
-            return days.first { $0.weekday == calendar.component(.weekday, from: .now) }
-        case .rotation, .everyNDays:
-            guard isTrainingDay else { return nil }
-            return rotationDay
-        }
+        // The schedule's answer is `Workout.today`'s, so that the glasses —
+        // which have no view to ask — reach the same day. The two overrides
+        // above are this screen's own and stay here.
+        return Workout.today(days: days, config: config, sessionDates: sessionDates,
+                             lastSession: lastSession, calendar: calendar)
     }
 
     /// The workout the rotation has reached, training day or not — so a rest day
     /// can still say what is coming.
     private var rotationDay: PlannedDay? {
-        guard let index = Rotation.index(on: .now, sessionDates: sessionDates,
-                                         dayCount: days.count, calendar: calendar)
-        else { return nil }
-        return days.indices.contains(index) ? days[index] : days.first
+        Workout.rotationDay(days: days, sessionDates: sessionDates, calendar: calendar)
     }
 
     /// `-RFDay "Push A"` opens that day whatever the calendar says.
@@ -109,31 +101,12 @@ struct TodayView: View {
     }
 
     private var todaysSets: [SetEntry] {
-        if let session = openSession {
-            return allSets.filter {
-                $0.session?.persistentModelID == session.persistentModelID
-            }
-        }
-        // Today's sets FOR THIS WORKOUT. The bare calendar day let a
-        // morning's Legs tick the evening's Push A before its first set —
-        // any lift the two shared, and with a swap any lift at all: stand the
-        // leg press in for the bench and the row read "4 of 3 done" on work
-        // from a different workout. A set with no session predates sessions.
-        let shown = today?.persistentModelID
-        return allSets.filter {
-            calendar.isDate($0.date, inSameDayAs: .now)
-                && ($0.session == nil || $0.session?.plannedDay?.persistentModelID == shown)
-        }
+        Workout.todaysSets(in: allSets, openSession: openSession, today: today, calendar: calendar)
     }
 
     /// The workout in progress for the day on screen, if there is one.
     private var openSession: Session? {
-        guard let day = today else { return nil }
-        return sessions.first {
-            $0.isOpen
-                && calendar.isDate($0.startedAt, inSameDayAs: .now)
-                && $0.plannedDay?.persistentModelID == day.persistentModelID
-        }
+        Workout.openSession(for: today, among: sessions, calendar: calendar)
     }
 
     /// Every workout finished today. Two on a two-a-day; the reason Today can
@@ -196,10 +169,18 @@ struct TodayView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(days) { day in
-                            Button(day.name) { overrideDay = day }
+                            Button(day.name) {
+                                overrideDay = day
+                                // So the glasses show this workout too, not
+                                // the one the schedule had in mind.
+                                Workout.chosen = (day.persistentModelID, .now)
+                            }
                         }
                         if overrideDay != nil {
-                            Button("Back to today") { overrideDay = nil }
+                            Button("Back to today") {
+                                overrideDay = nil
+                                Workout.chosen = nil
+                            }
                         }
                         if let session = openSession {
                             Divider()
@@ -614,8 +595,7 @@ struct TodayView: View {
     /// anything that stood in for it. Two sets on the bench and two on the
     /// dumbbells is four of four: see `Swaps.slugsCounting`.
     private func performed(_ item: PlanItem) -> [SetEntry] {
-        let slugs = Swaps.slugsCounting(toward: item)
-        return todaysSets.filter { slugs.contains($0.exercise?.slug ?? "") }
+        Workout.performed(item, in: todaysSets)
     }
 
     /// The slot's numbers as they apply to what is in it today.
@@ -626,27 +606,17 @@ struct TodayView: View {
     /// Sets that move you toward the target. Three warm-ups used to tick an
     /// exercise off — the checklist lying about the one thing it is for.
     private func working(_ item: PlanItem) -> [SetEntry] {
-        performed(item).filter { $0.setKind.counts }
+        Workout.working(item, in: todaysSets)
     }
 
     private func isDone(_ item: PlanItem) -> Bool {
-        // One bout ticks a cardio slot off unless the plan asked for intervals.
-        // Counting it against `targetSets` alone would leave the treadmill
-        // permanently unfinished, because its default target is three.
-        let sets = prescription(item)?.sets ?? item.targetSets
-        if Swaps.exercise(for: item)?.isCardio == true {
-            return performed(item).count >= max(1, sets)
-        }
-        return working(item).count >= sets
+        Workout.isDone(item, in: todaysSets)
     }
 
     /// What the set screen will say to try, from the last day this lift was
     /// done. The same call the set screen makes, on the same sets.
     private func suggestion(for item: PlanItem, exercise: Exercise) -> Tally.Suggestion? {
-        let mine = allSets.filter { $0.exercise?.slug == exercise.slug }
-        return Tally.nextTarget(
-            lastSession: mine.lastSession(calendar: calendar).map { $0.tally(bodyWeight: nil) },
-            target: Swaps.prescription(for: item, doing: exercise).reps)
+        Workout.suggestion(for: item, doing: exercise, in: allSets, calendar: calendar)
     }
 
     /// The weight a row reads. Not `item.targetWeight`: that is what the plan

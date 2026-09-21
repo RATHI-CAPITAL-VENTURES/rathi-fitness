@@ -491,7 +491,8 @@ struct CardioSetView: View {
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
         // See SetView: the lens is a third caller of the same actions.
-        glasses.arm(owner: lensOwner, source: { lensState }, onPinch: { remote.run($0.remote) })
+        glasses.arm(owner: lensOwner, source: { .set(lensState) },
+                    onPinch: { if let action = $0.remote { remote.run(action) } })
     }
 
     private func disarmHandsFree() {
