@@ -150,6 +150,13 @@ pinched, so the log has no line for it.)
    `devicectl … launch --console` shows ExternalAccessory chatter and nothing
    from Meta. Useful for seeing the accessory attach; useless for SDK errors.
 
+8. **The `processing` background mode is not needed.** Meta's DisplayAccess
+   sample declares it; Apple wants BGTaskScheduler identifiers alongside it,
+   which a gym app has no use for. Removed from this spike and re-run: link,
+   session, display, send and a pinch all still work
+   (`14:26:04 session started … 14:26:14 PINCH Log set`). The real app carries
+   `bluetooth-central`, `bluetooth-peripheral` and `external-accessory` only.
+
 ## Seen, not yet a verdict
 
 - **iOS relaunches the app in the background when the glasses connect**, with
