@@ -107,6 +107,7 @@ final class GlassesFace: ObservableObject {
     private var music = LensMusic()
     private var musicTrack: (@MainActor () -> LensMusic.Track?)?
     private var musicAvailable: (@MainActor () -> Bool)?
+    private var musicCanStart: (@MainActor () -> Bool)?
     private var musicRun: Handler?
     private var musicChanges: AnyCancellable?
     private var onPinch: Handler? { screenSource != nil ? screenPinch : hostPinch }
@@ -311,7 +312,9 @@ final class GlassesFace: ObservableObject {
         screenSource = nil
         screenPinch = nil
         layerEpoch += 1
-        // Whatever is on the lens was the set screen's.
+        // Whatever is on the lens was the set screen's — the music card opened
+        // over it included, as `arm` closes it going the other way.
+        music.close()
         gate.close()
         pacer.forget()
         guard hostSource != nil else {
@@ -352,10 +355,12 @@ final class GlassesFace: ObservableObject {
     /// get pinched again.
     func music(track: @escaping @MainActor () -> LensMusic.Track?,
                available: @escaping @MainActor () -> Bool,
+               canStart: @escaping @MainActor () -> Bool,
                run: @escaping Handler,
                changes: AnyPublisher<Void, Never>) {
         musicTrack = track
         musicAvailable = available
+        musicCanStart = canStart
         musicRun = run
         musicChanges = changes.sink { [weak self] in self?.refresh() }
     }
@@ -404,7 +409,8 @@ final class GlassesFace: ObservableObject {
     private func beatOnce() async {
         guard enabled, status.isConnected else { return }
         let state = music.screen(over: source?(), track: musicTrack?(),
-                                 available: musicAvailable?() ?? false)
+                                 available: musicAvailable?() ?? false,
+                                 canStart: musicCanStart?() ?? false)
         guard let state else {
             // Nothing of ours belongs on the lens. A display session is the
             // WHOLE lens for as long as it lasts, so it is given back rather
@@ -597,6 +603,9 @@ final class GlassesFace: ObservableObject {
         sessionEpoch += 1
         pacer.forget()
         gate.close()
+        // Glasses off and on again comes back to the workout, not to a card
+        // opened before they came off.
+        music.close()
 
         guard lens != nil || ending != nil || token != nil else { return }
         let previous = teardown

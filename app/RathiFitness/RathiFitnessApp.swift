@@ -137,15 +137,32 @@ struct RathiFitnessApp: App {
                     driver = lens
                     glasses.host(source: { lens.screen() }, onPinch: { lens.pinched($0) },
                                  idle: { lens.idleReason }, onScreenClosed: { lens.screenClosed() })
-                    // Music over both layers. Through `remote.run`, the path an
-                    // AirPods press takes, so there is one "pause" in the app.
+                    // Music over both layers, straight to the player that the
+                    // phone's bar and the AirPods drive. Play and Pause are
+                    // explicit, never the toggle — see `LensAction.drivesPlayer`.
                     glasses.music(
                         track: {
                             music.now.map { .init(title: $0.title, artist: $0.artist, isPlaying: $0.isPlaying) }
                         },
                         available: { music.status.isReady },
-                        run: { if let action = $0.musicRemote { remote.run(action) } },
-                        changes: music.$now.map { _ in () }.eraseToAnyPublisher())
+                        canStart: { !music.playlistNames.isEmpty },
+                        run: { action in
+                            Task {
+                                switch action {
+                                case .play: await music.play()
+                                case .pause: music.pause()
+                                case .nextTrack: await music.next()
+                                default: break
+                                }
+                            }
+                        },
+                        // Deduplicated: MusicKit republishes an unchanged track
+                        // on every state tick. `status` too, so a revoked
+                        // permission takes the button away without waiting.
+                        changes: Publishers.Merge(
+                            music.$now.removeDuplicates().map { _ in () },
+                            music.$status.removeDuplicates().map { _ in () })
+                            .eraseToAnyPublisher())
                     lens.touch()
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and

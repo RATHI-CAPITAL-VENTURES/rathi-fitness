@@ -2210,9 +2210,16 @@ learn about a player it has nothing to do with.
   clock, and when the rest underneath ends the card closes itself, so the lens
   lands on READY. Given the band cannot buzz, the lens changing under your eye is
   the handover — a music card must never be what hides it.
-- **The pinch goes through `RemoteControls.run`**, the AirPods' path, via a new
-  `LensAction.musicRemote`. Not `remote`: a mirrored set screen forwards every
-  pinch with a `remote`, and it never drew a music button.
+- **Play and Pause are two actions, not a toggle.** They call
+  `MusicController.play()`/`pause()`, which the AirPods' toggle now uses too. A
+  first draft routed them through `RemoteControls.run(.playPause)`; review
+  caught that the lens repaints before MusicKit answers, so a card still showing
+  Play could be pinched again after the music had started, and the toggle
+  behind it paused. They are also not `remote`: a mirrored set screen forwards
+  every pinch with a `remote`, and it never drew a music button.
+- **A Play that could do nothing is not offered.** With no playlists in the
+  library the empty card has only Back; a favourite that was deleted falls back
+  to the newest playlist.
 - **`GlassesFace` repaints when the player changes** (`music.$now`). A pinch
   repaints at once, but MusicKit answers a beat later; without this the card said
   PLAYING for up to twenty seconds after Pause, which is a card that gets pinched

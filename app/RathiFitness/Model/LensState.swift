@@ -9,7 +9,7 @@ import Foundation
 /// only part of this feature a test can reach, because Meta's mock device has
 /// no display.
 ///
-/// Four lines and at most two buttons is not modesty. The lens is 600 pixels
+/// Four lines and a few buttons is not modesty. The lens is 600 pixels
 /// square, the SDK offers three sizes of text, and the input is a highlight and
 /// a pinch. Anything that needs more than that is a job for the phone.
 struct LensState: Equatable {
@@ -90,8 +90,8 @@ enum LensAction: Hashable {
 
     /// The `RemoteControls` action this is, if it is one.
     ///
-    /// Only the workout's. The music buttons have `RemoteControls` meanings too
-    /// (`musicRemote`), but a mirrored set screen forwards every pinch that has
+    /// Only the workout's. Play/Pause and Next would map onto AirPods actions
+    /// too (`drivesPlayer`), but a mirrored set screen forwards every pinch that has
     /// a `remote`, and it never drew a music button — so those go through
     /// `LensMusic` instead, and this stays nil for them.
     var remote: RemoteControls.Action? {
@@ -104,15 +104,13 @@ enum LensAction: Hashable {
         }
     }
 
-    /// The `RemoteControls` action a music button is — the same path an AirPods
-    /// press takes, so the lens is not a second implementation of "pause".
-    var musicRemote: RemoteControls.Action? {
-        switch self {
-        case .play, .pause: return .playPause
-        case .nextTrack: return .nextTrack
-        default: return nil
-        }
-    }
+    /// True for the buttons that drive the player rather than find the card.
+    /// Play and Pause are two actions, not a toggle, and go to
+    /// `MusicController.play()`/`pause()` — never `togglePlayPause`, which the
+    /// AirPods use. The lens repaints before MusicKit answers, so a card can
+    /// briefly still show Play after the music started; a toggle behind that
+    /// stale Play would pause it.
+    var drivesPlayer: Bool { self == .play || self == .pause || self == .nextTrack }
 }
 
 // MARK: - The three kinds of screen
@@ -314,7 +312,9 @@ struct LensMusic {
     /// - Parameter available: false when there is no player to drive (music not
     ///   connected, or a build without MusicKit). Then nothing is offered — a
     ///   button that opens a card saying "unavailable" is a button that lies.
-    mutating func screen(over layer: LensScreen?, track: Track?, available: Bool) -> LensScreen? {
+    ///   - canStart: there is a playlist for Play to start when nothing is on.
+    mutating func screen(over layer: LensScreen?, track: Track?, available: Bool,
+                         canStart: Bool = true) -> LensScreen? {
         guard let layer else {
             // Nothing of ours on the lens. Whatever comes back later starts
             // from the workout, not from a card left open an hour ago.
@@ -329,7 +329,7 @@ struct LensMusic {
             isOpen = false
             return layer
         }
-        return isOpen ? .card(Self.card(track, rest: rest)) : Self.offering(layer)
+        return isOpen ? .card(Self.card(track, rest: rest, canStart: canStart)) : Self.offering(layer)
     }
 
     /// The part of a pinch that is only finding your way. True if that was all
@@ -347,7 +347,7 @@ struct LensMusic {
         }
     }
 
-    /// The glasses went away or the layer changed hands.
+    /// The glasses went away, or the layer changed hands.
     mutating func close() {
         isOpen = false
     }
@@ -367,9 +367,16 @@ struct LensMusic {
         return .set(state)
     }
 
-    static func card(_ track: Track?, rest: String?) -> LensCard {
+    static func card(_ track: Track?, rest: String?, canStart: Bool = true) -> LensCard {
         let clock = rest.map { [LensCard.Spec(label: "Rest", value: $0)] } ?? []
         guard let track else {
+            // No playlist to start: a Play that does nothing is the one button
+            // this card must not offer.
+            guard canStart else {
+                return LensCard(eyebrow: "MUSIC", title: "Nothing playing", specs: clock,
+                                lines: ["Make a playlist in Music to start one from here."],
+                                actions: [.back])
+            }
             return LensCard(eyebrow: "MUSIC", title: "Nothing playing", specs: clock,
                             lines: ["Play starts your workout playlist."],
                             actions: [.play, .back])

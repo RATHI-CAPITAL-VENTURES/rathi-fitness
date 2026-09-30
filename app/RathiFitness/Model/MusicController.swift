@@ -196,17 +196,36 @@ final class MusicController: ObservableObject {
         #if canImport(MusicKit)
         guard status.isReady else { return }
         if player.state.playbackStatus == .playing {
-            player.pause()
-        } else if player.queue.currentEntry == nil {
+            pause()
+        } else {
+            await play()
+        }
+        #endif
+    }
+
+    /// Play, and only play. The glasses need this rather than the toggle: the
+    /// lens repaints before MusicKit answers, so a card can still say Play
+    /// after the music has started, and a toggle behind a stale Play pauses.
+    func play() async {
+        #if canImport(MusicKit)
+        guard status.isReady else { return }
+        guard player.queue.currentEntry != nil else {
             // Nothing queued, so "play" had nothing to play and did nothing —
             // a press that is heard and ignored. The glasses' Play button made
             // that visible: it is the only thing on an empty music card. Start
             // the workout playlist instead, as the phone's one tap does.
             await startFavourite()
             return
-        } else {
-            try? await player.play()
         }
+        try? await player.play()
+        refreshNowPlaying()
+        #endif
+    }
+
+    func pause() {
+        #if canImport(MusicKit)
+        guard status.isReady else { return }
+        player.pause()
         refreshNowPlaying()
         #endif
     }
@@ -249,7 +268,10 @@ final class MusicController: ObservableObject {
 
     /// The one-tap start: the remembered playlist, or the newest one you made.
     func startFavourite() async {
-        guard let name = favouritePlaylist ?? playlistNames.first else { return }
+        // A favourite that has since been deleted from the library falls back
+        // too — `play(playlistNamed:)` would otherwise find nothing and return.
+        let favourite = favouritePlaylist.flatMap { playlistNames.contains($0) ? $0 : nil }
+        guard let name = favourite ?? playlistNames.first else { return }
         await play(playlistNamed: name)
     }
 

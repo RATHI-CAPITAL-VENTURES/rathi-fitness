@@ -14,7 +14,7 @@ controls on the glasses. The second shipped; the first is not possible.
   play/pause and next meant; `LensGate` already bound a pinch to the screen it
   was drawn on; `LensCard` already had specs for the rest clock. The music card
   is one value type and a few lines of routing.
-- **The overlay is plain values, so it is tested.** Twelve new cases in
+- **The overlay is plain values, so it is tested.** Thirteen new cases in
   `LensTests`, including the one that matters most: the rest ending closes the
   card.
 
@@ -28,8 +28,12 @@ controls on the glasses. The second shipped; the first is not possible.
 - **`remote` on `LensAction` is a promise to the mirror**, not just a mapping:
   the mirror forwards anything that has one. Giving music actions a `remote`
   would have been the natural move and a quiet bug. The test that guards it
-  (`testNavigationIsNotARemoteAction`) says so, and the new `musicRemote` says
-  why it is separate.
+  (`testNavigationIsNotARemoteAction`) says so, and `drivesPlayer` says why
+  music is separate.
+- **A toggle is wrong on a screen that repaints before the thing it drives
+  answers.** The first draft sent Play and Pause to `togglePlayPause`; an
+  independent review found a stale Play could pause. Explicit `play()`/`pause()`
+  now, and the AirPods toggle is built from them.
 
 ## Gaps found
 
@@ -39,6 +43,9 @@ controls on the glasses. The second shipped; the first is not possible.
 | Whether the time-sensitive "you're up" notification reaches the lens or band during a live display session | testing | wear it in the gym, rest with the phone locked | blocked: needs the glasses on a person, with the phone locked in a pocket — not reachable from a build or a test |
 | Four buttons on the driver's READY screen (Log set, −1 rep, Back, Music) never seen on the hardware | testing | wear it; if it does not fit, drop −1 rep from READY | blocked: needs the Display glasses on a person; `ButtonGroup` layout is not observable in the simulator or Meta's mock |
 | `make test-unit` failed with "Unable to boot device" when the simulator's data dir had vanished — reads like a build failure | docs | note the cause and `simctl erase` fix beside `SIMULATOR` in the Makefile | landed here |
+| Lens Play/Pause went through a toggle, so a stale Play (before MusicKit answered) could pause | testing | explicit `play()`/`pause()` on `MusicController` | landed here |
+| Empty card offered Play with no playlist to start; a deleted favourite made Play do nothing | testing | Play hidden without playlists (`testNoPlaylistNoPlay`); favourite falls back to newest | landed here |
+| Music card survived the phone's set screen closing, and glasses off/on | testing | `music.close()` in `disarm` and `endSession` | landed here |
 | "Nothing queued → start the favourite" lived in `MusicBar`, so an AirPods press with nothing on did nothing | testing | moved into `MusicController.togglePlayPause` | landed here |
 
 ## Follow-ups landed in this milestone

@@ -216,15 +216,17 @@ final class LensTests: XCTestCase {
         return all
     }
 
-    /// The music buttons reach the player through the same actions an AirPods
-    /// press does — and only the buttons that drive it have one.
-    func testTheMusicButtonsAreTheAirPodsOwnActions() {
-        XCTAssertEqual(LensAction.play.musicRemote, .playPause)
-        XCTAssertEqual(LensAction.pause.musicRemote, .playPause)
-        XCTAssertEqual(LensAction.nextTrack.musicRemote, .nextTrack)
-        for action in everyAction() where ![.play, .pause, .nextTrack].contains(action) {
-            XCTAssertNil(action.musicRemote, action.label)
+    /// Only the transport drives the player; Music and Back find the card.
+    func testOnlyTheTransportDrivesThePlayer() {
+        for action in everyAction() {
+            XCTAssertEqual(action.drivesPlayer, [.play, .pause, .nextTrack].contains(action), action.label)
         }
+    }
+
+    /// With no playlist to start, Play would do nothing — so it is not offered.
+    func testNoPlaylistNoPlay() {
+        let card = LensMusic.card(nil, rest: nil, canStart: false)
+        XCTAssertEqual(card.actions, [.back])
     }
 
     // MARK: music
