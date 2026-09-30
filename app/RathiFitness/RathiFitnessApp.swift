@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import SwiftData
 
@@ -136,6 +137,15 @@ struct RathiFitnessApp: App {
                     driver = lens
                     glasses.host(source: { lens.screen() }, onPinch: { lens.pinched($0) },
                                  idle: { lens.idleReason }, onScreenClosed: { lens.screenClosed() })
+                    // Music over both layers. Through `remote.run`, the path an
+                    // AirPods press takes, so there is one "pause" in the app.
+                    glasses.music(
+                        track: {
+                            music.now.map { .init(title: $0.title, artist: $0.artist, isPlaying: $0.isPlaying) }
+                        },
+                        available: { music.status.isReady },
+                        run: { if let action = $0.musicRemote { remote.run(action) } },
+                        changes: music.$now.map { _ in () }.eraseToAnyPublisher())
                     lens.touch()
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and

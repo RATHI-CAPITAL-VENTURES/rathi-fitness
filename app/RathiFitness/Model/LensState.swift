@@ -60,6 +60,10 @@ enum LensAction: Hashable {
     /// way: Meta's own "back" gesture leaves it, and the next repaint a second
     /// later takes the lens again.
     case close
+    /// Music. `.music` opens the card and the rest drive the player; all four
+    /// are `LensMusic`'s, handled in `GlassesFace` and never passed to the
+    /// layer underneath — see `remote`, and `LensMusic` for what is left out.
+    case music, play, pause, nextTrack
 
     var label: String {
         switch self {
@@ -73,6 +77,10 @@ enum LensAction: Hashable {
         case .back: return "Back"
         case .list: return "Today"
         case .close: return "Close"
+        case .music: return "Music"
+        case .play: return "Play"
+        case .pause: return "Pause"
+        case .nextTrack: return "Next"
         }
     }
 
@@ -81,12 +89,28 @@ enum LensAction: Hashable {
     var writes: Bool { self == .logSet }
 
     /// The `RemoteControls` action this is, if it is one.
+    ///
+    /// Only the workout's. The music buttons have `RemoteControls` meanings too
+    /// (`musicRemote`), but a mirrored set screen forwards every pinch that has
+    /// a `remote`, and it never drew a music button — so those go through
+    /// `LensMusic` instead, and this stays nil for them.
     var remote: RemoteControls.Action? {
         switch self {
         case .logSet: return .logSet
         case .skipRest: return .skipRest
         case .extendRest: return .extendRest
-        case .fewerReps, .open, .start, .taken, .back, .list, .close: return nil
+        case .fewerReps, .open, .start, .taken, .back, .list, .close,
+             .music, .play, .pause, .nextTrack: return nil
+        }
+    }
+
+    /// The `RemoteControls` action a music button is — the same path an AirPods
+    /// press takes, so the lens is not a second implementation of "pause".
+    var musicRemote: RemoteControls.Action? {
+        switch self {
+        case .play, .pause: return .playPause
+        case .nextTrack: return .nextTrack
+        default: return nil
         }
     }
 }
@@ -244,6 +268,120 @@ extension LensState {
     /// reads as a fault, and a push-up has no weight to show.
     private static func load(weight: Double, unit: String, reps: Int) -> String {
         weight > 0 ? "\(Fmt.weight(weight)) × \(reps)" : "\(reps) reps"
+    }
+}
+
+// MARK: - Music
+
+/// Music on the lens: a card over whatever the lens is showing, and a button to
+/// reach it from every set screen.
+///
+/// An overlay, not a screen of either layer, because music belongs to neither.
+/// The phone's set screen and `WorkoutDriver` both own the lens at different
+/// times, and a pause button that only worked in one of them would be one you
+/// stop trusting. So `GlassesFace` lays this over whichever is speaking.
+///
+/// **The rest wins.** While the card is up it carries the cooldown's clock, and
+/// the moment the rest underneath ends the card closes itself — the lens goes
+/// back to the set, READY, which is the one thing it must not hide. The Neural
+/// Band cannot be buzzed by an app (no haptics in Meta's SDK, 0.9.0 or 1.0.0),
+/// so the lens changing under your eye, with the chime, IS the handover.
+///
+/// **Left out, on purpose.** Previous track, shuffle and choosing a playlist are
+/// all `MusicController`'s and all one table row away — but the lens lights the
+/// first button and every other costs a swipe, and a card of six buttons is a
+/// phone screen worn on your face. Pause and Next are what you reach for
+/// mid-set; the rest are on the phone and the AirPods. Play with nothing queued
+/// starts the favourite playlist, which is the phone's own one-tap start.
+struct LensMusic {
+
+    /// What is on, flattened out of `MusicController.NowPlaying` so this file
+    /// needs nothing from MusicKit.
+    struct Track: Equatable {
+        var title: String
+        var artist: String?
+        var isPlaying: Bool
+    }
+
+    private(set) var isOpen = false
+    /// Whether the screen underneath was a rest when last asked — the edge that
+    /// closes the card.
+    private var wasResting = false
+
+    /// What goes on the lens: the card while it is open, else the layer's own
+    /// screen with a way to it.
+    ///
+    /// - Parameter available: false when there is no player to drive (music not
+    ///   connected, or a build without MusicKit). Then nothing is offered — a
+    ///   button that opens a card saying "unavailable" is a button that lies.
+    mutating func screen(over layer: LensScreen?, track: Track?, available: Bool) -> LensScreen? {
+        guard let layer else {
+            // Nothing of ours on the lens. Whatever comes back later starts
+            // from the workout, not from a card left open an hour ago.
+            isOpen = false
+            wasResting = false
+            return nil
+        }
+        let rest = Self.restClock(in: layer)
+        if isOpen, wasResting, rest == nil { isOpen = false }
+        wasResting = rest != nil
+        guard available else {
+            isOpen = false
+            return layer
+        }
+        return isOpen ? .card(Self.card(track, rest: rest)) : Self.offering(layer)
+    }
+
+    /// The part of a pinch that is only finding your way. True if that was all
+    /// it was; false means "drive the player".
+    mutating func navigate(_ action: LensAction) -> Bool {
+        switch action {
+        case .music:
+            isOpen = true
+            return true
+        case .back:
+            isOpen = false
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The glasses went away or the layer changed hands.
+    mutating func close() {
+        isOpen = false
+    }
+
+    /// The clock of a rest that is running underneath, if one is.
+    static func restClock(in layer: LensScreen) -> String? {
+        guard case .set(let state) = layer, case .resting = state.tone else { return nil }
+        return state.hero
+    }
+
+    /// A set screen with a Music button — last, because the first is lit and
+    /// the first is the workout's. A finished set offers nothing, and a list
+    /// or card is somewhere you are finding your way, not waiting.
+    static func offering(_ layer: LensScreen) -> LensScreen {
+        guard case .set(var state) = layer, !state.actions.isEmpty else { return layer }
+        state.actions.append(.music)
+        return .set(state)
+    }
+
+    static func card(_ track: Track?, rest: String?) -> LensCard {
+        let clock = rest.map { [LensCard.Spec(label: "Rest", value: $0)] } ?? []
+        guard let track else {
+            return LensCard(eyebrow: "MUSIC", title: "Nothing playing", specs: clock,
+                            lines: ["Play starts your workout playlist."],
+                            actions: [.play, .back])
+        }
+        return LensCard(
+            eyebrow: track.isPlaying ? "MUSIC · PLAYING" : "MUSIC · PAUSED",
+            title: track.title, specs: clock,
+            lines: track.artist.map { [$0] } ?? [],
+            // Whichever of Play and Pause is true is first, and lit: it is the
+            // one you came here for, and it changes the card, so the pinch
+            // visibly landed — the same lesson as the cardio bout counter.
+            actions: [track.isPlaying ? .pause : .play, .nextTrack, .back])
     }
 }
 

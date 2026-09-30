@@ -197,6 +197,13 @@ final class MusicController: ObservableObject {
         guard status.isReady else { return }
         if player.state.playbackStatus == .playing {
             player.pause()
+        } else if player.queue.currentEntry == nil {
+            // Nothing queued, so "play" had nothing to play and did nothing —
+            // a press that is heard and ignored. The glasses' Play button made
+            // that visible: it is the only thing on an empty music card. Start
+            // the workout playlist instead, as the phone's one tap does.
+            await startFavourite()
+            return
         } else {
             try? await player.play()
         }

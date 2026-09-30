@@ -204,14 +204,153 @@ final class LensTests: XCTestCase {
     /// stops compiling until it is listed here — and so covered above.
     private func everyAction() -> [LensAction] {
         let all: [LensAction] = [.logSet, .skipRest, .extendRest, .fewerReps, .open(0),
-                                 .start, .taken, .back, .list, .close]
+                                 .start, .taken, .back, .list, .close,
+                                 .music, .play, .pause, .nextTrack]
         for action in all {
             switch action {
             case .logSet, .skipRest, .extendRest, .fewerReps, .open,
-                 .start, .taken, .back, .list, .close: break
+                 .start, .taken, .back, .list, .close,
+                 .music, .play, .pause, .nextTrack: break
             }
         }
         return all
+    }
+
+    /// The music buttons reach the player through the same actions an AirPods
+    /// press does — and only the buttons that drive it have one.
+    func testTheMusicButtonsAreTheAirPodsOwnActions() {
+        XCTAssertEqual(LensAction.play.musicRemote, .playPause)
+        XCTAssertEqual(LensAction.pause.musicRemote, .playPause)
+        XCTAssertEqual(LensAction.nextTrack.musicRemote, .nextTrack)
+        for action in everyAction() where ![.play, .pause, .nextTrack].contains(action) {
+            XCTAssertNil(action.musicRemote, action.label)
+        }
+    }
+
+    // MARK: music
+
+    private let song = LensMusic.Track(title: "Harder, Better", artist: "Daft Punk", isPlaying: true)
+
+    private func actions(_ screen: LensScreen?) -> [LensAction] {
+        switch screen {
+        case .set(let state): return state.actions
+        case .card(let card): return card.actions
+        case .list(let list): return list.footer
+        case nil: return []
+        }
+    }
+
+    func testEverySetScreenOffersMusicLastBecauseTheFirstIsTheWorkouts() {
+        var music = LensMusic()
+        let ready = music.screen(over: .set(bench()), track: song, available: true)
+        XCTAssertEqual(actions(ready), [.logSet, .music])
+        let resting = music.screen(over: .set(bench(resting: .init(remaining: 60, total: 90))),
+                                   track: song, available: true)
+        XCTAssertEqual(actions(resting), [.skipRest, .extendRest, .music])
+    }
+
+    /// A button that opens a card saying "unavailable" is a button that lies.
+    func testNoPlayerNoMusicButton() {
+        var music = LensMusic()
+        XCTAssertEqual(music.screen(over: .set(bench()), track: nil, available: false), .set(bench()))
+    }
+
+    /// A finished set, a list, a card: nowhere you are waiting with a free hand.
+    func testOnlyASetScreenWithSomethingToPinchGetsTheButton() {
+        var music = LensMusic()
+        let done = bench(nextSet: 5)
+        XCTAssertEqual(music.screen(over: .set(done), track: song, available: true), .set(done))
+        let list = LensScreen.list(LensList(eyebrow: "PUSH", rows: [], footer: [.close]))
+        XCTAssertEqual(music.screen(over: list, track: song, available: true), list)
+    }
+
+    func testTheCardLightsWhicheverOfPlayAndPauseIsTrue() {
+        var music = LensMusic()
+        XCTAssertTrue(music.navigate(.music))
+        guard case .card(let playing) = music.screen(over: .set(bench()), track: song, available: true)
+        else { return XCTFail("no card") }
+        XCTAssertEqual(playing.eyebrow, "MUSIC · PLAYING")
+        XCTAssertEqual(playing.title, "Harder, Better")
+        XCTAssertEqual(playing.lines, ["Daft Punk"])
+        XCTAssertEqual(playing.actions, [.pause, .nextTrack, .back])
+
+        var paused = song
+        paused.isPlaying = false
+        XCTAssertEqual(actions(music.screen(over: .set(bench()), track: paused, available: true)),
+                       [.play, .nextTrack, .back])
+    }
+
+    /// Nothing queued: Play is the whole card, and it starts the playlist.
+    func testWithNothingOnTheCardOffersPlay() {
+        var music = LensMusic()
+        _ = music.navigate(.music)
+        guard case .card(let card) = music.screen(over: .set(bench()), track: nil, available: true)
+        else { return XCTFail("no card") }
+        XCTAssertEqual(card.title, "Nothing playing")
+        XCTAssertEqual(card.actions, [.play, .back])
+    }
+
+    /// The transport is the player's; only opening and closing are the card's.
+    func testBackClosesTheCardAndTheTransportIsLeftToThePlayer() {
+        var music = LensMusic()
+        _ = music.navigate(.music)
+        XCTAssertFalse(music.navigate(.pause))
+        XCTAssertFalse(music.navigate(.nextTrack))
+        XCTAssertTrue(music.isOpen)
+        XCTAssertTrue(music.navigate(.back))
+        XCTAssertFalse(music.isOpen)
+        XCTAssertEqual(actions(music.screen(over: .set(bench()), track: song, available: true)),
+                       [.logSet, .music])
+    }
+
+    /// Choosing a song must not lose the rest: the card carries its clock.
+    func testTheCardCarriesTheRestClock() {
+        var music = LensMusic()
+        _ = music.navigate(.music)
+        guard case .card(let card) = music.screen(
+            over: .set(bench(resting: .init(remaining: 72, total: 90))), track: song, available: true)
+        else { return XCTFail("no card") }
+        XCTAssertEqual(card.specs, [LensCard.Spec(label: "Rest", value: "1:12")])
+    }
+
+    /// The rest ending is the one thing the lens must not hide. The band cannot
+    /// be buzzed, so the lens changing back to READY is the handover.
+    func testTheRestEndingClosesTheCard() {
+        var music = LensMusic()
+        let resting = LensScreen.set(bench(resting: .init(remaining: 3, total: 90)))
+        _ = music.screen(over: resting, track: song, available: true)
+        _ = music.navigate(.music)
+        guard case .card = music.screen(over: resting, track: song, available: true)
+        else { return XCTFail("the card should be up during the rest") }
+
+        let ready = music.screen(over: .set(bench()), track: song, available: true)
+        XCTAssertFalse(music.isOpen)
+        XCTAssertEqual(actions(ready), [.logSet, .music])
+    }
+
+    /// Opened while READY, the card stays until you close it — there is no
+    /// handover to protect.
+    func testACardOpenedWhileReadyStaysOpen() {
+        var music = LensMusic()
+        _ = music.screen(over: .set(bench()), track: song, available: true)
+        _ = music.navigate(.music)
+        _ = music.screen(over: .set(bench()), track: song, available: true)
+        XCTAssertTrue(music.isOpen)
+    }
+
+    /// Nothing of ours on the lens: whatever comes back later starts from the
+    /// workout, not from a card left open an hour ago.
+    func testLosingTheLensClosesTheCard() {
+        var music = LensMusic()
+        _ = music.navigate(.music)
+        XCTAssertNil(music.screen(over: nil, track: song, available: true))
+        XCTAssertFalse(music.isOpen)
+    }
+
+    func testEveryMusicButtonHasAGlyph() {
+        for action: LensAction in [.music, .play, .pause, .nextTrack] {
+            XCTAssertNotNil(LensRenderer.icon(for: action), action.label)
+        }
     }
 
     /// Through the real `RemoteControls`, because that is the path a pinch
