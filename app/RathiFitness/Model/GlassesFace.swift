@@ -102,6 +102,14 @@ final class GlassesFace: ObservableObject {
     private var hostPinch: Handler?
 
     private var source: Source? { screenSource ?? hostSource }
+
+    /// Music, laid over whichever layer is speaking. See `LensMusic`.
+    private var music = LensMusic()
+    private var musicTrack: (@MainActor () -> LensMusic.Track?)?
+    private var musicAvailable: (@MainActor () -> Bool)?
+    private var musicCanStart: (@MainActor () -> Bool)?
+    private var musicRun: Handler?
+    private var musicChanges: AnyCancellable?
     private var onPinch: Handler? { screenSource != nil ? screenPinch : hostPinch }
     private var pump: Task<Void, Never>?
     private var pacer = LensPacer()
@@ -283,7 +291,10 @@ final class GlassesFace: ObservableObject {
         screenSource = source
         screenPinch = onPinch
         layerEpoch += 1
-        // Whatever is on the lens was drawn for some other screen.
+        // Whatever is on the lens was drawn for some other screen — and a card
+        // opened over the driver is not what you expect over the set you just
+        // opened on the phone.
+        music.close()
         gate.close()
         pacer.forget()
         // The retry throttle is for glasses that are not answering, not a
@@ -301,7 +312,9 @@ final class GlassesFace: ObservableObject {
         screenSource = nil
         screenPinch = nil
         layerEpoch += 1
-        // Whatever is on the lens was the set screen's.
+        // Whatever is on the lens was the set screen's — the music card opened
+        // over it included, as `arm` closes it going the other way.
+        music.close()
         gate.close()
         pacer.forget()
         guard hostSource != nil else {
@@ -332,6 +345,24 @@ final class GlassesFace: ObservableObject {
         hostIdle = idle
         self.onScreenClosed = onScreenClosed
         startPumpIfNeeded()
+    }
+
+    /// The player, for the music card. Set once, at launch, like `host`.
+    ///
+    /// `changes` fires when what is playing changes. A pinch on Pause repaints
+    /// at once, but MusicKit answers a moment later — without this the card
+    /// would still say PLAYING until the next heartbeat, twenty seconds on, and
+    /// get pinched again.
+    func music(track: @escaping @MainActor () -> LensMusic.Track?,
+               available: @escaping @MainActor () -> Bool,
+               canStart: @escaping @MainActor () -> Bool,
+               run: @escaping Handler,
+               changes: AnyPublisher<Void, Never>) {
+        musicTrack = track
+        musicAvailable = available
+        musicCanStart = canStart
+        musicRun = run
+        musicChanges = changes.sink { [weak self] in self?.refresh() }
     }
 
     /// Tells the driver a set screen just closed, so it re-reads the store —
@@ -377,7 +408,10 @@ final class GlassesFace: ObservableObject {
 
     private func beatOnce() async {
         guard enabled, status.isConnected else { return }
-        guard let state = source?() else {
+        let state = music.screen(over: source?(), track: musicTrack?(),
+                                 available: musicAvailable?() ?? false,
+                                 canStart: musicCanStart?() ?? false)
+        guard let state else {
             // Nothing of ours belongs on the lens. A display session is the
             // WHOLE lens for as long as it lasts, so it is given back rather
             // than held dark.
@@ -398,8 +432,11 @@ final class GlassesFace: ObservableObject {
         // while a repaint was in the air and, for about a second, the bench's
         // "Log set" on the lens would have logged a cable fly.
         let handler = onPinch
+        // And whether this is the music card, which is nobody's layer: its
+        // "Back" closes the card, where the driver's would leave the exercise.
+        let isMusic = music.isOpen
         let view = LensRenderer.view(for: state) { [weak self] action in
-            Task { @MainActor in self?.pinched(action, ticket: ticket, handler: handler) }
+            Task { @MainActor in self?.pinched(action, ticket: ticket, handler: handler, music: isMusic) }
         }
         // Live as the send starts — see `LensGate.open`.
         gate.open(ticket)
@@ -426,9 +463,13 @@ final class GlassesFace: ObservableObject {
     }
 
     /// A button on the lens. See `LensGate` for why most of these are refused.
-    private func pinched(_ action: LensAction, ticket: Int, handler: Handler?) {
+    private func pinched(_ action: LensAction, ticket: Int, handler: Handler?, music onCard: Bool) {
         guard gate.accept(ticket, writes: action.writes) else { return }
-        handler?(action)
+        if onCard || action == .music {
+            if !music.navigate(action) { musicRun?(action) }
+        } else {
+            handler?(action)
+        }
         // Repaint even if nothing visible changed. The ticket is spent, so
         // until a new screen goes out the lens shows a button that does
         // nothing — and the new screen is also how the wearer learns the pinch
@@ -562,6 +603,9 @@ final class GlassesFace: ObservableObject {
         sessionEpoch += 1
         pacer.forget()
         gate.close()
+        // Glasses off and on again comes back to the workout, not to a card
+        // opened before they came off.
+        music.close()
 
         guard lens != nil || ending != nil || token != nil else { return }
         let previous = teardown

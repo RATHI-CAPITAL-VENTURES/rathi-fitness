@@ -96,9 +96,10 @@ struct MusicBar: View {
                 // One solid control, one quiet one. Skipping backwards lives in
                 // the sheet: on this screen it is the least-wanted of the three
                 // and it was taking the same weight as pause.
+                // Nothing on starts the favourite; that is the controller's
+                // rule now, so an AirPods press and the glasses get it too.
                 PlayButton(accent: accent, playing: music.isPlaying) {
-                    if music.now == nil { await music.startFavourite() }
-                    else { await music.togglePlayPause() }
+                    await music.togglePlayPause()
                 }
                 Glyph(symbol: "forward.fill", label: "Next track",
                       tint: RFDesign.label) { await music.next() }

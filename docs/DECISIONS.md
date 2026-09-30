@@ -2171,3 +2171,61 @@ once a second during a rest, and has not been timed. Settings → Glasses now sh
 how long the last frame took, which is the measurement. If it is near a second,
 the ring stays and the tick slows — two seconds is fine for a rest clock — before
 the drawing is given up.
+
+## 2026-09-29 — Music on the lens, and the ping the band cannot give
+
+Asked for two things: a ping on the Neural Band when a rest ends, and music
+controls on the glasses.
+
+**The band cannot be buzzed by an app. Checked, not assumed.** Meta's SDK has no
+haptics, vibration or band-output API — not in 0.9.0 (what this app pins) and not
+in 1.0.0 (2026-09-24), whose new modules are Inputs, Motion, Speech, voice
+invocations and photo capture. Every one of them reads *from* the glasses;
+nothing writes to the band. Its haptics belong to Meta's own OS. So what a rest
+ending does on the glasses is what it already did: the chime plays through the
+glasses' speakers if they are the phone's audio output, the lens flips from the
+filling ring to READY, and the time-sensitive "you're up" notification is posted.
+Whether Meta forwards that notification to the lens or the band while this app's
+display session holds the lens is still on META_GLASSES.md's "not yet known"
+list — the one experiment worth doing in the gym. Rejected: a second chime or a
+louder one, which is the phone's decision (the 2026-08-22 "The ping does not
+talk" entry) and not the glasses'.
+
+**Music: a card over whatever the lens shows, not a screen of either layer.**
+`LensMusic` sits in `GlassesFace` above both the mirrored set screen and
+`WorkoutDriver`. Rejected: adding music to each layer, which is two
+implementations of "pause" that would drift, and the driver would have had to
+learn about a player it has nothing to do with.
+
+- **Reached by a Music button, last on every set screen that has buttons.** Last
+  because the first is lit and the first is the workout's. Not on lists, cards or
+  a finished set: those are where you are finding your way, not waiting.
+- **The card: what is on, and Pause/Play · Next · Back.** Whichever of Play and
+  Pause is true is first, and lit. Left out, named in the code: previous track,
+  shuffle, choosing a playlist — one table row each in `MusicController`, but
+  every button after the first costs a swipe. Play with nothing queued starts the
+  favourite playlist; that rule moved from `MusicBar` into
+  `MusicController.togglePlayPause`, so an AirPods press gets it too.
+- **The rest wins.** While the card is up during a rest it carries the rest's
+  clock, and when the rest underneath ends the card closes itself, so the lens
+  lands on READY. Given the band cannot buzz, the lens changing under your eye is
+  the handover — a music card must never be what hides it.
+- **Play and Pause are two actions, not a toggle.** They call
+  `MusicController.play()`/`pause()`, which the AirPods' toggle now uses too. A
+  first draft routed them through `RemoteControls.run(.playPause)`; review
+  caught that the lens repaints before MusicKit answers, so a card still showing
+  Play could be pinched again after the music had started, and the toggle
+  behind it paused. They are also not `remote`: a mirrored set screen forwards
+  every pinch with a `remote`, and it never drew a music button.
+- **A Play that could do nothing is not offered.** With no playlists in the
+  library the empty card has only Back; a favourite that was deleted falls back
+  to the newest playlist.
+- **`GlassesFace` repaints when the player changes** (`music.$now`). A pinch
+  repaints at once, but MusicKit answers a beat later; without this the card said
+  PLAYING for up to twenty seconds after Pause, which is a card that gets pinched
+  again.
+
+**Not seen on the hardware.** The driver's READY screen now has four buttons
+(Log set, −1 rep, Back, Music). Three were worn in a gym; four were not, and
+Meta's `ButtonGroup` promises nothing about wrapping. If the fourth does not fit,
+the fix is to drop "−1 rep" from READY before dropping Music.

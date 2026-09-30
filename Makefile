@@ -13,6 +13,10 @@ DEVELOPER_DIR ?= /Applications/Xcode-beta.app/Contents/Developer
 # "unable to find utility simctl" and xcodebuild exited non-zero having passed
 # every test — a green suite reported as a failure.
 export DEVELOPER_DIR
+# "Unable to boot device because it cannot be located on disk" is not a build
+# failure: the simulator is still listed but its data directory is gone. It
+# compiled; `xcrun simctl erase <udid>` recreates the data and the run goes
+# green (2026-09-29, v0.15.0). The udid is in `xcrun simctl list devices`.
 SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2
 
 .PHONY: guards guards-test changelog-archive test test-unit test-ui project \

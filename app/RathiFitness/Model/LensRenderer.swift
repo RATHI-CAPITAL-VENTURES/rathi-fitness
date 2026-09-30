@@ -141,6 +141,10 @@ enum LensRenderer {
         // A minus sign is not among Meta's 116 glyphs, and a wrong one is worse
         // than none: the label already says "−1 rep".
         case .fewerReps, .open: return nil
+        case .music: return .musicNote
+        case .play: return .triangleRight
+        case .pause: return .twoLinesParallel
+        case .nextTrack: return .twoTrianglesRight
         }
     }
 }
