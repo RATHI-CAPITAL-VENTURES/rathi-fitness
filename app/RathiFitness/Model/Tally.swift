@@ -33,6 +33,18 @@ enum Tally {
         /// the help. `nil` means no weigh-in on or before that date.
         var bodyWeight: Double? = nil
 
+        /// How many of `weight` moved per rep: 2 for a pair of dumbbells, whose
+        /// weight is entered per dumbbell. See `Exercise.implements`.
+        ///
+        /// Read ONLY by `volume`. Records, the trend line and the next target
+        /// all compare one dumbbell with one dumbbell, which is comparing like
+        /// with like; doubling there would make a 25 lb pair outrank a 45 lb
+        /// single on the same chart for no reason a lifter would recognise.
+        var implements: Int = 1
+
+        /// The weight shown is one of a pair — say "each" after it.
+        var isPair: Bool { implements == 2 && !assisted }
+
         /// Assistance is not tonnage — but the load is not zero either.
         ///
         /// The original bug was counting the HELP as the load: 100 lb of
@@ -53,14 +65,15 @@ enum Tally {
         /// work.
         var volume: Double {
             guard kind.counts else { return 0 }
-            guard assisted else { return weight * Double(reps) }
+            guard assisted else { return weight * Double(reps) * Double(max(1, implements)) }
             guard let bodyWeight else { return 0 }
             return max(0, bodyWeight - weight) * Double(reps)
         }
         var counts: Bool { kind.counts }
     }
 
-    /// Total load moved: every working set's weight × reps.
+    /// Total load moved: every working set's weight × reps — × 2 for a pair of
+    /// dumbbells, whose weight is entered per dumbbell.
     ///
     /// Warm-ups do not count. Neither do bodyweight movements, which is honest
     /// rather than clever — guessing what fraction of you a push-up lifts would
@@ -174,11 +187,15 @@ enum Tally {
             }
         }
 
-        var headline: String {
+        /// - Parameter each: the weights are one dumbbell of a pair. Required:
+        ///   a record that says "25 lb" about a pair of 25s reads as the
+        ///   lightest set of hammer curls ever done.
+        func headline(each: Bool) -> String {
+            let unit = each ? "lb each" : "lb"
             switch self {
-            case .heaviest(let w): return "Heaviest ever — \(Fmt.weight(w)) lb"
-            case .estimatedMax(let e): return "Best estimated max — \(Fmt.weight(e.rounded())) lb"
-            case .reps(let r, let w): return "Most reps at \(Fmt.weight(w)) — \(r)"
+            case .heaviest(let w): return "Heaviest ever — \(Fmt.weight(w)) \(unit)"
+            case .estimatedMax(let e): return "Best estimated max — \(Fmt.weight(e.rounded())) \(unit)"
+            case .reps(let r, let w): return "Most reps at \(Fmt.weight(w))\(each ? " each" : "") — \(r)"
             case .leastAssistance(let w):
                 return w == 0 ? "Unassisted — no help at all"
                               : "Least help ever — \(Fmt.weight(w)) lb"
@@ -261,7 +278,7 @@ enum Tally {
 
     /// The one thing to say about a set, or nothing.
     static func headline(for candidate: Set, history: [Set]) -> String? {
-        records(for: candidate, history: history).first?.headline
+        records(for: candidate, history: history).first?.headline(each: candidate.isPair)
     }
 
     // MARK: - Sets per muscle group per week
@@ -846,10 +863,16 @@ enum Tally {
         /// `selection == .body` checks at the call site, which is the
         /// arrangement this enum exists to end.
         case bodyWeight
+        /// One dumbbell of a pair. Pounds like `.weight` in every way but the
+        /// label: the line plots what one bell weighs, which is what you pick
+        /// off the rack, so the axis has to say so or 25 reads as the lightest
+        /// lift on the tab.
+        case perDumbbell
 
         var unit: String {
             switch self {
             case .weight, .bodyWeight: return "lb"
+            case .perDumbbell: return "lb each"
             case .help: return "lb help"
             case .reps: return "reps"
             case .miles: return "mi"
@@ -869,7 +892,7 @@ enum Tally {
         /// MINUTES lets one extra minute fill half of it.
         var minimumPad: Double {
             switch self {
-            case .weight, .help: return 5
+            case .weight, .help, .perDumbbell: return 5
             case .reps: return 2
             case .miles: return 0.1
             case .minutes: return 2
@@ -884,7 +907,7 @@ enum Tally {
         /// "Working weight".
         var sortGroup: Int {
             switch self {
-            case .weight, .bodyWeight: return 0
+            case .weight, .bodyWeight, .perDumbbell: return 0
             case .help: return 1
             case .reps: return 2
             case .miles, .minutes: return 3
@@ -893,7 +916,7 @@ enum Tally {
 
         /// A weight holds until you change it, so it steps; a distance or a
         /// time is a reading, so it is joined.
-        var isStepped: Bool { self == .weight || self == .help }
+        var isStepped: Bool { self == .weight || self == .help || self == .perDumbbell }
     }
 
     struct Trend: Equatable {
@@ -963,6 +986,7 @@ enum Tally {
     static func liftTrend(_ sets: [(workout: Date, set: Set)]) -> Trend {
         let working = sets.filter { $0.set.counts }
         let assisted = working.contains { $0.set.assisted }
+        let pair = working.contains { $0.set.isPair }
         let unloaded = !working.isEmpty && working.allSatisfy { $0.set.weight == 0 }
         let byWorkout = Dictionary(grouping: working, by: \.workout)
         let points = byWorkout.keys.sorted().compactMap { key -> TrendPoint? in
@@ -973,7 +997,8 @@ enum Tally {
             else { value = group.map(\.weight).max() }
             return value.map { TrendPoint(date: key, value: $0) }
         }
-        return Trend(measure: unloaded ? .reps : (assisted ? .help : .weight), points: points)
+        return Trend(measure: unloaded ? .reps : (assisted ? .help : (pair ? .perDumbbell : .weight)),
+                     points: points)
     }
 
     /// A cardio machine, one point per workout: miles if it records them,
@@ -1057,8 +1082,12 @@ enum Tally {
         let date: Date
         let exercise: String
         let record: Record
+        /// Set on a pair of dumbbells, so the book says "each" as the set
+        /// screen did when it happened.
+        var each = false
 
-        var id: String { "\(date.timeIntervalSince1970)-\(exercise)-\(record.headline)" }
+        var headline: String { record.headline(each: each) }
+        var id: String { "\(date.timeIntervalSince1970)-\(exercise)-\(headline)" }
     }
 
     /// Every record you have ever set, newest first.
@@ -1091,7 +1120,8 @@ enum Tally {
                 if !history.isEmpty,
                    let best = records(for: entry.set, history: history)
                     .min(by: { $0.rank < $1.rank }) {
-                    out.append(Milestoned(date: entry.date, exercise: name, record: best))
+                    out.append(Milestoned(date: entry.date, exercise: name, record: best,
+                                          each: entry.set.isPair))
                 }
                 history.append(entry.set)
             }
@@ -1348,11 +1378,23 @@ extension SetEntry {
     func tally(bodyWeight: Double?) -> Tally.Set {
         Tally.Set(weight: weight, reps: reps, kind: setKind,
                   assisted: exercise?.assisted ?? false,
-                  bodyWeight: bodyWeight)
+                  bodyWeight: bodyWeight,
+                  implements: exercise?.implements ?? 1)
     }
 
     /// This entry as the gym clock sees it — see `Tally.gymSeconds`.
     var log: Tally.Log { Tally.Log(date: date, seconds: seconds) }
+}
+
+extension Exercise {
+    /// A set of this exercise that has not been written yet — the record check
+    /// and the plan's advance ask about it before it exists. The same rules
+    /// as `SetEntry.tally`, from the same place, so a hand-built value cannot
+    /// forget the assistance or the second dumbbell.
+    func tally(weight: Double, reps: Int, kind: SetKind) -> Tally.Set {
+        Tally.Set(weight: weight, reps: reps, kind: kind, assisted: assisted,
+                  implements: implements)
+    }
 }
 
 extension Array where Element == SetEntry {

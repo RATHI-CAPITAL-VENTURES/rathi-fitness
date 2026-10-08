@@ -22,7 +22,30 @@ enum Catalogue {
         /// on a cardio entry means "the common four" — see `Exercise.init`.
         var metrics: [CardioMetric] = []
         var bar: Double { loading == .barbell ? 45 : 0 }
+        /// How many dumbbells move per rep — see `Exercise.dumbbells`. Read
+        /// only when `loading` is dumbbell; a pair unless named in `singles`.
+        var dumbbells: Int { Catalogue.singles.contains(name) ? 1 : 2 }
     }
+
+    /// The dumbbell movements done holding ONE dumbbell. Every other dumbbell
+    /// entry is a pair, and its logged weight counts twice in tonnage.
+    ///
+    /// Decided entry by entry, and the ones that could have gone either way:
+    /// - **One-arm and alternating lifts are pairs** — Dumbbell Row,
+    ///   Concentration Curl, Step-Up, Walking Lunge, Bulgarian Split Squat.
+    ///   Reps are logged per side, so both sides do them: 10 rows at 60 with
+    ///   each arm moved 1,200 lb, whether or not both bells were in hand at once.
+    /// - **Wrist Curl and Farmer's Walk are pairs** — one in each hand is how
+    ///   both are done with dumbbells.
+    /// - **Singles** are the two-handed holds of one bell: a goblet squat, an
+    ///   overhead triceps extension, a Russian twist.
+    ///
+    /// No kettlebell is catalogued (`Exercise.Loading` has no case for one), so
+    /// there is nothing to decide for them yet. A lift you do the other way is
+    /// changed in the exercise's editor; this is only where it starts.
+    static let singles: Set<String> = [
+        "Goblet Squat", "Overhead Triceps Extension", "Russian Twist",
+    ]
 
     static func make(_ name: String, _ loading: Exercise.Loading,
                      _ primary: MuscleGroup, _ secondary: [MuscleGroup] = []) -> Entry {
@@ -193,7 +216,8 @@ enum Catalogue {
         Exercise(name: entry.name, loading: entry.loading, barWeight: entry.bar,
                  primary: entry.primary, secondary: entry.secondary,
                  modality: entry.modality, metrics: entry.metrics,
-                 assisted: entry.assisted)
+                 assisted: entry.assisted,
+                 dumbbells: entry.loading == .dumbbell ? entry.dumbbells : 0)
     }
 
     /// Fill in what we know about an exercise created by typing a name.
@@ -204,6 +228,7 @@ enum Catalogue {
         exercise.primaryMuscle = entry.primary.rawValue
         exercise.secondaryMuscles = entry.secondary.map(\.rawValue).joined(separator: ",")
         exercise.assisted = entry.assisted
+        if entry.loading == .dumbbell { exercise.dumbbells = entry.dumbbells }
         exercise.modality = entry.modality.rawValue
         exercise.cardioMetrics = (entry.metrics.isEmpty && entry.modality == .cardio
                                   ? CardioMetric.commonSet : entry.metrics)

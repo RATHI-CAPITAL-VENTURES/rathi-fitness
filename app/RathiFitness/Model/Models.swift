@@ -40,6 +40,23 @@ final class Exercise {
     /// explain, and one forgotten `abs()` would put a negative into a total.
     var assisted: Bool = false
 
+    /// How many dumbbells move per rep — 1 or 2. **Read `implements`, not
+    /// this:** it means something only when `loading` is dumbbell, and `0` is
+    /// "not chosen yet", which every exercise made before v0.16.0 is.
+    ///
+    /// The weight is entered PER DUMBBELL, because that is what is written on
+    /// the dumbbell — a pair of 25s is typed as 25. Tonnage multiplied that 25
+    /// by the reps and stopped, so a set of hammer curls counted as half of
+    /// what was lifted. A goblet squat holds ONE dumbbell, so the count cannot
+    /// be inferred from the loading alone; `Catalogue` says which are singles.
+    ///
+    /// `0` rather than a default of 2, because CloudKit requires a constant
+    /// default and the right answer depends on the row: 2 for a hammer curl,
+    /// 1 for a goblet squat. `implements` resolves a zero the same way the
+    /// launch backfill (`Exercise.backfillDumbbells`) pins it, so a row that
+    /// arrives by sync before the backfill runs still counts correctly.
+    var dumbbells: Int = 0
+
     /// Whether this is something you lift or something you run on.
     ///
     /// A separate axis from `loading`, which is about what goes on a bar. A
@@ -73,8 +90,9 @@ final class Exercise {
          loading: Loading = .barbell, barWeight: Double = 45,
          primary: MuscleGroup = .other, secondary: [MuscleGroup] = [],
          modality: Modality = .strength, metrics: [CardioMetric] = [],
-         assisted: Bool = false) {
+         assisted: Bool = false, dumbbells: Int = 0) {
         self.assisted = assisted
+        self.dumbbells = dumbbells
         self.name = name
         self.slug = slug ?? Exercise.slugify(name)
         self.loading = loading.rawValue
@@ -103,7 +121,49 @@ final class Exercise {
     /// What the big number on the set screen is measuring. "lb" on a bench,
     /// "lb help" on an assisted pull-up — the one place the distinction has to
     /// be visible rather than merely correct.
-    var weightUnit: String { assisted ? "lb help" : "lb" }
+    /// "lb each" on a pair of dumbbells: the number is what ONE of them weighs.
+    var weightUnit: String { assisted ? "lb help" : (isPair ? "lb each" : "lb") }
+
+    /// How many of the logged weight move per rep. 2 for a pair of dumbbells,
+    /// 1 for everything else — a barbell's weight is already the whole load.
+    /// The ONLY reading of `dumbbells`; tonnage multiplies by this.
+    var implements: Int {
+        guard loadingKind == .dumbbell, !assisted else { return 1 }
+        return dumbbells == 1 || dumbbells == 2 ? dumbbells : Exercise.defaultDumbbells(slug: slug)
+    }
+
+    /// The weight shown is one dumbbell of two. Every "each" in the app is
+    /// this, so a label and the arithmetic cannot disagree.
+    var isPair: Bool { implements == 2 }
+
+    /// " each" after a dumbbell pair's weight, nothing otherwise.
+    var each: String { isPair ? " each" : "" }
+
+    /// The word a bare figure needs after it, where there is no room for a
+    /// unit — the lens: "help" on an assisted machine, "each" on a pair.
+    var weightWord: String { assisted ? "help" : (isPair ? "each" : "") }
+
+    /// What an unchosen count means: the catalogue's answer for this movement,
+    /// else a pair — most dumbbell lifts are done with two.
+    static func defaultDumbbells(slug: String) -> Int {
+        Catalogue.all.first { Exercise.slugify($0.name) == slug }?.dumbbells ?? 2
+    }
+
+    /// Pins every unchosen count on a dumbbell lift to its default, so what
+    /// history counts no longer depends on what the catalogue says next year.
+    /// Idempotent — only zeros are touched — so it is a launch step, like
+    /// `Sessions.backfill`, rather than a one-shot flag that can be lost.
+    ///
+    /// Other loadings are left at 0 on purpose: their count is 1 whatever is
+    /// stored, and a typed-in curl switched to dumbbells later should open on
+    /// the default for its name, not on a 1 written while it was a barbell.
+    @discardableResult
+    static func backfillDumbbells(in context: ModelContext) throws -> Int {
+        let unset = try context.fetch(FetchDescriptor<Exercise>())
+            .filter { $0.dumbbells == 0 && $0.loadingKind == .dumbbell }
+        for exercise in unset { exercise.dumbbells = defaultDumbbells(slug: exercise.slug) }
+        return unset.count
+    }
 
     /// Whether a smaller number is the better one.
     var lowerIsBetter: Bool { assisted }

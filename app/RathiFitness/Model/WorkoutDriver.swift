@@ -262,7 +262,7 @@ final class WorkoutDriver {
         if worked > 0 { return "\(worked) of \(plan.sets)" }
         let opening = Workout.opening(for: item, doing: exercise, doneHere: [],
                                       in: board.allSets, calendar: calendar)
-        return opening.weight > 0 ? "\(Fmt.weight(opening.weight)) × \(opening.reps)" : "\(opening.reps) reps"
+        return LensState.load(weight: opening.weight, word: exercise.weightWord, reps: opening.reps)
     }
 
     private func card(_ item: PlanItem, _ exercise: Exercise, _ board: Board) -> LensCard {
@@ -284,7 +284,7 @@ final class WorkoutDriver {
         }
         let opening = Workout.opening(for: item, doing: exercise, doneHere: doneHere(exercise, board),
                                       in: board.allSets, calendar: calendar)
-        let load = opening.weight > 0 ? "\(Fmt.weight(opening.weight)) × \(opening.reps)" : "\(opening.reps) reps"
+        let load = LensState.load(weight: opening.weight, word: exercise.weightWord, reps: opening.reps)
         let specs = [LensCard.Spec(label: "Load", value: load),
                      LensCard.Spec(label: "Sets", value: "\(plan.sets)"),
                      LensCard.Spec(label: "Rest", value: Fmt.clock(plan.restSeconds))]
@@ -306,7 +306,7 @@ final class WorkoutDriver {
         let resting = rest.isResting && rest.exerciseName == exercise.name
         var state = LensState.strength(
             exercise: exercise.name, day: board.day.name, nextSet: nextSet, of: plan.sets,
-            weight: weight, unit: exercise.weightUnit, reps: reps,
+            weight: weight, word: exercise.weightWord, reps: reps,
             resting: resting ? .init(remaining: rest.remaining(at: now), total: rest.total) : nil)
 
         switch state.tone {

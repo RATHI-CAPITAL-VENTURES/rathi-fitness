@@ -345,7 +345,7 @@ struct TrendsView: View {
                                 Text(item.exercise)
                                     .font(RFDesign.uiMedium(14.5))
                                     .foregroundStyle(RFDesign.speech)
-                                Text(item.record.headline)
+                                Text(item.headline)
                                     .font(RFDesign.ui(12.5))
                                     .foregroundStyle(RFDesign.ready)
                             }
@@ -769,7 +769,8 @@ struct TrendsView: View {
         /// Pounds, then help, then reps — see `TrendMeasure.sortGroup`.
         var group = 0
         /// What `current` is, when it is not plain pounds: "help" on an
-        /// assisted machine, "reps" on a bodyweight lift. Otherwise the column
+        /// assisted machine, "reps" on a bodyweight lift, "each" on a pair of
+        /// dumbbells, whose figure is one bell. Otherwise the column
         /// silently mixes meanings under one heading.
         var tag: String? = nil
 
@@ -810,7 +811,8 @@ struct TrendsView: View {
                        lowerIsBetter: trend.measure.lowerIsBetter,
                        group: trend.measure.sortGroup,
                        tag: trend.measure == .help ? "help"
-                          : trend.measure == .reps ? "reps" : nil)
+                          : trend.measure == .reps ? "reps"
+                          : trend.measure == .perDumbbell ? "each" : nil)
         }
         // Heaviest first WITHIN a unit; name last so equal rows cannot swap
         // between draws.

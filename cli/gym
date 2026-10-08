@@ -39,7 +39,17 @@ from pathlib import Path
 # which case its `volume` and `working_weight` are zero and MEAN NOTHING; its
 # numbers live in `cardio` blocks. `machine_settings` says where the seat goes.
 # See docs/SNAPSHOT.md.
-SCHEMA_SUPPORTED = 7
+#
+# 8 — dumbbell pairs. Every `volume` counts a pair's weight once per dumbbell;
+# weights stay per dumbbell, and `dumbbells: 2` on a lift says so.
+SCHEMA_SUPPORTED = 8
+
+# Older schemas still read, and why each is safe. 7 differs from 8 only in
+# tonnage: a pair of dumbbells counted once. Refusing it would blind RIA for
+# the hours between this merging and the phone installing the app that writes
+# 8 — every other number in it is still true — so it is read, and the tonnage
+# says it is short (`legacy_tonnage_note`).
+SCHEMA_ALSO_READ = (7,)
 
 CONTAINER = Path.home() / "Library" / "Mobile Documents" / \
     "iCloud~com~rathi~fitness" / "Documents" / "snapshot.json"
@@ -113,7 +123,7 @@ def load() -> dict:
     except json.JSONDecodeError as e:
         raise NoSnapshot(f"{path} is not valid JSON ({e}). It may be mid-sync; try again.")
     schema = data.get("schema")
-    if schema != SCHEMA_SUPPORTED:
+    if schema != SCHEMA_SUPPORTED and schema not in SCHEMA_ALSO_READ:
         # Refuse rather than misread: a field that changed meaning is worse than
         # no answer, because the wrong answer looks like an answer. But say which
         # side is behind — "update whichever is older" is a puzzle, not advice.
@@ -245,6 +255,24 @@ def assisted_change(v) -> str:
     return f"−{num(abs(v))} help" if v < 0 else f"+{num(v)} help"
 
 
+def each(entry) -> str:
+    """' each' after a weight that is ONE dumbbell of a pair, else nothing.
+
+    Weights are entered per dumbbell, so a hammer curl's 25 is two 25s. Without
+    the word it reads as the lightest lift on the list."""
+    return " each" if (entry or {}).get("dumbbells") == 2 else ""
+
+
+def legacy_tonnage_note(data) -> list:
+    """A line under any tonnage read from a schema 7 snapshot, which counted a
+    pair of dumbbells once. Said rather than corrected: the CLI cannot tell
+    which sets were pairs, and a guessed total is worse than a known short one."""
+    if data.get("schema") != 7:
+        return []
+    return ["", "  (Written by an older app: a pair of dumbbells counts once in these\n"
+                "   totals. Open Rathi Fitness on the phone and they correct themselves.)"]
+
+
 def plural(n, word: str) -> str:
     """`1 workout`, `3 workouts`. The volume table said "1 sessions"."""
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
@@ -365,7 +393,7 @@ def cmd_today(args, data) -> None:
             tail = f"set {item['sets_done']} of {item['target_sets']}"
         else:
             mark, tail = "·", f"{item['target_sets']} × {item['target_reps']}"
-        lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb   "
+        lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb{each(item)}   "
                      f"{tail}{stand_in(item)}")
     moved = today.get("volume") or 0
     minutes = sum((i.get("cardio") or {}).get("seconds", 0) for i in today["items"])
@@ -376,6 +404,8 @@ def cmd_today(args, data) -> None:
         if minutes:
             summary.append(f"Cardio: {clock(minutes)}")
         lines += ["", "  ·  ".join(summary)]
+        if moved:
+            lines += legacy_tonnage_note(data)
     lines += ["", f"Body weight {num(body.get('current'))} lb "
                   f"({signed(body.get('change_30d'))} in 30 days)"]
     lines += day_notes_lines(data)
@@ -459,12 +489,16 @@ def cmd_lifts(args, data) -> None:
             name = e["name"] + " *"
         else:
             change = signed(e.get("change_30d"))
-            name = e["name"]
+            name = e["name"] + (" †" if each(e) else "")
         lines.append(f"  {name:<22}{num(e['working_weight']):>6}"
                      f"{change:>11}   {e.get('last_performed') or '—'}")
     if any(e.get("assisted") for e in rows):
         lines.append("")
         lines.append("  * assisted — the number is how much HELP you needed, so down is up.")
+    if any(each(e) for e in rows):
+        if not any(e.get("assisted") for e in rows):
+            lines.append("")
+        lines.append("  † each — one dumbbell of a pair, so the load is twice the number.")
     emit(args, rows, "Working weight\n" + "\n".join(lines))
 
 
@@ -482,7 +516,9 @@ def cmd_exercise(args, data) -> None:
         muscles += " + " + ", ".join(e["secondary_muscles"])
     is_cardio = e.get("modality", "strength") == "cardio"
     kind = "cardio" if is_cardio else (
-        f"assisted {e['loading']}" if e.get("assisted") else e["loading"])
+        f"assisted {e['loading']}" if e.get("assisted")
+        else "dumbbell pair" if each(e)
+        else "one dumbbell" if e.get("dumbbells") == 1 else e["loading"])
     lines = [f"{e['name']}  ({kind}"
              + (f", {muscles}" if muscles != "other" else "") + ")"]
 
@@ -505,11 +541,12 @@ def cmd_exercise(args, data) -> None:
                          f"on {best['date']}")
         lines.append("  (assisted machine — less help is the progress)")
     else:
-        lines.append(f"  working {num(e.get('working_weight'))} lb · "
+        lines.append(f"  working {num(e.get('working_weight'))} lb{each(e)} · "
                      f"{signed(e.get('change_30d'))} in 30 days")
         best = e.get("best")
         if best:
-            lines.append(f"  best    {num(best['weight'])} × {best['reps']} on {best['date']}")
+            lines.append(f"  best    {num(best['weight'])}{each(e)} × {best['reps']} "
+                         f"on {best['date']}")
 
     # Where the machine goes. Printed near the top on purpose: it is the thing
     # you want BEFORE you get there, which is the whole reason it is recorded.
@@ -573,6 +610,8 @@ def cmd_sessions(args, data) -> None:
     total = sum(s.get("gym_seconds") or 0 for s in data.get("sessions", []))
     if total >= 60:
         lines += ["", f"  {clock(total)} in the gym, all told"]
+    if rows:
+        lines += legacy_tonnage_note(data)
     emit(args, rows, "Recent sessions\n" + ("\n".join(lines) or "  none yet"))
 
 
@@ -603,6 +642,7 @@ def cmd_volume(args, data) -> None:
         lines += ["", f"  {sparkline(values)}  oldest → newest"]
     total = sum(values)
     lines += ["", f"  {tonnage(total)} over {len(weeks)} weeks"]
+    lines += legacy_tonnage_note(data)
     emit(args, weeks, "Load moved\n" + "\n".join(lines))
 
 

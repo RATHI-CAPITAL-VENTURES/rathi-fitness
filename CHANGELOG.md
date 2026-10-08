@@ -14,34 +14,50 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.15.0 — 2026-09-29
+## 0.16.0 — 2026-10-08
+
+### Fixed
+
+- **A pair of dumbbells counts as two.** Weight is still typed per dumbbell —
+  the number on it — but tonnage now counts it once per dumbbell moved: ten
+  hammer curls with a pair of 25s is 500 lb, not 250. Every total that reads
+  tonnage moves with it: the day on Today, past workouts, the lifetime figure
+  and journey on Trends, the activity grid, the CSV export and what `gym` and
+  RIA read. Nothing stored a computed total, so **history corrects itself** on
+  the first launch.
+- **The CSV export's `volume_lb` goes through the same arithmetic as the app.**
+  It was `weight × reps` written inline, which also exported an assisted
+  pull-up's *help* as the load moved.
+- **The glasses say "help" on an assisted machine.** The lens took a unit and
+  never read it, so a pull-up assist showed "70 × 8" — a load — where the phone
+  said 70 lb of help. Found while adding "each" to the same line.
 
 ### Added
 
-- **Music on the glasses.** Every set screen on the lens now ends with a
-  **Music** button. It opens a card showing what is on, with **Pause/Play**,
-  **Next** and **Back** — the lit button is whichever of Play and Pause you came
-  for. It works both when the phone is mirroring a set and when the lens is
-  running the workout on its own.
-  - During a rest the card carries the rest's clock, and **when the rest ends the
-    card closes itself** so the lens lands on READY.
-  - Previous track, shuffle and picking a playlist stay on the phone and the
-    AirPods; the lens lights one button and every other costs a swipe.
+- **Dumbbells: a pair, or one** — in an exercise's editor, under "How it's
+  loaded", shown only for dumbbell lifts. A pair by default; Goblet Squat,
+  Overhead Triceps Extension and Russian Twist start as one. One-arm and
+  alternating lifts (Dumbbell Row, Concentration Curl, lunges, step-ups) are a
+  pair: both sides do the reps. Existing lifts are counted once on launch from
+  the catalogue.
+- **"each" wherever a pair's weight is shown** — the set screen, the weight
+  sheet, Today's rows, the plan, a past workout, Trends (headline, chart, table
+  and record book), records ("Heaviest ever — 25 lb each"), the glasses, the
+  "where am I" announcement, and `gym`. Records and progression still compare
+  one dumbbell with one dumbbell.
 
 ### Changed
 
-- **Play with nothing queued starts your workout playlist** — from the AirPods
-  and the glasses now, not only the phone's music bar.
-
-### Not possible
-
-- **A buzz on the Neural Band when a rest ends.** Meta's SDK gives apps no way
-  to drive the band's haptics — not in 0.9.0, not in 1.0.0. See
-  `docs/DECISIONS.md` (2026-09-29) for what a rest ending does on the glasses
-  instead.
+- **Snapshot schema 8.** Every `volume` counts a pair's weight twice;
+  `dumbbells` on a dumbbell lift says how many. `gym` reads 8 **and** 7, so it
+  keeps working between this merging and the phone installing the new app — a
+  schema 7 tonnage carries a note saying a pair counts once there. See
+  `docs/SNAPSHOT.md`.
+- The CSV gains a `dumbbells` column after `weight_lb`.
 
 ## Earlier
 
+- [0.15](./docs/changelog/0.15.md)
 - [0.14](./docs/changelog/0.14.md)
 - [0.13](./docs/changelog/0.13.md)
 - [0.12](./docs/changelog/0.12.md)

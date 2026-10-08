@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE))
 gym = __import__("importlib").machinery.SourceFileLoader("gym", str(HERE / "gym")).load_module()
 
 FIXTURE = {
-    "schema": 7,
+    "schema": 8,
     "generated_at": "2026-08-20T13:12:47Z",
     "app_version": "0.1.0",
     "body_weight": {
@@ -51,7 +51,7 @@ FIXTURE = {
             {"slug": "lateral-raise", "name": "Lateral Raise", "target_sets": 3,
              "target_reps": 15, "target_weight": 20, "rest_seconds": 60,
              "sets_done": 0, "warmup_sets": 0, "done": False, "volume": 0,
-             "performed": []},
+             "performed": [], "dumbbells": 2},
             {"slug": "treadmill", "name": "Treadmill", "target_sets": 1,
              "target_reps": 0, "target_weight": 0, "rest_seconds": 0,
              "sets_done": 0, "warmup_sets": 0, "done": True, "volume": 0,
@@ -73,6 +73,19 @@ FIXTURE = {
                      "volume": 5365, "warmup_sets": 1, "average_rpe": 8.5},
                     {"date": "2026-08-12", "top_weight": 182.5, "reps": [8, 7, 7, 6],
                      "volume": 5110, "warmup_sets": 0, "average_rpe": None}]},
+        # Schema 8: a pair of dumbbells. Weights per dumbbell; volume counts both
+        # — 25 × (12 + 10) × 2 = 1100.
+        {"slug": "hammer-curl", "name": "Hammer Curl", "loading": "dumbbell",
+         "dumbbells": 2, "working_weight": 25, "last_performed": "2026-08-17",
+         "best": {"weight": 25, "reps": 12, "date": "2026-08-17"},
+         "change_30d": 5, "primary_muscle": "biceps", "secondary_muscles": ["forearms"],
+         "recent": [{"date": "2026-08-17", "top_weight": 25, "reps": [12, 10],
+                     "volume": 1100, "warmup_sets": 0, "average_rpe": None}]},
+        {"slug": "goblet-squat", "name": "Goblet Squat", "loading": "dumbbell",
+         "dumbbells": 1, "working_weight": 70, "last_performed": "2026-08-12",
+         "change_30d": None, "primary_muscle": "quads", "secondary_muscles": ["glutes"],
+         "recent": [{"date": "2026-08-12", "top_weight": 70, "reps": [10],
+                     "volume": 700, "warmup_sets": 0, "average_rpe": None}]},
         {"slug": "deadlift", "name": "Deadlift", "loading": "barbell",
          "working_weight": 315, "last_performed": "2026-08-17",
          "change_30d": None, "primary_muscle": "back",
@@ -806,3 +819,88 @@ class Assisted(unittest.TestCase):
         self.assertEqual(gym.assisted_change(10), "+10 help")
         self.assertEqual(gym.assisted_change(0), "—")
         self.assertEqual(gym.assisted_change(None), "—")
+
+
+class Dumbbells(unittest.TestCase):
+    """A dumbbell's weight is per dumbbell. Schema 8 says how many were moved,
+    and counts both in every `volume`."""
+
+    def test_a_pair_says_each_and_a_single_does_not(self):
+        self.assertEqual(gym.each({"dumbbells": 2}), " each")
+        self.assertEqual(gym.each({"dumbbells": 1}), "")
+        self.assertEqual(gym.each({}), "", "absent off a dumbbell, and on schema 7")
+        self.assertEqual(gym.each(None), "")
+
+    def test_today_says_each_on_the_pair_only(self):
+        with fixture():
+            _, out = run("today")
+        raise_line = next(l for l in out.splitlines() if "Lateral Raise" in l)
+        self.assertIn("20 lb each", raise_line)
+        bench_line = next(l for l in out.splitlines() if "Bench Press" in l)
+        self.assertNotIn("each", bench_line)
+
+    def test_lifts_marks_the_pair_and_explains_the_mark(self):
+        with fixture():
+            _, out = run("lifts")
+        curl = next(l for l in out.splitlines() if "Hammer Curl" in l)
+        self.assertIn("†", curl)
+        goblet = next(l for l in out.splitlines() if "Goblet Squat" in l)
+        self.assertNotIn("†", goblet, "one dumbbell is the whole load")
+        self.assertIn("twice the number", out)
+
+    def test_the_detail_view_says_pair_and_each(self):
+        with fixture():
+            _, out = run("exercise", "hammer-curl")
+        self.assertIn("dumbbell pair", out)
+        self.assertIn("working 25 lb each", out)
+        self.assertIn("best    25 each × 12", out)
+        with fixture():
+            _, out = run("exercise", "goblet-squat")
+        self.assertIn("one dumbbell", out)
+        self.assertIn("working 70 lb ·", out)
+
+    def test_volume_is_read_as_written(self):
+        """The phone does the doubling; the CLI must not do it again."""
+        with fixture():
+            _, out = run("--json", "exercise", "hammer-curl")
+        self.assertEqual(json.loads(out)["recent"][0]["volume"], 1100)
+
+
+class OlderSchemas(unittest.TestCase):
+    """Between this merging and the phone running the app that writes schema
+    8, the file on the Mac is schema 7. It is read, not refused."""
+
+    def schema7(self):
+        old = json.loads(json.dumps(FIXTURE))
+        old["schema"] = 7
+        for item in old["today"]["items"]:
+            item.pop("dumbbells", None)
+        for ex in old["exercises"]:
+            ex.pop("dumbbells", None)
+        return old
+
+    def test_schema_7_still_loads(self):
+        with fixture(self.schema7()):
+            self.assertEqual(gym.load()["schema"], 7)
+            code, out = run("today")
+        self.assertEqual(code, 0)
+        self.assertIn("Push A", out)
+        self.assertNotIn(" each", out, "schema 7 does not say, so neither does gym")
+
+    def test_schema_7_tonnage_says_it_is_short(self):
+        for command in (["today"], ["sessions"], ["volume"]):
+            with fixture(self.schema7()):
+                _, out = run(*command)
+            self.assertIn("counts once", out, command)
+
+    def test_schema_8_tonnage_carries_no_such_note(self):
+        for command in (["today"], ["sessions"], ["volume"]):
+            with fixture():
+                _, out = run(*command)
+            self.assertNotIn("counts once", out, command)
+
+    def test_schema_6_is_still_refused(self):
+        with fixture(dict(FIXTURE, schema=6)):
+            with self.assertRaises(gym.NoSnapshot):
+                gym.load()
+

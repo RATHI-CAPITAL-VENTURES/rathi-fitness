@@ -175,7 +175,7 @@ struct SetView: View {
         .strength(
             exercise: exercise.name, day: item.day?.name,
             nextSet: nextWorkingSet, of: plan.sets,
-            weight: weight, unit: exercise.weightUnit, reps: reps,
+            weight: weight, word: exercise.weightWord, reps: reps,
             resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil)
     }
 
@@ -186,7 +186,7 @@ struct SetView: View {
         }
         if isFinished { return "\(exercise.name) is done. \(workingToday.count) sets." }
         return "\(exercise.name). Set \(nextWorkingSet) of \(plan.sets), "
-             + "\(Fmt.spoken(weight)) for \(reps)."
+             + "\(Fmt.spoken(weight))\(exercise.each) for \(reps)."
     }
 
     // MARK: hero
@@ -243,7 +243,7 @@ struct SetView: View {
             if let last = todays.last {
                 Text("Set \(last.setIndex) logged — ")
                     .foregroundStyle(RFDesign.label)
-                + Text("\(Fmt.weight(last.weight)) × \(last.reps)")
+                + Text("\(Fmt.weight(last.weight))\(exercise.each) × \(last.reps)")
                     .foregroundStyle(RFDesign.speech)
                 + Text(comparison(to: last)).foregroundStyle(RFDesign.label)
             } else if let suggestion {
@@ -252,7 +252,7 @@ struct SetView: View {
             } else if let previous = lastSession.first {
                 Text("Last time — ")
                     .foregroundStyle(RFDesign.label)
-                + Text("\(Fmt.weight(previous.weight)) × \(previous.reps)")
+                + Text("\(Fmt.weight(previous.weight))\(exercise.each) × \(previous.reps)")
                     .foregroundStyle(RFDesign.speech)
                 + Text(" for \(lastSession.count) sets").foregroundStyle(RFDesign.label)
             } else {
@@ -276,7 +276,7 @@ struct SetView: View {
     /// concatenation is exactly what the inference engine struggles with.
     private func suggestionLine(_ suggestion: Tally.Suggestion) -> String {
         let weight: String = Fmt.weight(suggestion.weight)
-        let unit: String = exercise.assisted ? " lb help" : ""
+        let unit: String = exercise.assisted ? " lb help" : exercise.each
         return "Try \(weight)\(unit) × \(suggestion.reps) — \(suggestion.because)."
     }
 
@@ -292,7 +292,7 @@ struct SetView: View {
                 return delta < 0 ? ". \(Fmt.weight(-delta)) lb less help."
                                  : ". \(Fmt.weight(delta)) lb more help."
             }
-            if delta > 0 { return ". Up \(Fmt.weight(delta)) lb." }
+            if delta > 0 { return ". Up \(Fmt.weight(delta)) lb\(exercise.each)." }
         }
         if entry.reps > prev.reps { return ". \(entry.reps - prev.reps) more reps." }
         return "."
@@ -463,7 +463,7 @@ struct SetView: View {
         let reps = working.map { String($0.reps) }.joined(separator: ", ")
         let warmups = entries.count - working.count
         let tail = warmups > 0 ? "  (+\(warmups) warm-up)" : ""
-        return "\(Fmt.weight(top)) · \(reps)\(tail)"
+        return "\(Fmt.weight(top))\(exercise.each) · \(reps)\(tail)"
     }
 
     /// One prior session tells you what you did. Three tell you if you're stalling.

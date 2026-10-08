@@ -262,10 +262,19 @@ enum LensArt {
     }
 
     /// "185 × 8" is a number and what to do with it; "12 reps" likewise. The
-    /// ring gives the first the room and sets the second beneath it.
+    /// ring gives the first the room and sets the second beneath it. "25 each
+    /// × 10" and "70 help × 8" keep the numeral alone in the big line and move
+    /// the word down with the reps — a word in the hero would shrink the
+    /// number to fit it.
     static func split(_ hero: String) -> (big: String, small: String?) {
         if let cross = hero.range(of: " × ") {
-            return (String(hero[..<cross.lowerBound]), "× " + hero[cross.upperBound...])
+            let figure = String(hero[..<cross.lowerBound])
+            let reps = "× " + hero[cross.upperBound...]
+            if let space = figure.firstIndex(of: " ") {
+                return (String(figure[..<space]),
+                        figure[figure.index(after: space)...] + " " + reps)
+            }
+            return (figure, reps)
         }
         let parts = hero.split(separator: " ", maxSplits: 1).map(String.init)
         return parts.count == 2 ? (parts[0], parts[1]) : (hero, nil)

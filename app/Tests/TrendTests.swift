@@ -362,7 +362,7 @@ final class TrendTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(Tally.TrendMeasure.minutes.minimumPad, 1)
         XCTAssertEqual(Tally.TrendMeasure.weight.minimumPad, 5)
         XCTAssertEqual(Tally.TrendMeasure.help.minimumPad, 5)
-        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.isStepped), [.weight, .help])
+        XCTAssertEqual(Tally.TrendMeasure.allCases.filter(\.isStepped), [.weight, .help, .perDumbbell])
         XCTAssertEqual(Tally.TrendMeasure.bodyWeight.minimumPad, 0.6)
     }
 }

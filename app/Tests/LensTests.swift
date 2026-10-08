@@ -18,7 +18,7 @@ final class LensTests: XCTestCase {
     private func bench(nextSet: Int = 2, weight: Double = 185, reps: Int = 8,
                        resting: LensState.Rest? = nil) -> LensState {
         .strength(exercise: "Bench Press", day: "Push", nextSet: nextSet, of: 4,
-                  weight: weight, unit: "lb", reps: reps, resting: resting)
+                  weight: weight, word: "", reps: reps, resting: resting)
     }
 
     // MARK: what it says
@@ -552,7 +552,7 @@ final class LensTests: XCTestCase {
         XCTAssertNotNil(LensArt.card(LensCard(eyebrow: "PUSH", title: name, lines: [], actions: [])))
         XCTAssertNotNil(LensArt.row(.init(title: name, trailing: "182.5 × 12", done: false, action: .open(0), progress: 0)))
         XCTAssertNotNil(LensArt.set(.strength(exercise: name, day: "Push", nextSet: 1, of: 3,
-                                              weight: 182.5, unit: "lb", reps: 12, resting: nil)))
+                                              weight: 182.5, word: "", reps: 12, resting: nil)))
     }
 
     // MARK: the switch

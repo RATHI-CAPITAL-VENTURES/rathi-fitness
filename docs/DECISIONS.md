@@ -2229,3 +2229,53 @@ learn about a player it has nothing to do with.
 (Log set, −1 rep, Back, Music). Three were worn in a gym; four were not, and
 Meta's `ButtonGroup` promises nothing about wrapping. If the fourth does not fit,
 the fix is to drop "−1 rep" from READY before dropping Music.
+
+## 2026-10-08 — A pair of dumbbells is two dumbbells
+
+**Chosen: weight stays per dumbbell, and a per-exercise count (`dumbbells`,
+1 or 2) multiplies it in tonnage only. Rejected: typing the total of both, and
+inferring the count from the loading alone.**
+
+The report was "hammer curl only adds weight assuming total 25 lb, not 25 on
+each side". Tonnage was `weight × reps`, so a set with a pair of 25s counted
+half of what was lifted, on every screen and in the snapshot.
+
+- **Per dumbbell is what you type, so it stays what you type.** The number is
+  printed on the bell; a total is arithmetic done standing at the rack, and the
+  seeded plan (Incline DB Press 60, Lateral Raise 20) and every set already on
+  the phone are per dumbbell. Changing the meaning of the field would have
+  needed a migration of every logged set, and halved every chart overnight.
+- **The count is per exercise, not per loading.** A goblet squat holds one
+  dumbbell; the loading alone cannot tell it from a hammer curl. The catalogue
+  names the singles (`Catalogue.singles`) — Goblet Squat, Overhead Triceps
+  Extension, Russian Twist — and any lift can be changed in its editor.
+- **One-arm and alternating lifts are a pair.** Dumbbell Row, Concentration
+  Curl, Step-Up, Walking Lunge, Bulgarian Split Squat: reps are logged per side,
+  so both sides do them, and ten rows at 60 with each arm moved 1,200 lb whether
+  or not both bells were in hand at once. Wrist Curl and Farmer's Walk are pairs
+  too — one in each hand is how both are done with dumbbells. There are no
+  kettlebells to decide for: `Exercise.Loading` has no case for one.
+- **Only tonnage multiplies.** Records, the trend line, the next target, the
+  plan's advance and plate math all compare one dumbbell with one dumbbell —
+  like with like. Doubling there would put a 25 lb pair above a 45 lb single on
+  one chart, and "try 52.5" would be a weight no rack holds. Everywhere a pair's
+  weight is shown it says **each**, from one property (`Exercise.isPair`), so the
+  label and the arithmetic cannot disagree.
+- **`0` means unchosen, and resolves on read.** CloudKit needs a constant
+  default and the right answer differs by row, so the stored default is 0 and
+  `Exercise.implements` resolves it from the catalogue by slug. A launch step
+  (`Exercise.backfillDumbbells`) pins the dumbbell rows, idempotently like
+  `Sessions.backfill`; a row that syncs in before it runs still counts right.
+- **History corrects itself.** Nothing persists a computed volume — every total
+  is `Tally` over the sets at the moment it is drawn — so the first launch of
+  the new build re-tallies all of it. The CSV export was the one place that
+  computed `weight × reps` itself (and so also exported an assisted pull-up's
+  help as load); it goes through `SetEntry.tally` now.
+- **Snapshot schema 8, and `gym` still reads 7.** The precedent (2, 4) is that
+  `volume` changing for the same history is a bump. But the phone and the Mac
+  update at different times: the Mac's checkout is pulled on merge, the phone's
+  installer waits until the app is closed. Refusing 7 for those hours would
+  blind RIA over a number that is merely short, so `SCHEMA_ALSO_READ` lets 7
+  through and the CLI says, under any tonnage, that a pair counts once there.
+- **Not touched: Apple Health.** Workouts go to Health with a duration and no
+  energy, and no load at all — there was nothing to correct.

@@ -186,7 +186,7 @@ enum Workout {
         // Records compare weight and reps, never volume — so no bodyweight is
         // needed and none is invented.
         Tally.headline(
-            for: Tally.Set(weight: weight, reps: reps, kind: kind, assisted: exercise.assisted),
+            for: exercise.tally(weight: weight, reps: reps, kind: kind),
             history: history.map { $0.tally(bodyWeight: nil) })
     }
 
@@ -199,7 +199,7 @@ enum Workout {
         kind: SetKind, rpe: Double = 0, note: String = "", setIndex: Int,
         at now: Date = .now, in context: ModelContext
     ) {
-        let candidate = Tally.Set(weight: weight, reps: reps, kind: kind, assisted: exercise.assisted)
+        let candidate = exercise.tally(weight: weight, reps: reps, kind: kind)
         let entry = SetEntry(exercise: exercise, weight: weight, reps: reps, setIndex: setIndex,
                              date: now, kind: kind, rpe: rpe, note: note)
         // Opened here, on the first set, rather than when a screen appears —

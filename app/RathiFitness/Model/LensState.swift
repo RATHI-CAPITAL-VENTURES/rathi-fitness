@@ -193,10 +193,10 @@ extension LensState {
     ///   - resting: the cooldown, or nil when not resting here.
     static func strength(
         exercise: String, day: String?, nextSet: Int, of sets: Int,
-        weight: Double, unit: String, reps: Int, resting: Rest?
+        weight: Double, word: String, reps: Int, resting: Rest?
     ) -> LensState {
         let finished = nextSet > sets
-        let load = Self.load(weight: weight, unit: unit, reps: reps)
+        let load = Self.load(weight: weight, word: word, reps: reps)
 
         if let resting {
             return LensState(
@@ -264,8 +264,14 @@ extension LensState {
 
     /// "185 × 8", or "12 reps" for a lift with nothing on the bar — "0 × 12"
     /// reads as a fault, and a push-up has no weight to show.
-    private static func load(weight: Double, unit: String, reps: Int) -> String {
-        weight > 0 ? "\(Fmt.weight(weight)) × \(reps)" : "\(reps) reps"
+    ///
+    /// `word` is `Exercise.weightWord`: "25 each × 10" on a pair of dumbbells,
+    /// whose figure is one bell, and "70 help × 8" on an assisted machine.
+    /// It replaces a `unit` this took and never read — the lens said "70 × 8"
+    /// for a pull-up assist, which reads as a load, while the phone said help.
+    static func load(weight: Double, word: String, reps: Int) -> String {
+        guard weight > 0 else { return "\(reps) reps" }
+        return "\(Fmt.weight(weight))\(word.isEmpty ? "" : " " + word) × \(reps)"
     }
 }
 
