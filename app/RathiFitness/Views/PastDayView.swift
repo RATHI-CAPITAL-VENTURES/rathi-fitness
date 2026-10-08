@@ -220,6 +220,8 @@ struct PastDayView: View {
         let warmups = sets.count - counted.count
         var line = reps.isEmpty ? "warm-ups only" : reps
         if exercise.assisted { line += " · help" }
+        // The figure on the right is one dumbbell of a pair.
+        if exercise.isPair { line += " · each" }
         if warmups > 0 { line += "  (+\(warmups) warm-up)" }
         return line
     }

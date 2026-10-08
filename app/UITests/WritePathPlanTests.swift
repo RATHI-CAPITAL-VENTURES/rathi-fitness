@@ -93,4 +93,45 @@ final class WritePathPlanTests: WritePathCase {
                        "the slot should be gone from the day")
         shoot("remove-exercise")
     }
+
+    /// `ExerciseEditorView` — the dumbbell count. A pair is the default for a
+    /// lateral raise, so the day's line reads "lb each"; choosing One has to
+    /// reach the store, which the day's line re-reading proves.
+    func testCountingOneDumbbell() {
+        openThePlan()
+        app.staticTexts["Push A"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Push A"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "20 lb each")).firstMatch
+            .waitForExistence(timeout: 5),
+            "a lateral raise is a pair, so its weight should read per dumbbell")
+
+        app.staticTexts["Lateral Raise"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Lateral Raise"].waitForExistence(timeout: 5))
+        // The DisclosureRow's value, which names the loading.
+        app.staticTexts["dumbbell"].firstMatch.tap()
+
+        // The Menu's label is the CURRENT value — see `testChangingTheSchedule`.
+        let pair = app.buttons.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "A pair")).firstMatch
+        XCTAssertTrue(pair.waitForExistence(timeout: 5),
+                      "a dumbbell lift should offer its count")
+        pair.tap()
+        let one = app.buttons["One"].firstMatch
+        XCTAssertTrue(one.waitForExistence(timeout: 5))
+        one.tap()
+        XCTAssertTrue(app.buttons.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "One")).firstMatch
+            .waitForExistence(timeout: 5),
+            "the menu should now show One")
+        shoot("dumbbell-count")
+
+        back()
+        back()
+        XCTAssertTrue(app.navigationBars["Push A"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS[c] %@", "20 lb ·")).firstMatch
+            .waitForExistence(timeout: 5),
+            "one dumbbell is the whole load, so the line should drop \"each\"")
+    }
 }

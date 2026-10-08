@@ -478,7 +478,7 @@ struct PlanItemEditorView: View {
     private func unit(for field: Field) -> String? {
         switch field {
         case .sets, .reps, .rest: return nil
-        case .weight: return item.exercise?.assisted == true ? "lb help" : "lb"
+        case .weight: return item.exercise?.weightUnit ?? "lb"
         case .cardio(let metric): return metric == .duration ? nil : metric.unit
         }
     }
@@ -830,14 +830,29 @@ struct ExerciseEditorView: View {
 
                 SettingsSection(
                     title: "How it's loaded",
-                    footer: "Only barbell lifts get plate math. A cable stack has no plates "
+                    footer: exercise.loadingKind == .dumbbell
+                        ? "Type what ONE dumbbell weighs — the number on it. With a pair, "
+                          + "each rep moves both, so your totals count it twice and the "
+                          + "weight reads \"each\". A goblet squat holds one."
+                        : "Only barbell lifts get plate math. A cable stack has no plates "
                           + "to work out, and showing some would be a guess."
                 ) {
                     ChoiceRow(label: "Loaded by", value: exercise.loading,
                               options: Exercise.Loading.allCases.map {
                                   ($0.rawValue, $0.rawValue.capitalized) },
-                              showsDivider: exercise.loadingKind.showsPlateMath) {
+                              showsDivider: exercise.loadingKind.showsPlateMath
+                                  || exercise.loadingKind == .dumbbell) {
                         exercise.loading = $0
+                    }
+                    if exercise.loadingKind == .dumbbell {
+                        // `implements`, not the stored count, so an exercise
+                        // from before v0.16.0 shows what it is being counted as.
+                        ChoiceRow(label: "Dumbbells", value: exercise.implements,
+                                  options: [(2, "A pair"), (1, "One")],
+                                  showsDivider: false) {
+                            exercise.dumbbells = $0
+                        }
+                        .accessibilityIdentifier("dumbbell-count")
                     }
                     if exercise.loadingKind.showsPlateMath {
                         ChoiceRow(label: "Bar", value: exercise.barWeight,

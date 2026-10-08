@@ -14,19 +14,26 @@ enum Export {
     /// use: "which CSV is my treadmill in" is a question a spreadsheet should
     /// never make you ask, and a blank cell reads as "not applicable" to
     /// everybody without being explained.
-    static let header = "date,exercise,slug,modality,assisted,muscle,set,kind,weight_lb,reps,"
+    static let header = "date,exercise,slug,modality,assisted,muscle,set,kind,weight_lb,dumbbells,reps,"
         + "rpe,volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source"
 
     static func csv(from context: ModelContext) throws -> String {
         let sets = try context.fetch(
             FetchDescriptor<SetEntry>(sortBy: [SortDescriptor(\.date, order: .forward)]))
+        // Assisted work is valued against what you weighed that day, so the
+        // column agrees with every tonnage the app shows.
+        let bodyWeightLog = Tally.BodyWeightLog(
+            try context.fetch(FetchDescriptor<WeighIn>()).map { (date: $0.date, pounds: $0.pounds) })
         var lines = [header]
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime]
 
         for entry in sets {
             let exercise = entry.exercise
-            let volume = entry.setKind.counts ? entry.weight * Double(entry.reps) : 0
+            // Through `Tally`, the one place that decides what a set moved. This
+            // was `weight × reps` inline, which counted a pair of dumbbells as
+            // one and a pull-up assist's HELP as load.
+            let volume = entry.tally(bodyWeight: bodyWeightLog.pounds(on: entry.date)).volume
             lines.append([
                 stamp.string(from: entry.date),
                 escape(exercise?.name ?? ""),
@@ -39,6 +46,9 @@ enum Export {
                 String(entry.setIndex),
                 entry.setKind.rawValue,
                 Fmt.weight(entry.weight),
+                // Per dumbbell, so `weight_lb × reps × dumbbells` is the volume.
+                // Blank off a dumbbell, where the weight is already the load.
+                exercise?.loadingKind == .dumbbell ? String(exercise?.implements ?? 1) : "",
                 String(entry.reps),
                 entry.rpe > 0 ? String(format: "%.1f", entry.rpe) : "",
                 Fmt.weight(volume),

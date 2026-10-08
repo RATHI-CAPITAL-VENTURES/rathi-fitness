@@ -39,7 +39,15 @@ struct Snapshot: Codable {
     /// tonnage, and a reader that averages it in is reporting a fiction.
     /// Cardio lives in `cardio` blocks and `minutes`; `machine_settings` says
     /// where the seat goes.
-    static let currentSchema = 7
+    /// **8** — dumbbell pairs. A dumbbell's weight is entered per dumbbell,
+    /// and every `volume` now counts it once per dumbbell moved: a set of ten
+    /// hammer curls with a pair of 25s is 500, where schema 7 said 250. Same
+    /// history, different number, so a bump — the precedent is schemas 2 and
+    /// 4, which each changed what `volume` counted. Weights themselves
+    /// (`working_weight`, `best`, `top_weight`, `target_weight`, `performed`,
+    /// `top_lifts`) stay per dumbbell; `dumbbells` on a dumbbell lift says how
+    /// many, and is absent on anything else.
+    static let currentSchema = 8
 
     var schema: Int = Snapshot.currentSchema
     var generatedAt: String
@@ -157,6 +165,10 @@ struct Snapshot: Codable {
             /// doing what the plan says — which is nearly all of them.
             var insteadOf: String?
             var insteadOfSlug: String?
+            /// 2 when `target_weight` and `performed[].weight` are ONE dumbbell
+            /// of a pair, 1 for a single dumbbell; absent off a dumbbell, where
+            /// the weight is already the load. Schema 8.
+            var dumbbells: Int?
         }
 
         struct CardioTarget: Codable {
@@ -224,9 +236,13 @@ struct Snapshot: Codable {
         var machineSettings: [MachineSettingLine]?
         /// Lifetime cardio bests, absent on a lift.
         var cardioBest: CardioBest?
+        /// How many dumbbells move per rep, on a dumbbell lift only: 2 means
+        /// every weight here is ONE of a pair and `volume` counted both.
+        /// Absent off a dumbbell. Schema 8.
+        var dumbbells: Int?
 
         enum CodingKeys: String, CodingKey {
-            case slug, name, loading, best, recent, modality, assisted
+            case slug, name, loading, best, recent, modality, assisted, dumbbells
             case primaryMuscle = "primary_muscle"
             case secondaryMuscles = "secondary_muscles"
             case workingWeight = "working_weight"
@@ -274,6 +290,8 @@ struct Snapshot: Codable {
             var sets: Int; var reps: Int; var weight: Double; var restSeconds: Int
             var modality: String = Exercise.Modality.strength.rawValue
             var cardioTarget: Today.CardioTarget?
+            /// As on `today.items[]`: `weight` is per dumbbell when present.
+            var dumbbells: Int?
         }
     }
 
@@ -529,7 +547,8 @@ enum SnapshotBuilder {
                 cardioTarget: ex.isCardio ? cardioTarget(target) : nil,
                 cardio: ex.isCardio ? cardioDone(performed) : nil,
                 insteadOf: planned?.name,
-                insteadOfSlug: planned?.slug))
+                insteadOfSlug: planned?.slug,
+                dumbbells: dumbbells(ex)))
         }
         // Kind-aware, so this agrees with what the phone shows.
         let moved = Tally.volume(todaysSets.map {
@@ -686,7 +705,15 @@ enum SnapshotBuilder {
             modality: ex.modality,
             assisted: ex.assisted,
             machineSettings: settings.isEmpty ? nil : settings,
-            cardioBest: ex.isCardio ? cardioBest(mine) : nil)
+            cardioBest: ex.isCardio ? cardioBest(mine) : nil,
+            dumbbells: dumbbells(ex))
+    }
+
+    /// The count on a dumbbell lift, nil on anything else — so the key is
+    /// absent where it would mean nothing rather than a 1 a reader has to
+    /// learn to ignore.
+    private static func dumbbells(_ ex: Exercise) -> Int? {
+        ex.loadingKind == .dumbbell && !ex.isCardio ? ex.implements : nil
     }
 
     /// Lifetime cardio bests. Nil rather than zeros when nothing qualifies —
@@ -710,7 +737,8 @@ enum SnapshotBuilder {
                             reps: item.targetReps, weight: item.targetWeight,
                             restSeconds: item.restSeconds,
                             modality: ex.modality,
-                            cardioTarget: ex.isCardio ? cardioTarget(item) : nil)
+                            cardioTarget: ex.isCardio ? cardioTarget(item) : nil,
+                            dumbbells: dumbbells(ex))
                   }
               })
     }
@@ -770,7 +798,7 @@ enum SnapshotBuilder {
                     .map { $0 + 1 } ?? 1
                 let byExercise = Dictionary(grouping: entries) { $0.exercise?.slug ?? "?" }
                 let top = byExercise
-                    .compactMap { _, e -> (String, Double)? in
+                    .compactMap { _, e -> (String, Double, String)? in
                         // Assisted machines are excluded alongside cardio:
                         // "Assisted Pull-Up 100" would top the list on the day
                         // you needed the most help.
@@ -778,7 +806,7 @@ enum SnapshotBuilder {
                               !exercise.isCardio, !exercise.assisted,
                               let w = e.filter({ $0.setKind.counts })
                                   .map(\.weight).max(), w > 0 else { return nil }
-                        return (exercise.name, w)
+                        return (exercise.name, w, exercise.each)
                     }
                     // Ties broken by name. Without it, two lifts at the same
                     // weight swap places between writes — Swift's Dictionary
@@ -786,7 +814,10 @@ enum SnapshotBuilder {
                     // churns in iCloud for no reason at all.
                     .sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }
                     .prefix(3)
-                    .map { "\($0.0) \(Fmt.weight($0.1))" }
+                    // Per dumbbell, like every weight here, and saying so:
+                    // "Hammer Curl 25" beside "Bench Press 185" reads as a
+                    // light day rather than a pair of 25s.
+                    .map { "\($0.0) \(Fmt.weight($0.1))\($0.2)" }
                 let working = entries.filter { $0.setKind.counts }
                 return .init(
                     date: date,

@@ -70,6 +70,14 @@ struct RathiFitnessApp: App {
                     reportingFailure("setting up your plan") {
                         try Seed.runIfNeeded(context)
                     }
+                    // Dumbbell lifts from before v0.16.0 say nothing about
+                    // whether they are one bell or two. Pinned once, from the
+                    // catalogue — see `Exercise.dumbbells`.
+                    reportingFailure("counting your dumbbells") {
+                        if try Exercise.backfillDumbbells(in: context) > 0 {
+                            context.saveOrReport("counting your dumbbells")
+                        }
+                    }
                     // Anything left open by a kill on a previous day is closed
                     // before it can collect today's sets.
                     Sessions.closeStale(in: context)

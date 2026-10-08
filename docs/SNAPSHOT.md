@@ -26,11 +26,14 @@ CLI can exist at all.
 | 6 | **Time away.** `time_away[]` records stretches he declared himself away for — `from`, `to` (both `YYYY-MM-DD`, `to` **inclusive**) and an optional `note`. Anything reading `sessions[]` to judge consistency must subtract these first: a fortnight abroad is not a fortnight of not bothering, and the app's own band leaves those weeks out of its percentage entirely rather than counting them as met. |
 | 5 | **Sessions, not days.** A `sessions[]` entry is one *workout*, not one date, so **two entries can share a `date`** — a reader that keys on `date` alone will merge a two-a-day back together, or overwrite one with the other. `started_at` and `ended_at` (`HH:mm`, 24-hour; `ended_at` absent while a workout is in progress) and `ordinal` (which workout of that day, from 1) are what tell them apart. `day` is now the workout's **recorded** name rather than a guess from the weekday, so it is right on a day you trained out of order. |
 | 7 | **Stand-ins: `today.items[]` is what is being DONE, not what is planned.** Until now every item in `today.items[]` was a slot of `plan[]` and the two could not disagree. A slot can now be swapped for one day, and when it is, that item's `slug`, `name`, `target_weight` and `cardio_target` describe the stand-in, and `performed[]`, `sets_done` and `volume` cover **everything done in the slot** — the planned exercise's sets and the stand-in's. `instead_of` / `instead_of_slug` name what the plan has there. A reader that ignores them sees `today` contradicting `plan[]` and reads it as an edited programme, which is why this is a bump and not an addition. Also new, and additive: `sessions[].gym_seconds`. |
+| 8 | **Dumbbell pairs.** A dumbbell's weight is entered per dumbbell, and every `volume` — `today`, `today.items[]`, `exercises[].recent[]`, `sessions[]` — now counts it once per dumbbell moved: ten hammer curls with a pair of 25s is 500, where 7 said 250. Same history, different number, which is the precedent of 2 and 4. Every *weight* stays per dumbbell; `dumbbells` (1 or 2) on `exercises[]`, `today.items[]` and `plan[].items[]` says how many, and is absent off a dumbbell. `gym` reads 7 as well — see "Dumbbells". |
 | 3 | Cardio and machine settings. Two additions and one **changed meaning**, which is what forces the bump: an exercise may be `modality: "cardio"`, and on one of those `volume`, `working_weight` and `best` are absent or zero and **mean nothing** — a treadmill has no tonnage. Cardio numbers live in `cardio` blocks (`bouts`, `seconds`, `distance`, `average_incline`, `average_speed`) and in `sessions[].cardio_minutes`. `machine_settings[]` on an exercise says where the seat goes. |
 
 - **`schema` is checked, not assumed.** `gym` refuses a version it does not
   know rather than misreading a field that changed meaning. Bump it whenever a
-  field changes meaning; adding a field does not need a bump.
+  field changes meaning; adding a field does not need a bump. An older version
+  is read only when `SCHEMA_ALSO_READ` in `cli/gym` lists it with the reason it
+  is safe — 7, since 8 (see "Dumbbells").
 - **Keys are snake_case.** Note `change_30d`: Swift's `convertToSnakeCase`
   splits on capitals and *not* on digits, so this one needs explicit
   `CodingKeys` or it silently ships as `change30d` and every reader sees null.
@@ -79,7 +82,7 @@ the build if that stops being true.
 | `time_away[]` | declared trips: `from`, `to` (inclusive), optional `note` |
 | `body_weight` | `current`, `current_date`, `change_30d`, `trend_per_week`, `history[]` |
 | `today` | the day's plan and what has been done — **absent on a rest day**, not empty |
-| `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best` |
+| `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best`, `dumbbells` |
 | `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
 | `day_notes` | `{ date, items[] }` — what he jotted down for **today**: `kind`, `heading`, `text`. See "Day notes". |
@@ -168,6 +171,34 @@ done*:
 
 `plan[]` is **never** affected. It is the programme; a swap is not an edit to
 it, and tomorrow `today.items[]` is back to matching it with nothing undone.
+
+### Dumbbells
+
+    exercises[].dumbbells        2 — a pair; 1 — one dumbbell; absent off a dumbbell
+    today.items[].dumbbells      the same, for the slot's exercise
+    plan[].items[].dumbbells     the same
+
+**Every weight is ONE dumbbell.** `working_weight`, `best`, `top_weight`,
+`target_weight`, `performed[].weight` and the numbers in `top_lifts` are what is
+written on the bell, because that is what is typed and what you pick off the
+rack. Read `dumbbells: 2` as "lb each": a 25 there is two 25s. `top_lifts`
+says so itself — `"Incline DB Press 60 each"`.
+
+**Every `volume` counts both.** `weight × reps × dumbbells` per working set,
+so a reader summing tonnage has nothing to multiply. Absent `dumbbells` means 1.
+
+A one-arm row or an alternating curl is a pair: reps are logged per side, so
+both sides do them. The singles — Goblet Squat, Overhead Triceps Extension,
+Russian Twist — are listed in `Catalogue.singles`, and any lift can be changed
+in its editor.
+
+**Schema 7 is still read.** It is exactly 8 with a pair counted once in
+tonnage and no `dumbbells` key. Refusing it would blind RIA from the moment
+this reaches the Mac until the phone installs the app that writes 8 — the
+installer waits for the app to be closed, so that can be hours — and every
+other number in it is right. So `gym` reads it, prints no "each" (it cannot
+know), and puts a line under any tonnage saying a pair counts once there.
+Any other reader should do the same rather than guess which lifts were pairs.
 
 ### Time in the gym
 
