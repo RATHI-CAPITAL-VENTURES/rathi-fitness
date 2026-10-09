@@ -91,9 +91,12 @@ struct TodayView: View {
     private var isOptionalDay: Bool { today != nil && scheduledToday == nil }
 
     /// What "Start optional day" would start — see `Workout.optionalDay`.
+    /// Gated on THIS screen's idea of a day off, so `-RFRestDay` gets the
+    /// offer too: a UI test run on a real training day otherwise had none.
     private var offeredOptionalDay: PlannedDay? {
-        Workout.optionalDay(days: days, config: config, sessionDates: sessionDates,
-                            lastSession: lastSession, calendar: calendar)
+        guard scheduledToday == nil else { return nil }
+        return Workout.nextWorkout(days: days, config: config, sessionDates: sessionDates,
+                                   calendar: calendar)
     }
 
     /// The workout the rotation has reached, training day or not — so a rest day

@@ -52,6 +52,7 @@ additions to snapshot schema 8, and `gym` printing all of it.
 | The cardio screen could only be reached through a plan slot | docs | `CardioSetView.Purpose` (`slot` / `extra` / `alone`) | landed here |
 | An optional day was lost on relaunch: `Workout.chosen` is not persisted, so Today, the lens and the snapshot went back to "Rest day" mid-workout | testing | `Workout.current` falls back to today's lifting session; `testAnOptionalDayUnderWayIsOnTheLens` | landed here |
 | A day off on the glasses said only "Nothing is planned today" | observability | Settings → Glasses names the optional day; `testARestDaySaysWhatTheOptionalDayWouldBe` | landed here |
+| `-RFRestDay` hid the day's workout but the offer still re-asked the real schedule, so the UI test passed on a Thursday here and failed on CI's Friday (UTC) | testing | `Workout.nextWorkout`, gated on Today's own day-off answer; the same UI test now holds on any weekday | landed here |
 | Starting an optional day from the glasses | testing | — | blocked: the lens takes the display only around a workout, by design (DECISIONS 2026-09-21), and this release was scoped to add no lens UI; the lens follows the day once the phone starts it |
 | Seeing both buttons on the phone, and the lens following an optional day, worn | testing | install and use the build | blocked: this PR is not merged by instruction, and the phone's installer builds only from `main` |
 

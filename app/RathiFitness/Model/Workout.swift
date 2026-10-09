@@ -114,10 +114,20 @@ enum Workout {
     static func optionalDay(days: [PlannedDay], config: Rotation.Config,
                             sessionDates: [Date], lastSession: Date?,
                             now: Date = .now, calendar: Calendar = .current) -> PlannedDay? {
-        guard !days.isEmpty,
-              today(days: days, config: config, sessionDates: sessionDates,
+        guard today(days: days, config: config, sessionDates: sessionDates,
                     lastSession: lastSession, now: now, calendar: calendar) == nil
         else { return nil }
+        return nextWorkout(days: days, config: config, sessionDates: sessionDates,
+                           now: now, calendar: calendar)
+    }
+
+    /// The workout after today's, by the rules `optionalDay` documents — without
+    /// asking whether today is a day off. Today asks that itself (it can be told
+    /// with `-RFRestDay`); everything else goes through `optionalDay`.
+    static func nextWorkout(days: [PlannedDay], config: Rotation.Config,
+                            sessionDates: [Date], now: Date = .now,
+                            calendar: Calendar = .current) -> PlannedDay? {
+        guard !days.isEmpty else { return nil }
         switch config.mode {
         case .weekday:
             for offset in 1...7 {
