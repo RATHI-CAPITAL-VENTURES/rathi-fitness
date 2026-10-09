@@ -866,6 +866,92 @@ class Dumbbells(unittest.TestCase):
         self.assertEqual(json.loads(out)["recent"][0]["volume"], 1100)
 
 
+class OptionalDayAndCardio(unittest.TestCase):
+    """0.17.0: a workout on a day off, and cardio outside the plan. All
+    additions to schema 8 — an older snapshot has none of these keys and must
+    read exactly as before."""
+
+    def rest_day(self, **rest):
+        data = json.loads(json.dumps(FIXTURE))
+        data.pop("today")
+        data["rest_day"] = dict({"date": "2026-08-22", "optional": "Leg Day", "cardio": []},
+                                **rest)
+        return data
+
+    def test_a_rest_day_names_the_optional_workout(self):
+        with fixture(self.rest_day()):
+            code, out = run("today")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[0], "Rest day — optional: Leg Day")
+
+    def test_a_rest_day_from_an_older_app_reads_as_before(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data.pop("today")
+        with fixture(data):
+            _, out = run("today")
+        self.assertEqual(out.splitlines()[0], "Rest day — nothing scheduled.")
+
+    def test_cardio_on_its_own_is_listed_on_a_rest_day(self):
+        ride = {"slug": "treadmill", "name": "Treadmill", "performed": [],
+                "cardio": {"bouts": 1, "seconds": 1500, "distance": 2.1}}
+        with fixture(self.rest_day(cardio=[ride])):
+            _, out = run("today")
+        self.assertIn("Cardio on its own", out)
+        self.assertIn("+ Treadmill", out)
+        self.assertIn("25 min · 2.10 mi", out)
+
+    def test_rest_day_json_carries_the_offer(self):
+        with fixture(self.rest_day()):
+            _, out = run("--json", "today")
+        payload = json.loads(out)
+        self.assertFalse(payload["training"])
+        self.assertEqual(payload["optional"], "Leg Day")
+
+    def test_an_optional_day_says_so(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data["today"]["optional"] = True
+        with fixture(data):
+            _, out = run("today")
+        self.assertIn("· optional day", out.splitlines()[0])
+        with fixture():
+            _, out = run("today")
+        self.assertNotIn("optional", out)
+
+    def test_extra_cardio_is_its_own_block_outside_the_counts(self):
+        data = json.loads(json.dumps(FIXTURE))
+        before = (data["today"]["exercises_done"], data["today"]["sets_done"])
+        data["today"]["extras"] = [{"slug": "rower", "name": "Rower", "performed": [],
+                                    "cardio": {"bouts": 1, "seconds": 600, "distance": 1.2}}]
+        with fixture(data):
+            _, out = run("today")
+        self.assertIn("Extra · not in the plan", out)
+        self.assertIn("+ Rower", out)
+        # The plan's counts are the phone's and are printed untouched.
+        self.assertIn(f"{before[0]} of {data['today']['exercises_planned']} done", out)
+        # In the cardio total: the fixture's own cardio plus the rower's ten.
+        own = sum((i.get("cardio") or {}).get("seconds", 0) for i in FIXTURE["today"]["items"])
+        self.assertIn(f"Cardio: {gym.clock(own + 600)}", out)
+
+    def test_sessions_mark_optional_and_cardio_only(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data["sessions"][0]["kind"] = "optional"
+        data["sessions"][1]["kind"] = "cardio"
+        with fixture(data):
+            _, out = run("sessions")
+        lines = out.splitlines()
+        self.assertTrue(any("(optional)" in l for l in lines))
+        self.assertTrue(any("(cardio only)" in l for l in lines))
+        self.assertEqual(sum("(optional)" in l or "(cardio only)" in l for l in lines), 2)
+
+    def test_the_week_reads_four_plus_one_optional(self):
+        data = json.loads(json.dumps(FIXTURE))
+        week = [s for s in data["sessions"] if s["date"] >= "2026-08-17"]
+        week[0]["kind"] = "optional"
+        with fixture(data):
+            _, out = run("volume")
+        self.assertIn(f"{gym.plural(len(week) - 1, 'workout')} + 1 optional", out)
+
+
 class OlderSchemas(unittest.TestCase):
     """Between this merging and the phone running the app that writes schema
     8, the file on the Mac is schema 7. It is read, not refused."""

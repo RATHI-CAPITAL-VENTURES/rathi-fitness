@@ -619,10 +619,15 @@ struct ExercisePickerView: View {
     /// pull one from the catalogue, or make one" is the same job either way and
     /// a copy would be a second place to forget the catalogue.
     var standingInFor: PlanItem?
+    /// Cardio only — "Add cardio" on Today. Your machines and the catalogue's,
+    /// and a new name is made a cardio exercise rather than a barbell lift.
+    var cardioOnly = false
     var onPick: (Exercise) -> Void
 
-    init(standingInFor: PlanItem? = nil, onPick: @escaping (Exercise) -> Void) {
+    init(standingInFor: PlanItem? = nil, cardioOnly: Bool = false,
+         onPick: @escaping (Exercise) -> Void) {
         self.standingInFor = standingInFor
+        self.cardioOnly = cardioOnly
         self.onPick = onPick
     }
 
@@ -638,7 +643,8 @@ struct ExercisePickerView: View {
 
     private var matches: [Exercise] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(q) }
+        let pool = cardioOnly ? exercises.filter(\.isCardio) : exercises
+        return q.isEmpty ? pool : pool.filter { $0.name.lowercased().contains(q) }
     }
 
     /// Catalogue movements not already in your library. This is the exercise
@@ -646,7 +652,9 @@ struct ExercisePickerView: View {
     /// and a lift picked here arrives knowing what it works and what bar it uses.
     private var catalogueMatches: [Catalogue.Entry] {
         let have = Set(exercises.map(\.slug))
-        let found = Catalogue.search(search).filter { !have.contains(Exercise.slugify($0.name)) }
+        let found = Catalogue.search(search).filter {
+            !have.contains(Exercise.slugify($0.name)) && (!cardioOnly || $0.modality == .cardio)
+        }
         // Swapping a treadmill: the bikes and the rower come before ninety
         // lifts. Stable, so the catalogue's own order survives within each half.
         guard let planned = standingInFor?.exercise else { return found }
@@ -691,7 +699,8 @@ struct ExercisePickerView: View {
                     Section {
                         Button {
                             let name = search.trimmingCharacters(in: .whitespaces)
-                            let exercise = Exercise(name: name)
+                            let exercise = cardioOnly ? Exercise(name: name, modality: .cardio)
+                                                      : Exercise(name: name)
                             Catalogue.enrich(exercise)   // in case it matches after all
                             context.insert(exercise)
                             context.saveOrReport("creating an exercise")
@@ -702,7 +711,10 @@ struct ExercisePickerView: View {
                                   systemImage: "plus.circle.fill")
                         }
                     } footer: {
-                        Text("Anything already in the catalogue arrives knowing what it "
+                        Text(cardioOnly
+                             ? "Something invented here is a cardio machine with the common "
+                               + "four numbers — change which under Edit the plan."
+                             : "Anything already in the catalogue arrives knowing what it "
                              + "works and what bar it uses. Something invented here starts "
                              + "as a barbell lift — change it "
                              + (standingInFor == nil ? "on the next screen."
@@ -714,7 +726,7 @@ struct ExercisePickerView: View {
                     shelf("Does the same job", shelves.alike)
                     shelf("Anything else in your log", shelves.others)
                 } else {
-                    shelf("In your log", matches)
+                    shelf(cardioOnly ? "Your machines" : "In your log", matches)
                 }
                 if !catalogueMatches.isEmpty {
                     Section("Catalogue") {
@@ -736,7 +748,7 @@ struct ExercisePickerView: View {
             .background(RFDesign.ground.ignoresSafeArea())
             .searchable(text: $search, prompt: "Search or name a new one")
             .navigationTitle(standingInFor?.exercise.map { "Instead of \($0.name)" }
-                             ?? "Add an exercise")
+                             ?? (cardioOnly ? "Add cardio" : "Add an exercise"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

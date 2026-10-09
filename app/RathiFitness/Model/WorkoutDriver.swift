@@ -151,14 +151,23 @@ final class WorkoutDriver {
         // today. Without this the lens and the phone disagree about which
         // workout it is the moment you train off-schedule.
         let chosen = Workout.chosenDay(among: days, now: now, calendar: calendar)
-        guard let day = chosen ?? Workout.today(
-            days: days, config: config, sessionDates: sessions.map(\.startedAt),
-            lastSession: Workout.lastSessionDate(in: allSets, now: now, calendar: calendar),
+        // `current`, not `today`: an optional day already under way stays on
+        // the lens after a relaunch, the way it stays on Today.
+        guard let day = chosen ?? Workout.current(
+            days: days, config: config, sessions: sessions, allSets: allSets,
             now: now, calendar: calendar)
         else {
             board = nil
             emptyUntil = now.addingTimeInterval(60)
-            idleReason = "Nothing is planned today. Pick a workout with the calendar button on Today."
+            // A day off takes nothing from the lens. It says what is on offer,
+            // because "rest day" and "broken" look the same from outside.
+            let offer = Workout.optionalDay(
+                days: days, config: config, sessionDates: Workout.rotationDates(sessions),
+                lastSession: Workout.lastSessionDate(in: allSets, now: now, calendar: calendar),
+                now: now, calendar: calendar)
+            idleReason = offer.map {
+                "Rest day — optional: \($0.name). Start it on Today and the lens follows."
+            } ?? "Nothing is planned today. Pick a workout with the calendar button on Today."
             return nil
         }
         let session = Workout.openSession(for: day, among: sessions, now: now, calendar: calendar)

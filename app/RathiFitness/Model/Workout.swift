@@ -48,9 +48,87 @@ enum Workout {
     }
 
     /// The last day you trained before today — what "every N days" counts from.
+    ///
+    /// **Scheduled workouts only.** An optional day and a cardio-only session
+    /// are left out, so doing one does not push the next training day back:
+    /// "if we don't work these days, they stay the original days". A set with
+    /// no session predates sessions and was, by definition, a planned one.
     static func lastSessionDate(in allSets: [SetEntry], now: Date = .now,
                                 calendar: Calendar = .current) -> Date? {
-        allSets.filter { !calendar.isDate($0.date, inSameDayAs: now) }.map(\.date).max()
+        allSets
+            .filter { !calendar.isDate($0.date, inSameDayAs: now) }
+            .filter { ($0.session?.sessionKind ?? .planned) == .planned }
+            .map(\.date).max()
+    }
+
+    /// What `Rotation.index` counts: the start of every workout that moves the
+    /// plan along. Planned and optional sessions do — an optional Saturday
+    /// takes the next workout, and Monday gets the one after. A cardio-only
+    /// session does not: "lifting days keep their workouts" whatever you rode.
+    ///
+    /// Every caller goes through this — Today, the glasses, the snapshot and
+    /// the session that decides whether it is optional — because four copies
+    /// of `sessions.map(\.startedAt)` is four places to forget the filter.
+    static func rotationDates(_ sessions: [Session]) -> [Date] {
+        sessions.filter { !$0.isCardioOnly }.map(\.startedAt)
+    }
+
+    /// What is on screen today: the schedule's workout, else the one you have
+    /// already started on a day the schedule left empty.
+    ///
+    /// The fallback is what keeps an optional day on screen after the app is
+    /// relaunched mid-workout — `chosen` is not persisted — and what lets the
+    /// glasses and the snapshot follow it without being told.
+    static func current(days: [PlannedDay], config: Rotation.Config,
+                        sessions: [Session], allSets: [SetEntry],
+                        now: Date = .now, calendar: Calendar = .current) -> PlannedDay? {
+        today(days: days, config: config, sessionDates: rotationDates(sessions),
+              lastSession: lastSessionDate(in: allSets, now: now, calendar: calendar),
+              now: now, calendar: calendar)
+            ?? resumed(among: sessions, now: now, calendar: calendar)
+    }
+
+    /// The workout of today's latest lifting session, if there is one.
+    static func resumed(among sessions: [Session], now: Date = .now,
+                        calendar: Calendar = .current) -> PlannedDay? {
+        sessions
+            .filter { !$0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now) }
+            .filter { !($0.sets ?? []).isEmpty || $0.isOpen }
+            .max { $0.startedAt < $1.startedAt }?
+            .plannedDay
+    }
+
+    // MARK: - A day off
+
+    /// The workout "Start optional day" would start, or nil on a day the
+    /// schedule already has one.
+    ///
+    /// - Rotation and every N days: **the next workout in the rotation** — the
+    ///   one the next training day would otherwise get. Doing it advances the
+    ///   rotation (it is a session like any other), so that training day gets
+    ///   the one after; skipping it moves nothing.
+    /// - Weekday: **the next weekday's workout.** A weekday plan has no
+    ///   rotation to advance, so doing Monday's workout on Saturday pulls it
+    ///   forward for a week and Monday still has Monday's. It is the only
+    ///   answer that is both "the next workout" and leaves the plan alone.
+    static func optionalDay(days: [PlannedDay], config: Rotation.Config,
+                            sessionDates: [Date], lastSession: Date?,
+                            now: Date = .now, calendar: Calendar = .current) -> PlannedDay? {
+        guard !days.isEmpty,
+              today(days: days, config: config, sessionDates: sessionDates,
+                    lastSession: lastSession, now: now, calendar: calendar) == nil
+        else { return nil }
+        switch config.mode {
+        case .weekday:
+            for offset in 1...7 {
+                guard let next = calendar.date(byAdding: .day, value: offset, to: now) else { continue }
+                let weekday = calendar.component(.weekday, from: next)
+                if let day = days.first(where: { $0.weekday == weekday }) { return day }
+            }
+            return nil
+        case .rotation, .everyNDays:
+            return rotationDay(days: days, sessionDates: sessionDates, now: now, calendar: calendar)
+        }
     }
 
     // MARK: - A day picked by hand
@@ -86,6 +164,14 @@ enum Workout {
         }
     }
 
+    /// The cardio-only session in progress today, if there is one.
+    static func openCardioSession(among sessions: [Session], now: Date = .now,
+                                  calendar: Calendar = .current) -> Session? {
+        sessions.first {
+            $0.isOpen && $0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now)
+        }
+    }
+
     /// The sets that belong to the workout on screen.
     ///
     /// Day-scoped, the evening half of a two-a-day opened with the morning's
@@ -110,9 +196,17 @@ enum Workout {
 
     /// Everything done in this SLOT today — its own exercise and anything that
     /// stood in for it. See `Swaps.slugsCounting`.
+    ///
+    /// Never an extra bout: cardio added with "Add cardio" is not in the plan,
+    /// so it cannot tick a slot off — even a treadmill slot, on a treadmill.
     static func performed(_ item: PlanItem, in todaysSets: [SetEntry]) -> [SetEntry] {
         let slugs = Swaps.slugsCounting(toward: item)
-        return todaysSets.filter { slugs.contains($0.exercise?.slug ?? "") }
+        return todaysSets.filter { !$0.extra && slugs.contains($0.exercise?.slug ?? "") }
+    }
+
+    /// The cardio added to this workout outside the plan, oldest first.
+    static func extras(in todaysSets: [SetEntry]) -> [SetEntry] {
+        todaysSets.filter(\.extra).sorted { $0.date < $1.date }
     }
 
     /// Sets that move you toward the target. Three warm-ups used to tick an

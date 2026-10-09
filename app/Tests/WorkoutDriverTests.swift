@@ -132,6 +132,32 @@ final class WorkoutDriverTests: XCTestCase {
         XCTAssertNil(driver.screen(at: now))
     }
 
+    /// A day off still hands the lens back — but Settings → Glasses says what
+    /// is on offer, so "rest day" does not read as "broken".
+    func testARestDaySaysWhatTheOptionalDayWouldBe() {
+        for day in (try? context.fetch(FetchDescriptor<PlannedDay>())) ?? [] {
+            day.weekday = day.weekday % 7 + 1          // tomorrow's
+        }
+        try? context.save()
+        driver.touch(at: now)
+        XCTAssertNil(driver.screen(at: now))
+        XCTAssertTrue(driver.idleReason.hasPrefix("Rest day — optional: Push"), driver.idleReason)
+    }
+
+    /// Once it is started — and the phone relaunched, so `Workout.chosen` is
+    /// gone — the lens follows the optional day, as Today does.
+    func testAnOptionalDayUnderWayIsOnTheLens() throws {
+        let day = try XCTUnwrap(bench.day)
+        day.weekday = day.weekday % 7 + 1
+        try context.save()
+        Workout.logStrength(item: bench, exercise: try XCTUnwrap(bench.exercise), weight: 185,
+                            reps: 8, kind: .working, setIndex: 1, at: now, in: context)
+        XCTAssertEqual(sets().first?.session?.sessionKind, .optional)
+
+        driver.touch(at: now)
+        XCTAssertEqual(list?.eyebrow, "PUSH · 0 OF 3 DONE")
+    }
+
     // MARK: the list
 
     func testTodayIsTheWholePlanInOrder() {

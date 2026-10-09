@@ -439,6 +439,12 @@ final class Session {
     /// last month, and deleting the planned day must not erase it either.
     var dayName: String = ""
     var plannedDay: PlannedDay?
+    /// What sort of workout this was — `Session.Kind`'s raw value. Decided
+    /// when the session opens (`Sessions.current`, `Sessions.cardio`) and kept,
+    /// rather than worked out later from the schedule: changing the schedule
+    /// next month must not turn last Saturday's optional day into a planned
+    /// one. The default is what every session before v0.17.0 was.
+    var kind: String = Session.Kind.planned.rawValue
 
     /// `.nullify`, not `.cascade`: removing a session must never take the sets
     /// with it. The sets are what actually happened; the session is how they
@@ -462,6 +468,26 @@ final class Session {
     static let unnamed = "Workout"
 
     var title: String { dayName.isEmpty ? Self.unnamed : dayName }
+
+    /// Three kinds, because they answer "does this move the plan?" three ways.
+    ///
+    /// - `planned`: a workout on a day the schedule has one. The default.
+    /// - `optional`: a lifting workout on a day the schedule has NONE — the
+    ///   "Start optional day" button, or a pick from the calendar on a rest
+    ///   day. It **advances the rotation** like any other workout, so the next
+    ///   training day gets the workout after it. It does **not** restart the
+    ///   every-N-days clock: training days stay the days they were.
+    /// - `cardio`: a cardio-only session started on its own. It advances
+    ///   **nothing** — not the rotation, not the clock, not "showing up" —
+    ///   because lifting days keep their workouts whatever you rode on a
+    ///   Sunday. See DECISIONS 2026-10-08.
+    enum Kind: String, CaseIterable {
+        case planned, optional, cardio
+    }
+
+    var sessionKind: Kind { Kind(rawValue: kind) ?? .planned }
+    var isOptional: Bool { sessionKind == .optional }
+    var isCardioOnly: Bool { sessionKind == .cardio }
 }
 
 /// One set, as performed. The only record of what actually happened.
@@ -507,6 +533,13 @@ final class SetEntry {
     /// and because history written before sessions existed has none until the
     /// backfill reaches it — see `SessionBackfill`.
     var session: Session?
+    /// A cardio bout added to a lifting workout with "Add cardio" — done, but
+    /// not part of the plan. Kept OUT of every slot (`Workout.performed`), so
+    /// it never ticks a treadmill slot off or moves "N of N done", and IN every
+    /// cardio total, because the minutes happened. A flag rather than "any set
+    /// whose exercise is not in the plan", because the extra bout can be the
+    /// same treadmill the plan has later in the workout.
+    var extra: Bool = false
 
     init(exercise: Exercise, weight: Double, reps: Int, setIndex: Int,
          date: Date = .now, kind: SetKind = .working, rpe: Double = 0,

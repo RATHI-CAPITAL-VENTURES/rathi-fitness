@@ -130,7 +130,11 @@ struct PastDayView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(daysAgo).rfEyebrow()
+            // An optional day and a ride on its own say so, so a week of
+            // history reads "four, and one extra" rather than "five".
+            Text(daysAgo + (session.isOptional ? " · optional day"
+                            : session.isCardioOnly ? " · cardio on its own" : ""))
+                .rfEyebrow()
             Text(dayName ?? Fmt.weekdayDate(date))
                 .font(RFDesign.title(34))
                 .foregroundStyle(RFDesign.speech)

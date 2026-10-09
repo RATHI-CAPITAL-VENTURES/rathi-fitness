@@ -14,49 +14,52 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.16.0 — 2026-10-08
-
-### Fixed
-
-- **A pair of dumbbells counts as two.** Weight is still typed per dumbbell —
-  the number on it — but tonnage now counts it once per dumbbell moved: ten
-  hammer curls with a pair of 25s is 500 lb, not 250. Every total that reads
-  tonnage moves with it: the day on Today, past workouts, the lifetime figure
-  and journey on Trends, the activity grid, the CSV export and what `gym` and
-  RIA read. Nothing stored a computed total, so **history corrects itself** on
-  the first launch.
-- **The CSV export's `volume_lb` goes through the same arithmetic as the app.**
-  It was `weight × reps` written inline, which also exported an assisted
-  pull-up's *help* as the load moved.
-- **The glasses say "help" on an assisted machine.** The lens took a unit and
-  never read it, so a pull-up assist showed "70 × 8" — a load — where the phone
-  said 70 lb of help. Found while adding "each" to the same line.
+## 0.17.0 — 2026-10-08
 
 ### Added
 
-- **Dumbbells: a pair, or one** — in an exercise's editor, under "How it's
-  loaded", shown only for dumbbell lifts. A pair by default; Goblet Squat,
-  Overhead Triceps Extension and Russian Twist start as one. One-arm and
-  alternating lifts (Dumbbell Row, Concentration Curl, lunges, step-ups) are a
-  pair: both sides do the reps. Existing lifts are counted once on launch from
-  the catalogue.
-- **"each" wherever a pair's weight is shown** — the set screen, the weight
-  sheet, Today's rows, the plan, a past workout, Trends (headline, chart, table
-  and record book), records ("Heaviest ever — 25 lb each"), the glasses, the
-  "where am I" announcement, and `gym`. Records and progression still compare
-  one dumbbell with one dumbbell.
+- **An optional day.** On a day the schedule has nothing, Today offers
+  **Start <workout>** — the next workout in the rotation (in weekday mode, the
+  next weekday's). Do it and it counts like any workout: the rotation moves on,
+  so the next training day gets the one after it. Skip it and nothing moves —
+  no miss, no mark, the training days keep the workouts they had. The header
+  says "optional day", past workouts say so, and the session is stored as
+  `optional`. It does not restart the every-N-days clock: training days stay
+  the days they were.
+- **Add cardio, on a lifting day.** A **+ Add cardio** under the plan picks a
+  treadmill, bike or rower — your machines, the catalogue's, or a new name — and
+  logs it on the usual cardio screen. It goes into the workout as an **extra**:
+  its own section, never in "N of N done" or the sets planned, never in tonnage,
+  always in cardio minutes and miles.
+- **Cardio on its own, on a day off.** The same **+** on a rest day starts a
+  cardio-only session named for the machine. It moves nothing — not the
+  rotation, not the every-N-days clock, not "showing up" — so lifting days keep
+  their workouts. A second machine joins the same visit ("Treadmill + Rower").
+- **`gym today` on a day off** says what is on offer — "Rest day — optional: Leg
+  Day" — and lists cardio done on its own. A workout on a day off reads
+  "· optional day"; extra cardio is its own block. `gym sessions` marks
+  "(optional)" and "(cardio only)"; `gym volume` reads "4 workouts + 1
+  optional".
+- **The glasses follow an optional day**, including after the phone relaunches,
+  and on a day off Settings → Glasses says what the optional day would be. Cardio
+  of either kind is mirrored on the lens the way slot cardio already was.
+- **Snapshot (schema stays 8, all additions):** `today.optional`,
+  `today.extras[]`, `rest_day { date, optional, cardio[] }`, `sessions[].kind`.
+  The CSV export gains `extra` and `workout` columns, at the end.
 
-### Changed
+### Fixed
 
-- **Snapshot schema 8.** Every `volume` counts a pair's weight twice;
-  `dumbbells` on a dumbbell lift says how many. `gym` reads 8 **and** 7, so it
-  keeps working between this merging and the phone installing the new app — a
-  schema 7 tonnage carries a note saying a pair counts once there. See
-  `docs/SNAPSHOT.md`.
-- The CSV gains a `dumbbells` column after `weight_lb`.
+- **The snapshot had a `today` on a rotation's day off.** It resolved the
+  rotation by index and never asked whether today was a training day, so on a
+  Saturday `gym today` showed the workout the phone was calling a rest day —
+  against SNAPSHOT.md's own "absent on a rest day". It now asks the phone's
+  question (`Workout.current`).
+- **"Moved today: nothing yet" under a workout that had only cardio in it.**
+  Now that a workout can open on an extra bout, the tonnage waits for a lift.
 
 ## Earlier
 
+- [0.16](./docs/changelog/0.16.md)
 - [0.15](./docs/changelog/0.15.md)
 - [0.14](./docs/changelog/0.14.md)
 - [0.13](./docs/changelog/0.13.md)
