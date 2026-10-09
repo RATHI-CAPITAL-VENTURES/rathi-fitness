@@ -417,12 +417,16 @@ def cmd_today(args, data) -> None:
         lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb{each(item)}   "
                      f"{tail}{stand_in(item)}")
     extras = today.get("extras") or []
+    # Cardio done on its own earlier today (`cardio_alone`, from 0.17.0) — its
+    # own session, so not this workout's, but today's all the same.
+    alone = today.get("cardio_alone") or []
     lines += extra_lines("Extra · not in the plan", extras)
+    lines += extra_lines("Cardio on its own", alone)
     moved = today.get("volume") or 0
-    # Extras are in the cardio total — the minutes happened — and in none of
-    # the counts above.
+    # Extras and rides on their own are in the cardio total — the minutes
+    # happened — and in none of the counts above.
     minutes = sum((i.get("cardio") or {}).get("seconds", 0)
-                  for i in today["items"] + extras)
+                  for i in today["items"] + extras + alone)
     if moved or minutes:
         summary = []
         if moved:

@@ -44,10 +44,24 @@ A **MINOR bump is a milestone** and must ship a retro under
   and on a day off Settings → Glasses says what the optional day would be. Cardio
   of either kind is mirrored on the lens the way slot cardio already was.
 - **Snapshot (schema stays 8, all additions):** `today.optional`,
-  `today.extras[]`, `rest_day { date, optional, cardio[] }`, `sessions[].kind`.
+  `today.extras[]`, `today.cardio_alone[]`, `rest_day { date, optional,
+  cardio[] }`, `sessions[].kind`. `today.optional` reads the session's stored
+  kind.
   The CSV export gains `extra` and `workout` columns, at the end.
 
 ### Fixed
+
+- **(Review) A ride mid-workout no longer splits the workout.** Logging
+  cardio "on its own" while a lifting workout was open closed that workout;
+  the next lift opened a second one and the rotation advanced twice. Where a
+  bout goes is now one model function (`Workout.cardioHome` / `logBout`), and
+  with a workout open the bout joins it as an extra.
+- **(Review) "Add cardio" with nothing lifted no longer advances the
+  rotation**, and no longer counts as a workout in "showing up" or Trends.
+- **(Review) A morning ride stays in `today`** (`cardio_alone`) and in
+  `gym today`'s cardio minutes after an evening lift.
+- **(Review) Trends' lifetime "workouts" leaves out cardio-only sessions.**
+  Their minutes still count.
 
 - **The snapshot had a `today` on a rotation's day off.** It resolved the
   rotation by index and never asked whether today was a training day, so on a

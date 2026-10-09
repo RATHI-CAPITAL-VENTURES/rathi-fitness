@@ -15,20 +15,10 @@ import SwiftData
 /// when you step off — which is the actual gap this fills, because otherwise
 /// that number exists nowhere ten seconds later.
 struct CardioSetView: View {
-    /// What the bout is FOR, which decides where it is written and what it
-    /// counts toward. The screen is the same for all three — the owner asked
-    /// for "the existing cardio set UI", and a second screen would be a second
-    /// place to forget the console's numbers.
-    enum Purpose {
-        /// A slot of the plan. Ticks it off.
-        case slot(PlanItem)
-        /// "Add cardio" on a lifting day: written into that workout, flagged
-        /// `extra`, counted in cardio totals and never against the plan.
-        case extra(PlannedDay)
-        /// "+ Cardio" on a day off: its own cardio-only session, which moves
-        /// nothing. See `Session.Kind.cardio`.
-        case alone
-    }
+    /// What the bout is FOR. The screen is the same for all three — the owner
+    /// asked for "the existing cardio set UI" — and WHERE the bout goes is
+    /// `Workout.cardioHome`'s decision, not this view's. See `Workout.CardioPurpose`.
+    typealias Purpose = Workout.CardioPurpose
 
     let purpose: Purpose
     let exercise: Exercise
@@ -58,10 +48,12 @@ struct CardioSetView: View {
         }
     }
 
-    private var isExtra: Bool {
-        if case .extra = purpose { return true }
-        return false
+    /// Where a bout logged now would go, and whether it is an extra there.
+    private var home: (session: Session?, extra: Bool) {
+        Workout.cardioHome(purpose, among: sessions, calendar: calendar)
     }
+
+    private var isExtra: Bool { home.extra }
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -104,18 +96,7 @@ struct CardioSetView: View {
             .sorted { $0.setIndex < $1.setIndex }
     }
 
-    private var currentSession: Session? {
-        switch purpose {
-        case .alone:
-            return Workout.openCardioSession(among: sessions, calendar: calendar)
-        case .slot, .extra:
-            return sessions.first {
-                $0.isOpen && !$0.isCardioOnly
-                    && calendar.isDate($0.startedAt, inSameDayAs: .now)
-                    && $0.plannedDay?.persistentModelID == day?.persistentModelID
-            }
-        }
-    }
+    private var currentSession: Session? { home.session }
     /// Cardio is usually one bout; intervals are the reason `targetSets` still
     /// means something here.
     private var isFinished: Bool { slotBouts >= max(1, plan.sets) }
@@ -189,10 +170,11 @@ struct CardioSetView: View {
             if isStandIn, let planned = item?.exercise {
                 Text("Today, instead of \(planned.name)").rfEyebrow()
             }
-            switch purpose {
-            case .extra: Text("Extra · not part of the plan").rfEyebrow()
-            case .alone: Text("On its own · your lifting days stay as they are").rfEyebrow()
-            case .slot: EmptyView()
+            // By where the bout will GO: "on its own" with a workout open
+            // joins that workout, and says so.
+            if item == nil {
+                Text(isExtra ? "Extra · not part of the plan"
+                             : "On its own · your lifting days stay as they are").rfEyebrow()
             }
             if plan.sets > 1 {
                 SetPips(total: plan.sets, done: slotBouts)
@@ -501,17 +483,7 @@ struct CardioSetView: View {
             incline: values[.incline] ?? 0,
             resistance: values[.resistance] ?? 0,
             averageHeartRate: Int(values[.heartRate] ?? 0))
-        entry.extra = isExtra
-        let session: Session?
-        switch purpose {
-        case .alone: session = Sessions.cardio(named: exercise.name, in: context)
-        case .slot, .extra: session = Sessions.current(for: day, in: context)
-        }
-        entry.session = session
-        context.insert(entry)
-        // If this bout is what opened the workout, the workout began when the
-        // bout did, not when you stepped off and logged it.
-        if let session { Sessions.backdate(session, toCover: entry) }
+        Workout.logBout(entry, for: purpose, in: context)
         note = ""
         context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)

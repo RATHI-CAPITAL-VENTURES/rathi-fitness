@@ -37,12 +37,16 @@ final class OptionalDayUITests: XCTestCase {
     /// Pick a machine in the cardio picker and log one bout of it.
     private func logCardio(_ machine: String) {
         let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 5), "the cardio picker should open")
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "the cardio picker should open")
         XCTAssertTrue(app.navigationBars["Add cardio"].exists)
         search.tap()
+        // On a loaded Mac the field can take a beat to own the keyboard, and
+        // typing before it does fails "neither element nor any descendant has
+        // keyboard focus".
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
         search.typeText(machine)
         let hit = text(containing: machine)
-        XCTAssertTrue(hit.waitForExistence(timeout: 5), "the catalogue should have a \(machine)")
+        XCTAssertTrue(hit.waitForExistence(timeout: 15), "the catalogue should have a \(machine)")
         hit.tap()
 
         let log = element("log-cardio")
@@ -75,6 +79,50 @@ final class OptionalDayUITests: XCTestCase {
                       "the workout says it is optional")
         XCTAssertTrue(text(containing: " done").exists, "and shows the plan's checklist")
         shoot("optional-day-started")
+    }
+
+    /// The review's scenario, by finger: ride, start the optional day and lift,
+    /// ride again from the "Cardio today" row, lift again. The second ride used
+    /// to close the workout, and the next lift opened a second one.
+    func testARideFromTheRowMidWorkoutDoesNotSplitIt() {
+        launch(["-RFRestDay"])
+        XCTAssertTrue(element("add-cardio").waitForExistence(timeout: 20))
+        element("add-cardio").tap()
+        logCardio("Rower")
+        XCTAssertTrue(element("start-optional-day").waitForExistence(timeout: 10))
+        element("start-optional-day").tap()
+
+        let liftOnce = {
+            let row = self.element("row-back-squat")
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "Legs opens on the squat")
+            row.tap()
+            // Still cooling down from the last set: "Log set" waits behind it.
+            let skip = self.app.buttons.containing(
+                NSPredicate(format: "label BEGINSWITH 'Skip to set'")).firstMatch
+            if skip.waitForExistence(timeout: 3) { skip.tap() }
+            let log = self.element("log-set")
+            XCTAssertTrue(log.waitForExistence(timeout: 10))
+            log.tap()
+            self.app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        liftOnce()
+
+        let ride = element("cardio-rower")
+        XCTAssertTrue(ride.waitForExistence(timeout: 10), "the morning ride is still listed")
+        ride.tap()
+        let log = element("log-cardio")
+        XCTAssertTrue(log.waitForExistence(timeout: 10))
+        XCTAssertTrue(text(containing: "Extra · not part of the plan").exists,
+                      "mid-workout, the ride goes into the workout")
+        let more = app.buttons["Increase Distance"].firstMatch
+        more.tap(); more.tap()
+        log.tap()
+
+        liftOnce()
+        XCTAssertTrue(text(containing: "set 2 of").waitForExistence(timeout: 10),
+                      "both squat sets are in one workout")
+        XCTAssertFalse(text(containing: "workout 2").exists, "and there is only one workout")
+        shoot("ride-mid-workout")
     }
 
     func testCardioAddedToALiftingDayIsOutsideThePlan() {

@@ -488,6 +488,18 @@ final class Session {
     var sessionKind: Kind { Kind(rawValue: kind) ?? .planned }
     var isOptional: Bool { sessionKind == .optional }
     var isCardioOnly: Bool { sessionKind == .cardio }
+
+    /// One of the plan's workouts — what the rotation, "showing up" and the
+    /// lifetime count of workouts count. Not a cardio-only session, and not a
+    /// lifting session that only ever held EXTRA bouts: "Add cardio" opens the
+    /// day's workout to put the bout in, and if he then lifts nothing, nothing
+    /// of the plan happened. (Empty sessions are pruned; while one is being
+    /// opened it has no sets yet and still counts, as it always did.)
+    var countsAsWorkout: Bool {
+        guard !isCardioOnly else { return false }
+        let all = sets ?? []
+        return all.isEmpty || all.contains { !$0.extra }
+    }
 }
 
 /// One set, as performed. The only record of what actually happened.

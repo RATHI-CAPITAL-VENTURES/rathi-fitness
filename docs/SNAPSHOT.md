@@ -150,6 +150,7 @@ A free-text note can of course hold anything; the sheet says where it goes.
     rest_day.cardio[]          { slug, name, cardio, performed[] } per machine
     today.optional             true — absent on a scheduled day
     today.extras[]             { slug, name, cardio, performed[] } per machine
+    today.cardio_alone[]       the same, for cardio done on its own earlier today
     sessions[].kind            "optional" | "cardio" — absent when planned
 
 Added in 0.17.0, all additions to schema 8.
@@ -177,9 +178,15 @@ today` does.
 **A cardio-only session advanced nothing.** `kind: "cardio"` is a session
 started on its own on a day off: no planned day, named for its machines
 ("Treadmill + Rower"). It is not one of the plan's workouts — leave it out when
-judging how much of the plan was covered — and on its day it is listed under
-`rest_day.cardio`, not `today` (if he then lifts as well, `rest_day` goes and
-it is in `sessions[]` only). "4 workouts + 1 optional" is
+judging how much of the plan was covered. On its day it is listed under
+`rest_day.cardio`, or, once he lifts as well, under `today.cardio_alone`, so
+lifting later in the day does not make it vanish. A bout logged "on its own"
+while a workout is open joins that workout and is in `today.extras` instead.
+`gym today` counts all three in its cardio minutes.
+
+**`today.optional` is the session's stored kind**, decided when the session
+opened. Changing the schedule afterwards does not relabel it. Before the first
+set it is the schedule's answer. "4 workouts + 1 optional" is
 `sessions[]` grouped by week and split by `kind`, which is what `gym volume`
 prints.
 

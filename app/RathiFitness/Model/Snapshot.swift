@@ -157,6 +157,13 @@ struct Snapshot: Codable {
         /// machine. In NONE of the counts above — not `sets_done`, not
         /// `exercises_done`, not `items[]` — and in every cardio total.
         var extras: [Extra] = []
+        /// Cardio done ON ITS OWN today, before this workout — a ride in the
+        /// morning, a lift in the evening. Its own session (`kind: "cardio"`),
+        /// so it is in none of this workout's counts; listed here so that
+        /// lifting later in the day does not make it vanish from `today`.
+        /// A bout logged on its own WHILE a workout is open joins that workout
+        /// and is in `extras` instead. `[]` when there was none.
+        var cardioAlone: [Extra] = []
 
         /// Cardio done outside the plan: one machine's bouts.
         struct Extra: Codable {
@@ -538,10 +545,18 @@ enum SnapshotBuilder {
                                   allSets: sets, now: now, calendar: cal)
         }
         guard let day else { return nil }
-        let scheduled = Workout.today(
-            days: cycle, config: config, sessionDates: Workout.rotationDates(sessions),
-            lastSession: Workout.lastSessionDate(in: sets, now: now, calendar: cal),
-            now: now, calendar: cal)
+        // Optional or not is the SESSION's stored kind once there is one —
+        // decided when it opened, so a schedule changed since cannot relabel
+        // it. Only before the first set is the schedule asked.
+        let optional: Bool
+        if let session = Workout.latestSession(for: day, among: sessions, now: now, calendar: cal) {
+            optional = session.isOptional
+        } else {
+            optional = Workout.today(
+                days: cycle, config: config, sessionDates: Workout.rotationDates(sessions),
+                lastSession: Workout.lastSessionDate(in: sets, now: now, calendar: cal),
+                now: now, calendar: cal) == nil
+        }
 
         // The sets that belong to the workout being described, not to the
         // calendar day — otherwise the second workout of a two-a-day is
@@ -614,8 +629,11 @@ enum SnapshotBuilder {
                      setsPlanned: items.reduce(0) { $0 + $1.targetSets },
                      exercisesDone: done, exercisesPlanned: items.count,
                      volume: moved, items: items,
-                     optional: scheduled == nil ? true : nil,
-                     extras: extras(Workout.extras(in: todaysSets)))
+                     optional: optional ? true : nil,
+                     extras: extras(Workout.extras(in: todaysSets)),
+                     cardioAlone: extras(sessions
+                        .filter { $0.isCardioOnly && cal.isDate($0.startedAt, inSameDayAs: now) }
+                        .flatMap(\.orderedSets)))
     }
 
     /// Cardio outside the plan, one entry per machine in the order first used.

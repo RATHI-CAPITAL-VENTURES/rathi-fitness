@@ -932,6 +932,17 @@ class OptionalDayAndCardio(unittest.TestCase):
         own = sum((i.get("cardio") or {}).get("seconds", 0) for i in FIXTURE["today"]["items"])
         self.assertIn(f"Cardio: {gym.clock(own + 600)}", out)
 
+    def test_a_ride_before_lifting_stays_in_today(self):
+        data = json.loads(json.dumps(FIXTURE))
+        data["today"]["cardio_alone"] = [{"slug": "bike", "name": "Bike", "performed": [],
+                                          "cardio": {"bouts": 1, "seconds": 900}}]
+        with fixture(data):
+            _, out = run("today")
+        self.assertIn("Cardio on its own", out)
+        self.assertIn("+ Bike", out)
+        own = sum((i.get("cardio") or {}).get("seconds", 0) for i in FIXTURE["today"]["items"])
+        self.assertIn(f"Cardio: {gym.clock(own + 900)}", out)
+
     def test_sessions_mark_optional_and_cardio_only(self):
         data = json.loads(json.dumps(FIXTURE))
         data["sessions"][0]["kind"] = "optional"

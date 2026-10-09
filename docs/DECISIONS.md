@@ -2317,6 +2317,11 @@ they stay the original days; if we do, that day has the next workout".
   never filled, never red. Ignored, it leaves no trace: there is no streak to
   break, the band counts distinct workouts per week capped at the target, and
   `Session.kind` exists only for sessions that happened.
+- **The rotation counts sessions, not which workout.** Pick Shoulders and
+  Back from the calendar on a rest day when Leg Day was offered, and the next
+  training day gets the workout after Leg Day, not after Shoulders and Back:
+  one session done, one step on. That was already true of an off-schedule pick
+  on a training day; the optional day only makes it easier to reach.
 - **Kept on screen after a relaunch.** `Workout.chosen` is not persisted, so
   `Workout.current` falls back to today's lifting session's day when the
   schedule has none. The glasses and the snapshot use the same call, which is
@@ -2345,6 +2350,18 @@ exercise is in the plan.**
   `lastSessionDate` (the every-N clock) and of the "showing up" band, which
   counts the plan's workouts. One session per visit: a second machine joins the
   open one and its name grows ("Treadmill + Rower").
+- **"On its own" never closes a workout.** Where a bout goes is one model
+  function, `Workout.cardioHome` (written by `Workout.logBout`), not the view's
+  choice. With a lifting workout open today, an "on its own" bout joins it as
+  an extra. Found in review: the "Cardio today" row on a workout screen opened
+  a cardio session, which closed the lifting one; the next lifted set opened a
+  second optional workout, and the rotation moved twice. The workout screen
+  now offers only "extra", and the model routes `.alone` safely regardless.
+- **A session that only ever held extras is not a workout.** "Add cardio"
+  opens the day's workout to put the bout in. If nothing is then lifted,
+  `Session.countsAsWorkout` is false, and the rotation, the every-N-days clock,
+  "showing up" and Trends' count of workouts all leave it out
+  (`Workout.workouts`).
 - **The same cardio screen for all three.** `CardioSetView` takes a `Purpose`
   (`slot`, `extra`, `alone`) instead of a plan slot. Off the plan there is no
   target and one bout; the clock opens on last time's length so "Log it" is not

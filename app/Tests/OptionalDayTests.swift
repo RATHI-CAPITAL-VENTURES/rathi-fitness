@@ -69,18 +69,17 @@ final class OptionalDayTests: XCTestCase {
         return (try! context.fetch(FetchDescriptor<SetEntry>())).max { $0.date < $1.date }!
     }
 
-    /// A cardio bout, the way `CardioSetView.log` writes one.
+    /// A cardio bout, written by `Workout.logBout` — the call the cardio screen
+    /// makes — so the routing tested is the routing that runs.
     @discardableResult
     private func bout(_ exercise: Exercise, seconds: Int, miles: Double = 0, at date: Date,
                       extraFor day: PlannedDay? = nil, alone: Bool = false,
                       in context: ModelContext) -> SetEntry {
         let entry = SetEntry(exercise: exercise, weight: 0, reps: 0, setIndex: 1, date: date,
                              seconds: seconds, distance: miles)
-        entry.extra = day != nil
-        entry.session = alone
-            ? Sessions.cardio(named: exercise.name, in: context, now: date)
-            : Sessions.current(for: day, in: context, now: date)
-        context.insert(entry)
+        let purpose: Workout.CardioPurpose = day.map { .extra($0) } ?? .alone
+        precondition(alone || day != nil, "say which button logged it")
+        Workout.logBout(entry, for: purpose, in: context, now: date, calendar: cal)
         return entry
     }
 
@@ -255,6 +254,109 @@ final class OptionalDayTests: XCTestCase {
         XCTAssertEqual(session.cardioDistance, 1.2)
         XCTAssertEqual(session.volume, 500)
         XCTAssertNil(session.kind)
+    }
+
+    // MARK: the review's scenario — a ride from the row mid-workout
+
+    /// Rest day: ride, start the optional day and lift, tap the treadmill under
+    /// "Cardio today" for a cool-down, lift again. It used to close the lifting
+    /// workout for a cardio session, so the second lift opened a SECOND optional
+    /// workout and Monday skipped one.
+    func testARideMidWorkoutJoinsItAndTheRotationMovesOnce() throws {
+        let plan = plan()
+        trainedTheWeek(plan)
+        let context = plan.context
+        let arms = plan.days[0]
+        bout(plan.treadmill, seconds: 900, at: oct(10, 9), alone: true, in: context)
+
+        let item = arms.orderedItems[0]
+        for (i, minute) in [0, 3, 6].enumerated() {
+            Workout.logStrength(item: item, exercise: plan.curl, weight: 25, reps: 10,
+                                kind: .working, setIndex: i + 1,
+                                at: oct(10, 10).addingTimeInterval(Double(minute) * 60), in: context)
+        }
+        let coolDown = bout(plan.treadmill, seconds: 600, at: oct(10, 11), alone: true, in: context)
+        XCTAssertTrue(coolDown.extra, "with a workout open, a ride joins it as an extra")
+        XCTAssertEqual(coolDown.session?.sessionKind, .optional)
+        Workout.logStrength(item: item, exercise: plan.curl, weight: 25, reps: 10,
+                            kind: .working, setIndex: 4, at: oct(10, 11).addingTimeInterval(120),
+                            in: context)
+        try context.save()
+
+        let sessions = try context.fetch(FetchDescriptor<Session>())
+        let saturday = sessions.filter { cal.isDate($0.startedAt, inSameDayAs: oct(10)) }
+        XCTAssertEqual(saturday.filter { !$0.isCardioOnly }.count, 1,
+                       "one lifting workout on Saturday, not two")
+        XCTAssertEqual(saturday.filter(\.isCardioOnly).count, 1, "the morning ride")
+        XCTAssertTrue(saturday.first { !$0.isCardioOnly }?.isOpen ?? false,
+                      "the cool-down did not close the workout")
+        XCTAssertEqual(try today(plan, on: oct(12))?.name, "Leg Day",
+                       "the rotation moved once: Monday gets the workout after Saturday's")
+    }
+
+    // MARK: "Add cardio" with nothing lifted
+
+    /// "Add cardio" opens the day's workout to put the bout in. If nothing is
+    /// then lifted, nothing of the plan happened and the rotation stays put.
+    func testAnExtraWithNoLiftDoesNotAdvanceTheRotation() throws {
+        let plan = plan()
+        trainedTheWeek(plan)
+        let monday = try XCTUnwrap(try today(plan, on: oct(12)))
+        XCTAssertEqual(monday.name, "Arms and Abs")
+        bout(plan.treadmill, seconds: 1200, at: oct(12), extraFor: monday, in: plan.context)
+        Sessions.closeStale(in: plan.context, now: oct(13))
+        try plan.context.save()
+
+        XCTAssertEqual(try today(plan, on: oct(13))?.name, "Arms and Abs",
+                       "Tuesday still owes the workout Monday never lifted")
+        let sessions = try plan.context.fetch(FetchDescriptor<Session>())
+        XCTAssertEqual(Workout.workouts(sessions).count, 4,
+                       "the extra-only session is not a workout — not in Trends' count either")
+    }
+
+    func testTrendsCountsWorkoutsNotRides() throws {
+        let plan = plan()
+        trainedTheWeek(plan)
+        bout(plan.treadmill, seconds: 1200, at: oct(10), alone: true, in: plan.context)
+        try plan.context.save()
+        let sessions = try plan.context.fetch(FetchDescriptor<Session>())
+        XCTAssertEqual(sessions.count, 5)
+        XCTAssertEqual(Workout.workouts(sessions).count, 4)
+    }
+
+    // MARK: the snapshot
+
+    /// A ride in the morning and a lift in the evening: the ride stays in
+    /// `today` (as `cardio_alone`) rather than vanishing once you lift.
+    func testARideBeforeLiftingStaysInToday() throws {
+        let plan = plan()
+        trainedTheWeek(plan)
+        bout(plan.treadmill, seconds: 900, miles: 1, at: oct(10, 9), alone: true, in: plan.context)
+        lift(plan.days[0], at: oct(10, 18), in: plan.context)
+        try plan.context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: plan.context, now: oct(10, 19))
+        let block = try XCTUnwrap(snapshot.today)
+        XCTAssertEqual(block.cardioAlone.map(\.name), ["Treadmill"])
+        XCTAssertEqual(block.cardioAlone.first?.cardio?.seconds, 900)
+        XCTAssertTrue(block.extras.isEmpty)
+        XCTAssertEqual(block.setsDone, 1)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: SnapshotWriter.encoder().encode(snapshot)) as? [String: Any])
+        XCTAssertNotNil((json["today"] as? [String: Any])?["cardio_alone"])
+    }
+
+    /// Optional is the session's stored kind, not today's schedule: making
+    /// Saturday a training day afterwards does not relabel last Saturday.
+    func testOptionalIsReadFromTheSessionNotRecomputed() throws {
+        let plan = plan()
+        trainedTheWeek(plan)
+        lift(plan.days[0], at: oct(10, 10), in: plan.context)
+        plan.schedule.config = Rotation.Config(mode: .rotation, trainingWeekdays: [2, 3, 5, 6, 7])
+        try plan.context.save()
+
+        let snapshot = try SnapshotBuilder.build(from: plan.context, now: oct(10, 20))
+        XCTAssertEqual(snapshot.today?.optional, true)
     }
 
     // MARK: the snapshot

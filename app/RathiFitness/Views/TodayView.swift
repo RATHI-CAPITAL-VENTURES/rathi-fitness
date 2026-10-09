@@ -88,7 +88,17 @@ struct TodayView: View {
 
     /// A workout on a day the schedule left empty. It counts like any other
     /// (the session is marked `optional`), and the header says so.
-    private var isOptionalDay: Bool { today != nil && scheduledToday == nil }
+    ///
+    /// Read from the session once there is one — the kind is decided when it
+    /// opens and kept, so changing the schedule cannot relabel it. Before the
+    /// first set there is no session, and the schedule is all there is to ask.
+    private var isOptionalDay: Bool {
+        guard let today else { return false }
+        if let session = Workout.latestSession(for: today, among: sessions, calendar: calendar) {
+            return session.isOptional
+        }
+        return scheduledToday == nil
+    }
 
     /// What "Start optional day" would start — see `Workout.optionalDay`.
     /// Gated on THIS screen's idea of a day off, so `-RFRestDay` gets the
@@ -146,7 +156,7 @@ struct TodayView: View {
         sessions.filter {
             calendar.isDate($0.startedAt, inSameDayAs: .now)
                 // A ride on its own is not "workout 2" of anything.
-                && !$0.isCardioOnly
+                && $0.countsAsWorkout
                 // A session with no sets did not happen. `pruneEmpty` removes
                 // them, and this is the belt to its braces: an empty one here
                 // made the header say "workout 3" on a one-workout day.
@@ -301,7 +311,7 @@ struct TodayView: View {
                     progress(for: day)
                     rows(for: day)
                     extras(for: day)
-                    cardioOnItsOwn
+                    cardioOnItsOwn(workout: day)
                     swapHint
                     moved(for: day)
                 } else {
@@ -352,7 +362,7 @@ struct TodayView: View {
         let band = Tally.consistency(
             // A cardio-only session is not a workout of the plan, so it covers
             // none of it. An optional day does: it is one of the plan's.
-            sessions: sessions.filter { !$0.isCardioOnly }
+            sessions: Workout.workouts(sessions)
                 .map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
             targets: weeklyTargets,
             away: timeAway.map { Tally.Away(from: $0.startedAt, to: $0.endedAt) },
@@ -540,7 +550,7 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: RFDesign.sm) {
             EmptyNote(title: "Rest day.", message: restMessage)
             if let offer = offeredOptionalDay { optionalOffer(offer) }
-            cardioOnItsOwn
+            cardioOnItsOwn(workout: nil)
             addCardio("Cardio on its own")
             Button { showingPlan = true } label: {
                 Label("Edit the plan", systemImage: "slider.horizontal.3")
@@ -629,16 +639,28 @@ struct TodayView: View {
         }
     }
 
-    /// Today's cardio-only session, on a day off — what you rode, and the way
-    /// back into it to log another.
-    @ViewBuilder private var cardioOnItsOwn: some View {
+    /// Today's cardio-only session — what you rode, and the way back into it.
+    ///
+    /// `workout` is the day's workout when one is on screen. Then a row opens
+    /// the bout as an EXTRA in that workout, never `.alone`: an `.alone` bout
+    /// used to open a cardio session, which closed the lifting one, and the
+    /// next lifted set opened a second workout that advanced the rotation
+    /// again. `Workout.cardioHome` routes `.alone` safely too; this keeps the
+    /// screen from even offering it.
+    @ViewBuilder private func cardioOnItsOwn(workout: PlannedDay?) -> some View {
         let bouts = sessions
             .filter { $0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: .now) }
             .flatMap(\.orderedSets)
         if !bouts.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Cardio today").rfEyebrow().padding(.top, RFDesign.xs)
-                cardioRows(bouts) { CardioSetView(purpose: .alone, exercise: $0) }
+                cardioRows(bouts) { exercise in
+                    if let workout {
+                        CardioSetView(purpose: .extra(workout), exercise: exercise)
+                    } else {
+                        CardioSetView(purpose: .alone, exercise: exercise)
+                    }
+                }
             }
         }
     }

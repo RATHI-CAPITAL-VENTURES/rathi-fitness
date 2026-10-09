@@ -144,7 +144,8 @@ struct TrendsView: View {
     /// tier crossed mid-workout belongs to that workout.
     private var journey: [Tally.Crossing] {
         let log = bodyWeightLog
-        return Tally.journey(sessionVolumes: sessions.map { session in
+        // Workouts only — a ride on its own moves no tonnage and is not one.
+        return Tally.journey(sessionVolumes: Workout.workouts(sessions).map { session in
             (date: session.startedAt,
              volume: Tally.volume(session.orderedSets.map {
                  $0.tally(bodyWeight: log.pounds(on: $0.date))
@@ -155,7 +156,10 @@ struct TrendsView: View {
     private var lifetime: Tally.Lifetime {
         let tallies = allSets.map { $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date)) }
         return Tally.Lifetime(
-            workouts: sessions.count,
+            // Not a cardio-only session: "a workout" means one of the plan's
+            // everywhere else (`Workout.workouts`). Its minutes still count —
+            // in time in the gym below, and in every cardio figure.
+            workouts: Workout.workouts(sessions).count,
             volume: Tally.volume(tallies),
             reps: Tally.workingSets(tallies).reduce(0) { $0 + $1.reps },
             records: Tally.recordBook(recordInput, limit: .max).count,

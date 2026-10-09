@@ -56,7 +56,7 @@ enum Workout {
     static func lastSessionDate(in allSets: [SetEntry], now: Date = .now,
                                 calendar: Calendar = .current) -> Date? {
         allSets
-            .filter { !calendar.isDate($0.date, inSameDayAs: now) }
+            .filter { !calendar.isDate($0.date, inSameDayAs: now) && !$0.extra }
             .filter { ($0.session?.sessionKind ?? .planned) == .planned }
             .map(\.date).max()
     }
@@ -70,7 +70,14 @@ enum Workout {
     /// the session that decides whether it is optional — because four copies
     /// of `sessions.map(\.startedAt)` is four places to forget the filter.
     static func rotationDates(_ sessions: [Session]) -> [Date] {
-        sessions.filter { !$0.isCardioOnly }.map(\.startedAt)
+        workouts(sessions).map(\.startedAt)
+    }
+
+    /// The sessions that are workouts of the plan — see `Session.countsAsWorkout`.
+    /// The rotation, the "showing up" band and Trends' lifetime count all read
+    /// this, so a ride on its own is never "a workout" in one and not another.
+    static func workouts(_ sessions: [Session]) -> [Session] {
+        sessions.filter(\.countsAsWorkout)
     }
 
     /// What is on screen today: the schedule's workout, else the one you have
@@ -91,9 +98,12 @@ enum Workout {
     /// The workout of today's latest lifting session, if there is one.
     static func resumed(among sessions: [Session], now: Date = .now,
                         calendar: Calendar = .current) -> PlannedDay? {
+        // An OPEN session stays on screen even if it holds only an extra
+        // bout so far — that is the workout he is standing in. A finished one
+        // that never got past its extras was not a workout of the plan.
         sessions
             .filter { !$0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now) }
-            .filter { !($0.sets ?? []).isEmpty || $0.isOpen }
+            .filter { $0.isOpen || (!($0.sets ?? []).isEmpty && $0.countsAsWorkout) }
             .max { $0.startedAt < $1.startedAt }?
             .plannedDay
     }
@@ -172,6 +182,87 @@ enum Workout {
                 && calendar.isDate($0.startedAt, inSameDayAs: now)
                 && $0.plannedDay?.persistentModelID == day.persistentModelID
         }
+    }
+
+    /// Today's latest lifting session of `day` — open or finished.
+    static func latestSession(for day: PlannedDay, among sessions: [Session],
+                              now: Date = .now, calendar: Calendar = .current) -> Session? {
+        sessions
+            .filter {
+                !$0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now)
+                    && $0.plannedDay?.persistentModelID == day.persistentModelID
+            }
+            .max { $0.startedAt < $1.startedAt }
+    }
+
+    /// Today's open LIFTING session, whichever workout it is.
+    static func openLiftingSession(among sessions: [Session], now: Date = .now,
+                                   calendar: Calendar = .current) -> Session? {
+        sessions.first {
+            $0.isOpen && !$0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now)
+        }
+    }
+
+    // MARK: - Where a cardio bout goes
+
+    /// What a cardio bout is FOR. Lives here, not in the view, because where
+    /// the bout is written decides what the rotation counts — see `cardioHome`.
+    enum CardioPurpose {
+        /// A slot of the plan. Ticks it off.
+        case slot(PlanItem)
+        /// "Add cardio" on a lifting day: written into that workout, flagged
+        /// `extra`, counted in cardio totals and never against the plan.
+        case extra(PlannedDay)
+        /// "Cardio on its own" on a day off: its own cardio-only session —
+        /// UNLESS a lifting workout is open today, which it then joins as an
+        /// extra. Opening a cardio session closes whatever is open, and closing
+        /// a lifting workout mid-way is how the next lifted set became a second
+        /// workout that advanced the rotation twice.
+        case alone
+    }
+
+    /// The session a bout of `purpose` belongs in right now, and whether it is
+    /// an extra there — without creating anything. The cardio screen reads
+    /// this to find "this workout's bouts"; `logBout` writes by the same rule.
+    static func cardioHome(_ purpose: CardioPurpose, among sessions: [Session],
+                           now: Date = .now, calendar: Calendar = .current)
+        -> (session: Session?, extra: Bool) {
+        switch purpose {
+        case .slot(let item):
+            return (openSession(for: item.day, among: sessions, now: now, calendar: calendar), false)
+        case .extra(let day):
+            return (openSession(for: day, among: sessions, now: now, calendar: calendar), true)
+        case .alone:
+            if let lifting = openLiftingSession(among: sessions, now: now, calendar: calendar) {
+                return (lifting, true)
+            }
+            return (openCardioSession(among: sessions, now: now, calendar: calendar), false)
+        }
+    }
+
+    /// One cardio bout, written. The only place in the app that does it — the
+    /// cardio screen calls this and so do the tests, so the routing they check
+    /// is the routing that runs.
+    static func logBout(_ entry: SetEntry, for purpose: CardioPurpose,
+                        in context: ModelContext, now: Date = .now,
+                        calendar: Calendar = .current) {
+        let sessions = (try? context.fetch(FetchDescriptor<Session>())) ?? []
+        let home = cardioHome(purpose, among: sessions, now: now, calendar: calendar)
+        let session: Session?
+        switch purpose {
+        case .slot(let item): session = Sessions.current(for: item.day, in: context, now: now, calendar: calendar)
+        case .extra(let day): session = Sessions.current(for: day, in: context, now: now, calendar: calendar)
+        case .alone:
+            session = home.session.flatMap { home.extra ? $0 : nil }
+                ?? Sessions.cardio(named: entry.exercise?.name ?? Session.unnamed,
+                                   in: context, now: now, calendar: calendar)
+        }
+        entry.extra = home.extra
+        entry.session = session
+        context.insert(entry)
+        // If this bout is what opened the workout, the workout began when the
+        // bout did, not when you stepped off and logged it.
+        if let session { Sessions.backdate(session, toCover: entry, calendar: calendar) }
     }
 
     /// The cardio-only session in progress today, if there is one.
