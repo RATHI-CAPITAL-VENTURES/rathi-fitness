@@ -93,8 +93,12 @@ final class OptionalDayUITests: XCTestCase {
         element("start-optional-day").tap()
 
         let liftOnce = {
-            let row = self.element("row-back-squat")
-            XCTAssertTrue(row.waitForExistence(timeout: 10), "Legs opens on the squat")
+            // The first row of whatever is on offer — which workout that is
+            // depends on the weekday the test runs (Legs on a Thursday, Push A
+            // on CI's Friday), so no exercise is named here.
+            let row = self.app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH 'row-'")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "the optional workout has a first row")
             row.tap()
             // Still cooling down from the last set: "Log set" waits behind it.
             let skip = self.app.buttons.containing(
