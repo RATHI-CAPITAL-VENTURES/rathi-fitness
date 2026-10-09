@@ -75,10 +75,15 @@ struct TodayView: View {
     }
 
     /// What the schedule alone says about today — nil on a day off.
+    ///
+    /// `-RFRestDay` makes today a day off whatever the calendar says — the
+    /// optional day's twin of `-RFDay`, for the UI tests and for looking at a
+    /// rest day on a Monday. It changes this screen only; the session a set
+    /// opens is still judged against the real schedule.
     private var scheduledToday: PlannedDay? {
         if ProcessInfo.processInfo.arguments.contains("-RFRestDay") { return nil }
         return Workout.today(days: days, config: config, sessionDates: sessionDates,
-                      lastSession: lastSession, calendar: calendar)
+                             lastSession: lastSession, calendar: calendar)
     }
 
     /// A workout on a day the schedule left empty. It counts like any other
@@ -97,11 +102,6 @@ struct TodayView: View {
         Workout.rotationDay(days: days, sessionDates: sessionDates, calendar: calendar)
     }
 
-    /// `-RFRestDay` makes today a day off whatever the calendar says — the
-    /// optional day's twin of `-RFDay`, for the UI tests and for looking at a
-    /// rest day on a Monday. It changes this screen only; the session a set
-    /// opens is still judged against the real schedule.
-    ///
     /// `-RFDay "Push A"` opens that day whatever the calendar says.
     ///
     /// Exists for the UI tests and for looking at a training day on a Thursday.
