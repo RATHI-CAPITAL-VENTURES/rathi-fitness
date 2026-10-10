@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
 import MediaPlayer
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Everything the app puts into your ears, and the one audio session it does it
 /// through.
@@ -26,7 +29,7 @@ import MediaPlayer
 /// tune by changing two numbers stays honest to the design; a `.caf` in the
 /// bundle is a thing nobody can adjust without an editor.
 @MainActor
-final class AudioHub: ObservableObject {
+final class AudioHub: ObservableObject, LensKeepAlive {
     static let shared = AudioHub()
 
     /// What the app can say without words. One case per meaning — the pairing
@@ -95,7 +98,17 @@ final class AudioHub: ObservableObject {
     /// audio session, and `.duckOthers` ducks **other** apps. You cannot duck
     /// yourself, so nothing attenuates the music under a cue and the cue has to
     /// carry itself. See `Cue.overMusic`.
-    var ownMusicIsPlaying = false
+    var ownMusicIsPlaying = false {
+        didSet {
+            // Siri pauses the in-app player and tells US nothing: no
+            // interruption, only the player stopping. In the spike that was
+            // the one gap in 45 minutes — with the music gone and nothing of
+            // ours provably playing, iOS suspended the app within seconds
+            // (docs/DECISIONS.md, 2026-10-10). So the music stopping while the
+            // lens is held is treated as an interruption beginning.
+            if oldValue, !ownMusicIsPlaying, isHoldingForLens { lensAudioTaken("music-stopped") }
+        }
+    }
 
     /// The engine's own answer, not a copy of it.
     ///
@@ -135,26 +148,36 @@ final class AudioHub: ObservableObject {
     /// your podcast for no reason.
     func activate() {
         guard Self.isEnabled else { return }
+        deactivateOwed = false
         #if os(iOS)
         guard !sessionActive else { return }
         let session = AVAudioSession.sharedInstance()
         // `.playback` with no `.mixWithOthers`: mixing would leave the
         // now-playing role with whoever else is playing, and the AirPods would
         // never reach us. `.duckOthers` so anything we do not own — a podcast,
-        // Spotify — drops under the ping instead of burying it.
-        try? session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        // Spotify — drops under the ping instead of burying it. While the Web
+        // App lens is held it is `.mixWithOthers` instead — see `holdForLens`.
+        try? session.setCategory(.playback, mode: .default, options: sessionOptions)
         try? session.setActive(true)
         sessionActive = true
         #endif
         startEngineIfNeeded()
     }
 
-    /// Give it back. Anything else on the phone resumes.
+    /// Give it back. Anything else on the phone resumes — unless the Web App
+    /// lens is held, when the session is what keeps a locked phone reachable
+    /// and stays up until the lens lets it go.
     func deactivate() {
         holdRemoteControl(false)
         speaker.stopSpeaking(at: .immediate)
         if engineRunning { engine.stop() }
         #if os(iOS)
+        if isHoldingForLens, sessionActive {
+            // Owed, not dropped: the lens lets go later, and the session must
+            // go back then — or Spotify stays ducked after the workout.
+            deactivateOwed = true
+            return
+        }
         guard sessionActive else { return }
         try? AVAudioSession.sharedInstance()
             .setActive(false, options: [.notifyOthersOnDeactivation])
@@ -255,6 +278,215 @@ final class AudioHub: ObservableObject {
         }
     }
 
+    // MARK: - Holding the process for the Web App lens
+
+    /// Whether the Web App lens is holding the process (`holdForLens`).
+    @Published private(set) var isHoldingForLens = false
+    /// How many times the watchdog found the silence stopped and restored it.
+    /// On show in Settings: a number that climbs is the keep-alive working
+    /// hard, which is worth knowing before it is a gap.
+    @Published private(set) var lensRestores = 0
+
+    private var lensSilence: AVAudioPlayer?
+    private var lensWatching = false
+    private var lensActivatedSession = false
+    /// `deactivate()` was asked for while the lens held the session.
+    private var deactivateOwed = false
+    private var duckUntil: Date?
+    #if canImport(UIKit)
+    private var lensWindow: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
+    /// The category options, by who holds the session. With the lens held the
+    /// silence has to coexist with Music.app or Spotify, so it MIXES and ducks
+    /// nobody — ducking only around a cue (`duckAroundCue`).
+    private var sessionOptions: AVAudioSession.CategoryOptions {
+        isHoldingForLens && duckUntil == nil ? [.mixWithOthers] : [.duckOthers]
+    }
+
+    /// Keep a locked phone running while the Web App lens needs it: the phone
+    /// is the lens's only source of truth, and a suspended phone is a lens that
+    /// stops answering pinches.
+    ///
+    /// The mechanism is the spike's, which passed its gate (docs/DECISIONS.md,
+    /// 2026-10-10: 0 s tick gap, 100 % up, Siri ×5 restored in 0.4–5 s locked):
+    ///
+    /// - A **silence loop** (an `AVAudioPlayer` of zero samples, at volume 1 —
+    ///   a muted player is not something to bet on) in a `.playback` session
+    ///   with `.mixWithOthers`, alongside the in-app music.
+    /// - A **1 Hz watchdog** (`lensWatchdog`, driven by `WebLens`'s tick) that
+    ///   asks the player whether it is really playing and, if not, re-asserts
+    ///   the session and restarts it. Siri never delivers an interruption
+    ///   `ended`; the watchdog is what brings it back.
+    /// - A **~30 s background task** asked for whenever our audio is taken —
+    ///   an interruption began, or the music stopped — so the process is still
+    ///   running when it can be restored, without anyone unlocking the phone.
+    ///
+    /// Separate from `holdRemoteControl` (the AirPods' silence, which runs only
+    /// without music). Asked for only while something of ours belongs on the
+    /// lens, which is only around a workout (`WorkoutDriver.isLive`).
+    func holdForLens(_ on: Bool) {
+        guard Self.isEnabled else { return }
+        if on {
+            guard !isHoldingForLens else { return }
+            isHoldingForLens = true
+            lensActivatedSession = !sessionActive
+            watchForLens()
+            ensureLensHold()
+        } else {
+            guard isHoldingForLens else { return }
+            isHoldingForLens = false
+            lensSilence?.stop()
+            lensSilence = nil
+            closeLensWindow()
+            #if os(iOS)
+            if (lensActivatedSession || deactivateOwed), !isHoldingRemoteControl, !ownMusicIsPlaying {
+                try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+                sessionActive = false
+            } else if sessionActive {
+                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: sessionOptions)
+            }
+            #endif
+            lensActivatedSession = false
+            deactivateOwed = false
+        }
+    }
+
+    /// Once a second while held. Silent unless it has to act.
+    func lensWatchdog() {
+        guard isHoldingForLens else { return }
+        if lensSilence?.isPlaying != true {
+            openLensWindow()
+            if ensureLensHold() { lensRestores += 1 }
+        }
+    }
+
+    /// Make the silence really play: the session re-asserted (MusicKit or Siri
+    /// may have changed it) and activated, the player (re)started. True when it
+    /// is playing in an active session — and the background window, if one was
+    /// open, is given back.
+    @discardableResult
+    private func ensureLensHold() -> Bool {
+        guard isHoldingForLens else { return false }
+        var activated = true
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default, options: sessionOptions)
+            try session.setActive(true)
+            sessionActive = true
+        } catch {
+            activated = false
+        }
+        #endif
+        if lensSilence == nil, let player = try? AVAudioPlayer(data: Self.silenceWAV) {
+            player.numberOfLoops = -1
+            player.volume = 1
+            lensSilence = player
+        }
+        let playing = (lensSilence?.isPlaying ?? false) || (lensSilence?.play() ?? false)
+        // The cues still need the engine — the rest ending is the one sound
+        // that matters with the phone in a pocket.
+        startEngineIfNeeded()
+        if playing, activated { closeLensWindow() }
+        return playing && activated
+    }
+
+    /// Something took our audio. Ask for background time, then try to put it back.
+    private func lensAudioTaken(_ why: String) {
+        openLensWindow()
+        ensureLensHold()
+    }
+
+    private func openLensWindow() {
+        #if canImport(UIKit)
+        guard lensWindow == .invalid else { return }
+        lensWindow = UIApplication.shared.beginBackgroundTask(withName: "lens-keepalive") { [weak self] in
+            MainActor.assumeIsolated { self?.closeLensWindow() }
+        }
+        #endif
+    }
+
+    private func closeLensWindow() {
+        #if canImport(UIKit)
+        guard lensWindow != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(lensWindow)
+        lensWindow = .invalid
+        #endif
+    }
+
+    private func watchForLens() {
+        guard !lensWatching else { return }
+        lensWatching = true
+        #if os(iOS)
+        let centre = NotificationCenter.default
+        // `object: nil`: in the spike, Siri's interruptions were heard only by
+        // an observer that listened to every session.
+        centre.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let began = raw == AVAudioSession.InterruptionType.began.rawValue
+            MainActor.assumeIsolated {
+                guard let self, self.isHoldingForLens else { return }
+                // Restarted whether or not iOS says "should resume": the
+                // keep-alive is not optional.
+                if began { self.openLensWindow() } else { self.ensureLensHold() }
+            }
+        }
+        centre.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isHoldingForLens else { return }
+                self.lensSilence = nil
+                self.ensureLensHold()
+            }
+        }
+        centre.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isHoldingForLens else { return }
+                self.ensureLensHold()
+            }
+        }
+        #endif
+    }
+
+    /// While the lens is held the session mixes and ducks nobody — so a cue
+    /// over Music.app or Spotify would be buried. For the cue's length it ducks
+    /// them, then goes back to mixing. Only when another app is actually
+    /// playing: our own music cannot be ducked (2026-08-30), and changing the
+    /// session for nothing is a configuration change for nothing.
+    private func duckAroundCue(seconds: Double) {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        guard isHoldingForLens, session.isOtherAudioPlaying else { return }
+        let until = Date.now.addingTimeInterval(seconds + 0.15)
+        duckUntil = until
+        try? session.setCategory(.playback, mode: .default, options: sessionOptions)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds + 0.15))
+            guard let self, self.duckUntil == until else { return }
+            self.duckUntil = nil
+            if self.isHoldingForLens {
+                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: self.sessionOptions)
+            }
+        }
+        #endif
+    }
+
+    /// One second of 16-bit mono silence as a WAV, built in code so nothing
+    /// ships in the bundle for it.
+    static let silenceWAV: Data = {
+        let rate: UInt32 = 22_050
+        let bytes = rate * 2
+        var data = Data()
+        func put<T: FixedWidthInteger>(_ v: T) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: Array("RIFF".utf8)); put(UInt32(36) + bytes)
+        data.append(contentsOf: Array("WAVE".utf8))
+        data.append(contentsOf: Array("fmt ".utf8)); put(UInt32(16))
+        put(UInt16(1)); put(UInt16(1)); put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); put(bytes)
+        data.append(Data(count: Int(bytes)))
+        return data
+    }()
+
     // MARK: - Tones
 
     /// A tone, and whether it has to be heard over our own music.
@@ -284,6 +516,11 @@ final class AudioHub: ObservableObject {
         // you are not looking at the screen.
         let level = max(0, min(1, volume))
         cueNode.volume = Float(cue.overMusic ? max(0.75, level) : level)
+        // BEFORE scheduling: if changing the session's options restarts the
+        // engine, it must not take this cue with it (found in review).
+        duckAroundCue(seconds: Double(buffer.frameLength) / format.sampleRate)
+        startEngineIfNeeded()
+        guard engineRunning else { return }
         cueNode.scheduleBuffer(buffer, at: nil, options: [.interrupts])
         if !cueNode.isPlaying { cueNode.play() }
     }

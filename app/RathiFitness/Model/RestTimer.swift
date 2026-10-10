@@ -22,6 +22,9 @@ final class RestTimer: ObservableObject {
 
     var isResting: Bool { endsAt != nil }
 
+    /// The rest as a deadline, for a screen value to carry (see `RestClock`).
+    var clock: RestClock? { endsAt.map { RestClock(endsAt: $0, total: total) } }
+
     /// 0 = just racked the bar, 1 = recovered. The input to the whole colour idea.
     func progress(at now: Date = .now) -> Double {
         guard let endsAt, total > 0 else { return 1 }

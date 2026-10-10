@@ -1,0 +1,1 @@
+{"epoch":"fixture0","screen":{"actions":["play","back"],"eyebrow":"MUSIC","kind":"card","lines":["Play starts your workout playlist."],"specs":[{"label":"Rest","rest":{"endsAt":72000,"remainingMsAtSend":72000,"totalMs":90000}}],"title":"Nothing playing"},"seq":20,"type":"screen","v":1}

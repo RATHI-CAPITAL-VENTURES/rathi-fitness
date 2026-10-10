@@ -19,6 +19,9 @@ struct SettingsView: View {
     @State private var declaringAway = false
     @State private var restApplyResult: String?
     @State private var exportFiles: [URL]?
+    @State private var pairingLens = false
+    @State private var pairingResult: String?
+    @Environment(\.openURL) private var openURL
 
     @Query private var allSets: [SetEntry]
     @Query private var allWeighIns: [WeighIn]
@@ -63,6 +66,15 @@ struct SettingsView: View {
                 Button("Keep them", role: .cancel) {}
             } message: {
                 Text("Your plan, exercises and passes are kept. This cannot be undone.")
+            }
+            // The LIVE camera, never a photo: a screenshot of a key is a copy
+            // of it (plan §3, Pairing).
+            .sheet(isPresented: $pairingLens) {
+                CodeScanner { value, _ in
+                    pairingLens = false
+                    pairingResult = glasses.pair(value)
+                        ? nil : "That code is not a pairing code. Run bin/pair-phone on the Mac and scan the code it shows."
+                }
             }
             .sheet(isPresented: $declaringAway) {
                 TimeAwaySheet { from, to, note in
@@ -114,7 +126,7 @@ struct SettingsView: View {
                            ? RemoteControls.Gesture.triple.action.shortLabel : "off",
                        lit: remote.enabled)
             StatusLine(label: "Glasses", value: glassesStatusValue,
-                       lit: glasses.status.isConnected)
+                       lit: glasses.lens == .web ? glasses.isShowing : glasses.status.isConnected)
             StatusLine(label: "Snapshot",
                        value: snapshots.lastWritten.map(Fmt.timeOfDay) ?? "not yet",
                        lit: snapshots.lastWritten != nil,
@@ -405,6 +417,12 @@ struct SettingsView: View {
 
     /// One word for "Right now". The section below has room for the sentence.
     private var glassesStatusValue: String {
+        if glasses.enabled, glasses.lens == .web {
+            guard glasses.web.paired else { return "not paired" }
+            if glasses.web.link == .refused { return "key refused" }
+            if glasses.isShowing { return "showing" }
+            return glasses.web.link == .up ? "web · ready" : "web"
+        }
         switch glasses.status {
         case .off: return "off"
         case .unavailable: return "unavailable"
@@ -430,13 +448,24 @@ struct SettingsView: View {
                   + "Taking the glasses off ends their connection and putting them back on "
                   + "restores it within a few seconds; nothing is lost either way, because the "
                   + "phone is what keeps the workout.\n\n"
-                  + "Needs Developer Mode in the Meta AI app: Settings → App Info → tap the "
-                  + "version five times, with the glasses connected. It switches itself off "
-                  + "after a glasses firmware update."
+                  + "Native needs Developer Mode in the Meta AI app: Settings → App Info → tap "
+                  + "the version five times, with the glasses connected. It switches itself off "
+                  + "after a glasses firmware update.\n\n"
+                  + "Web App shows the same screens in the Fitness Web App on your glasses, "
+                  + "through a relay on the internet — so it needs signal, and the native lens "
+                  + "is the one for a basement. Pair once by scanning the code bin/pair-phone "
+                  + "shows on the Mac. Keep the phone app open in the background while you "
+                  + "train: it keeps itself awake with silent audio while a workout is live."
         ) {
             ToggleRow(label: "Show sets on my glasses", isOn: glasses.enabled,
                       showsDivider: glasses.enabled) { glasses.enabled.toggle() }
             if glasses.enabled {
+                ChoiceRow(label: "Lens", value: glasses.lens,
+                          options: GlassesFace.Lens.allCases.map { ($0, $0.title) }) { glasses.lens = $0 }
+            }
+            if glasses.enabled, glasses.lens == .web {
+                webLensRows
+            } else if glasses.enabled {
                 switch glasses.status {
                 case .off:
                     EmptyView()
@@ -491,6 +520,68 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// Settings → Glasses, in Web App mode: pairing, the room, and why
+    /// nothing is on the lens when nothing is.
+    @ViewBuilder private var webLensRows: some View {
+        let web = glasses.web
+        if !web.paired {
+            ActionRow(label: "Pair with the relay", detail: "On the Mac: bin/pair-phone, then scan its code.",
+                      symbol: "qrcode.viewfinder", showsDivider: false) { pairingResult = nil; pairingLens = true }
+        } else {
+            SettingRow(label: webRoomLine, detail: webDetail) {
+                Image(systemName: "eyeglasses")
+                    .font(.system(size: 13))
+                    .foregroundStyle(web.link == .up ? RFDesign.ready : RFDesign.labelDim)
+            }
+            if let fragment = LensKey.webAppFragment, let link = LensPairing.addToGlasses(fragment: fragment) {
+                ActionRow(label: "Add to glasses", detail: "Opens Meta AI to add the Fitness Web App.",
+                          symbol: "plus.circle") { openURL(link) }
+            }
+            ActionRow(label: "Pair again", symbol: "qrcode.viewfinder") { pairingResult = nil; pairingLens = true }
+            ActionRow(label: "Forget the pairing", symbol: "xmark.circle",
+                      tint: RFDesign.ember, showsDivider: false) { glasses.unpair() }
+        }
+        if let pairingResult {
+            Text(pairingResult)
+                .font(RFDesign.ui(12.5))
+                .foregroundStyle(RFDesign.ember)
+                .padding(.top, 8)
+        }
+    }
+
+    private var webRoomLine: String {
+        let web = glasses.web
+        switch web.link {
+        case .off: return "Relay · idle"
+        case .connecting: return "Relay · connecting…"
+        case .down: return "Relay · no connection"
+        case .up: return "Relay · \(web.lenses) \(web.lenses == 1 ? "lens" : "lenses")"
+        case .refused: return "Relay · key refused"
+        case .forbidden: return "Relay · connection refused"
+        }
+    }
+
+    /// The one-line answer to "is it working": what is on the lens or why not,
+    /// then the numbers — how far the room is, how long the last pinch took to
+    /// reach the phone, and every version in play, since three things deploy
+    /// on three schedules (docs/LENS_WIRE.md, version skew).
+    private var webDetail: String {
+        let web = glasses.web
+        // Refused or forbidden is the transport's own news: the host stops
+        // asking an unavailable lens anything, so its idle text is stale.
+        let refused = web.link == .refused || web.link == .forbidden
+        var parts = [refused ? (web.waitingReason ?? "") :
+                        glasses.isShowing ? "On the lens now." : (glasses.idleReason ?? "Waiting for a workout.")]
+        if web.lenses > 1 { parts.append("More than one lens: Log set is refused until only one is open.") }
+        var numbers: [String] = []
+        if let rtt = web.roomRttMs { numbers.append("room \(rtt) ms") }
+        if let pinch = web.lastPinchMs { numbers.append("last pinch +\(pinch) ms") }
+        if audio.lensRestores > 0 { numbers.append("kept awake ×\(audio.lensRestores)") }
+        if !numbers.isEmpty { parts.append(numbers.joined(separator: " · ")) }
+        parts.append("phone \(Bundle.main.appVersion) · relay \(web.relayVersion ?? "—") · lens \(web.lensVersion ?? "—")")
+        return parts.joined(separator: "\n")
     }
 
     /// The three AirPods gestures and what each one does.

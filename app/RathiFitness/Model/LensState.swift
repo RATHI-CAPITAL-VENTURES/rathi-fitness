@@ -39,6 +39,26 @@ struct LensState: Equatable {
     /// button when a screen appears, so the first one is a single pinch and the
     /// rest cost a swipe. (Measured on the hardware — see docs/DECISIONS.md.)
     var actions: [LensAction]
+    /// The running rest as data — when it ends and how long it is — while
+    /// resting, else nil. `hero` and `tone` already carry it as the native lens
+    /// needs it (a whole-second clock); this is what lets the Web App lens tick
+    /// the clock itself instead of being sent a new numeral every second. Nil on
+    /// a value built from `Rest(remaining:total:)`, which knows no deadline.
+    var rest: RestClock? = nil
+}
+
+/// A rest as a deadline: what `RestTimer` holds (`endsAt`, `total`), lifted out
+/// so a screen value can carry it. Everything the lens shows about a rest —
+/// the clock, the ring, the colour — is a function of this and the time.
+struct RestClock: Equatable {
+    var endsAt: Date
+    var total: TimeInterval
+
+    /// Whole seconds left at `now`, rounded up — `RestTimer.remaining`'s rule,
+    /// so the lens and the phone show the same number in the same second.
+    func remaining(at now: Date) -> Int {
+        max(0, Int(endsAt.timeIntervalSince(now).rounded(.up)))
+    }
 }
 
 /// What a pinch can mean.
@@ -124,6 +144,47 @@ enum LensScreen: Equatable {
     case list(LensList)
     /// One thing, with what you can do about it.
     case card(LensCard)
+
+    /// Every action a pinch on this screen could carry, rows included — what
+    /// the Web App lens may send back for it, and nothing else.
+    var actions: [LensAction] {
+        switch self {
+        case .set(let state): return state.actions
+        case .list(let list): return list.rows.map(\.action) + list.footer
+        case .card(let card): return card.actions
+        }
+    }
+
+    /// This screen with the running clocks taken out: a resting hero and its
+    /// ring progress, and a music card's ticking Rest, reduced to their
+    /// deadline. The Web App lens ticks those itself, so two screens a second
+    /// apart in the same rest are the SAME screen to it — and the phone sends
+    /// one when something you could act on changes, not once a second.
+    /// Extending the rest moves the deadline, which is a change.
+    ///
+    /// A resting state with no deadline (built from `Rest(remaining:total:)`)
+    /// keeps its hero: with nothing else to tell two rests apart, dropping it
+    /// would hide a change.
+    var clockFree: LensScreen {
+        switch self {
+        case .set(var state):
+            if case .resting = state.tone, state.rest != nil {
+                state.hero = ""
+                state.tone = .resting(progress: 0)
+            }
+            return .set(state)
+        case .card(var card):
+            card.specs = card.specs.map { spec in
+                guard spec.rest != nil else { return spec }
+                var bare = spec
+                bare.value = ""
+                return bare
+            }
+            return .card(card)
+        case .list:
+            return self
+        }
+    }
 }
 
 /// A column of rows. Measured on the hardware: a list taller than the lens
@@ -155,6 +216,11 @@ struct LensCard: Equatable {
     struct Spec: Equatable {
         var label: String
         var value: String
+        /// A RUNNING clock, when this figure is one — the music card's Rest.
+        /// `value` still holds its text for the native lens; the Web App lens
+        /// ticks it from this. An exercise card's Rest is the PLANNED length,
+        /// a fixed fact, and carries none.
+        var rest: RestClock? = nil
     }
     var eyebrow: String
     var title: String
@@ -178,10 +244,22 @@ extension LensState {
     struct Rest: Equatable {
         var remaining: Int
         var progress: Double
+        /// The deadline this was read from, when there is one. Carried into
+        /// `LensState.rest`; nothing native reads it.
+        var clock: RestClock? = nil
 
         init(remaining: Int, total: TimeInterval) {
             self.remaining = max(0, remaining)
             self.progress = total > 0 ? min(max(1 - Double(self.remaining) / total, 0), 1) : 1
+        }
+
+        /// The rest as it stands at `now`. Derived through the SAME whole-second
+        /// rule as `init(remaining:total:)`, so a native screen built from a
+        /// clock is byte-identical to one built from `RestTimer.remaining` —
+        /// `LensTests.testAClockGivesTheSameNativeScreen` pins that.
+        init(_ clock: RestClock, at now: Date) {
+            self.init(remaining: clock.remaining(at: now), total: clock.total)
+            self.clock = clock
         }
     }
 
@@ -208,7 +286,7 @@ extension LensState {
                 // "then" to promise.
                 detail: finished ? "That was the last set" : "Then set \(nextSet) of \(sets) · \(load)",
                 tone: .resting(progress: resting.progress),
-                actions: [.skipRest, .extendRest])
+                actions: [.skipRest, .extendRest], rest: resting.clock)
         }
         if finished {
             return LensState(
@@ -245,7 +323,8 @@ extension LensState {
                 eyebrow: "RESTING", title: exercise,
                 hero: Fmt.clock(resting.remaining),
                 detail: "Then interval \(min(boutsDone + 1, bouts)) of \(bouts)",
-                tone: .resting(progress: resting.progress), actions: [.skipRest, .extendRest])
+                tone: .resting(progress: resting.progress), actions: [.skipRest, .extendRest],
+                rest: resting.clock)
         }
         if finished {
             // No button, like a finished lift: nothing is left to log, and the
@@ -358,10 +437,11 @@ struct LensMusic {
         isOpen = false
     }
 
-    /// The clock of a rest that is running underneath, if one is.
-    static func restClock(in layer: LensScreen) -> String? {
+    /// The clock of a rest that is running underneath, if one is: its text
+    /// for the native lens and its deadline for the web one.
+    static func restClock(in layer: LensScreen) -> LensCard.Spec? {
         guard case .set(let state) = layer, case .resting = state.tone else { return nil }
-        return state.hero
+        return LensCard.Spec(label: "Rest", value: state.hero, rest: state.rest)
     }
 
     /// A set screen with a Music button — last, because the first is lit and
@@ -373,8 +453,8 @@ struct LensMusic {
         return .set(state)
     }
 
-    static func card(_ track: Track?, rest: String?, canStart: Bool = true) -> LensCard {
-        let clock = rest.map { [LensCard.Spec(label: "Rest", value: $0)] } ?? []
+    static func card(_ track: Track?, rest: LensCard.Spec?, canStart: Bool = true) -> LensCard {
+        let clock = rest.map { [$0] } ?? []
         guard let track else {
             // No playlist to start: a Play that does nothing is the one button
             // this card must not offer.
@@ -415,13 +495,19 @@ struct LensMusic {
 struct LensPacer {
     static let heartbeat: TimeInterval = 20
 
+    /// The transport's: 20 s on the native lens, nil on the web one — whose
+    /// liveness is a `ping` carrying the screen's ticket, so a still screen is
+    /// never re-sent and its ticket never moves under a finger (LENS_WIRE.md).
+    var heartbeat: TimeInterval? = LensPacer.heartbeat
+
     private(set) var lastSent: LensScreen?
     private(set) var lastSentAt: Date?
 
     func shouldSend(_ state: LensScreen, at now: Date = .now) -> Bool {
         guard let lastSent, let lastSentAt else { return true }
         if state != lastSent { return true }
-        return now.timeIntervalSince(lastSentAt) >= Self.heartbeat
+        guard let heartbeat else { return false }
+        return now.timeIntervalSince(lastSentAt) >= heartbeat
     }
 
     mutating func sent(_ state: LensScreen, at now: Date = .now) {
