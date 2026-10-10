@@ -334,6 +334,59 @@ final class WebLensTests: XCTestCase {
         XCTAssertEqual(web.offset.best?.off ?? 0, roomAhead, accuracy: 0.5)
     }
 
+    /// Close, then reopen: the next screen must be newer than the `idle`, or
+    /// the page (which renders only what is newer) stays on "closed".
+    func testTheScreenAfterIdleIsNewerThanIt() async {
+        screen = bench()
+        await connect()
+        let first = socket
+        screen = nil
+        await host.beat()
+        for _ in 0..<5 { await Task.yield() }
+        let idleSeq = try! XCTUnwrap(first.sent("idle").last?["seq"] as? Int)
+        screen = bench()
+        await connect()
+        XCTAssertGreaterThan(lastSeq, idleSeq)
+    }
+
+    func testForgettingThePairingMidWorkoutLetsThePhoneSleep() async {
+        screen = bench()
+        await connect()
+        key = nil
+        web.keyChanged()
+        XCTAssertEqual(keepAlive.holds, [true, false])
+        XCTAssertFalse(web.isEngaged)
+        XCTAssertFalse(host.isShowing)
+    }
+
+    /// Fails closed: an unstamped input cannot be judged for lateness.
+    func testAnInputTheRoomDidNotStampIsRefused() async {
+        screen = bench()
+        await connect()
+        socket.deliver(["v": 1, "type": "input", "id": "nostamp", "epoch": web.epoch, "seq": lastSeq, "action": "logSet"])
+        await settle()
+        XCTAssertEqual(socket.sent("ack").last?["why"] as? String, "late")
+        XCTAssertTrue(pinches.isEmpty)
+    }
+
+    func testTheLastLensLeavingClosesTheGate() async {
+        screen = bench()
+        await connect()
+        let seq = lastSeq
+        socket.deliver(["type": "presence", "lenses": 0])
+        let ack = await input("logSet", seq: seq)
+        XCTAssertEqual(ack?["why"] as? String, "closed")
+        XCTAssertFalse(host.isShowing)
+    }
+
+    func testAPongForAPingWeAreNotWaitingForIsIgnored() async {
+        screen = bench()
+        await host.beat()
+        clock += 0.1
+        socket.deliver(["type": "pong", "id": 99, "roomNow": roomNow])
+        XCTAssertNil(web.roomRttMs)
+    }
+
     func testNothingOfOursSaysWhyAndLetsGo() async {
         screen = bench()
         await connect()

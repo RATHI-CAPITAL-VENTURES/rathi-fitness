@@ -112,7 +112,7 @@ final class GlassesFace: ObservableObject {
     func pair(_ scanned: String) -> Bool {
         guard let paired = LensPairing.parse(scanned), LensKey.store(paired) else { return false }
         web.keyChanged()
-        host.refresh()
+        if lens == .web { host.refresh() }
         return true
     }
 

@@ -12,7 +12,9 @@ enum LensPairing {
 
     /// What the pairing QR says: `rflens1:<key>`, optionally followed by
     /// `#<fragment>` — the Web App's own URL fragment (`k=…&lk=…`), which lets
-    /// Settings offer "Add to glasses". A bare key is accepted too.
+    /// Settings offer "Add to glasses". The prefix is REQUIRED: the scanner
+    /// also reads gym passes, and storing one replaces a good key (found in
+    /// review).
     static let prefix = "rflens1:"
 
     struct Paired: Equatable {
@@ -22,7 +24,8 @@ enum LensPairing {
 
     static func parse(_ text: String) -> Paired? {
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if body.hasPrefix(prefix) { body.removeFirst(prefix.count) }
+        guard body.hasPrefix(prefix) else { return nil }
+        body.removeFirst(prefix.count)
         var fragment: String?
         if let hash = body.firstIndex(of: "#") {
             fragment = String(body[body.index(after: hash)...])

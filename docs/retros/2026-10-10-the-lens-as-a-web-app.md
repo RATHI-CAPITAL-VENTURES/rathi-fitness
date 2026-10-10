@@ -35,6 +35,13 @@ same contract, in parallel.
   `testTheWrongEpochSeqOrActionIsRefused`; the one-lens rule,
   `testTwoLensesRefuseTheWriteButNotNavigation`.
 
+- **Two independent reviews, two different questions.** One compared the old
+  `GlassesFace` line by line with `LensHost` + `NativeLens` and found the move
+  behaviour-preserving for the native lens (five LOW timing differences, all
+  fixed or documented). The other attacked the web path — "can it write a set
+  nobody lifted?" — found no such path, and found one HIGH and four MEDIUM
+  problems the author's passing tests had not looked for (the gaps below).
+
 ## What was hard to understand
 
 - **"Is it showing" lived in two places.** `GlassesFace.endSession` did both
@@ -73,6 +80,17 @@ same contract, in parallel.
 | §3 had no "nothing to show" message | docs | `idle`, LENS_WIRE.md change 1, sent and tested | landed here |
 | The 2026-09-21 rejection of the Web App path read as current | docs | a pointer to this release in that entry | landed here |
 | The host had no test at all (mock has no display) | testing | `LensHostTests` with a fake lens, mutation-checked | landed here |
+| `idle` reused the next screen's ticket, so after Close → reopen the page (which renders only what is newer) stayed on "Closed" — review 2, HIGH | testing | `end(…ticket:)` reserved from the gate; `testTheScreenAfterIdleIsNewerThanIt`, `testTheLastWordHasATicketOfItsOwn`; checklist W11 | landed here |
+| Forgetting the pairing mid-workout left the keep-alive holding the phone awake indefinitely — review 2 | testing | `keyChanged` lets go; `testForgettingThePairingMidWorkoutLetsThePhoneSleep` | landed here |
+| The late rule failed open on an input with no `relayedAt` — a relay change could switch it off silently — review 2 | testing | refused `late`; writes refused before the room clock is known; LENS_WIRE.md change 12; `testAnInputTheRoomDidNotStampIsRefused` | landed here |
+| A `deactivate()` swallowed while the lens held the session was never paid back, leaving other apps ducked — review 2 | testing | owed and paid at release; checklist W13 | landed here |
+| The cue's duck changed the session after the cue was scheduled, so an engine restart could drop it — review 2 | testing | duck before scheduling; checklist W12 | landed here |
+| The last lens leaving did not close the gate; an unknown pong id was matched to the oldest ping; a bare 16-character code (a gym pass) was accepted as a key — review 2 | testing | gate closed on 0 lenses; unknown pong ignored; `rflens1:` prefix required; a test each | landed here |
+| `idleReason` cleared after the await (stale text for a beat); a transport swapped mid-await could set the old one's reason; the native retry throttle not reset on re-enable — review 1 | testing | cleared before the await, reason only from the current transport, `wake()` on `use` and reset in `NativeLens.stop` | landed here |
+| `LensHostTests` did not cover disarm-with-no-driver, `.ready`, `.lost` closing the music card, `wake` on arm, or `wanted` — review 1 | testing | five tests; the fake's `ensure` now honours `wanted` | landed here |
+| The tick and room clock read `Date`, so a backwards wall-clock step could hide a freeze — review 2, LOW | testing | a suspend-aware monotonic clock for `TickWatch` | blocked: `ContinuousClock` cannot be compared with the room's wall-clock `relayedAt`, so the late rule needs `Date` anyway, and a clock step mid-workout has not been seen; changing the tick alone splits the two rules onto different clocks |
+| The synthetic-fixture guard reads titles and loads, not every free-text field — review 2, LOW | testing | widen it if a fixture ever needs real-looking text | blocked: every free-text field in the fixtures is built in `LensWireTests` from literals in that file, which the diff review sees; a guard on prose would need a dictionary of what is "real" |
+| `WritePathPlanTests.testAddingAnExerciseFromTheCatalogue` timed out with two UI workers while unit builds ran beside it; passes alone (53 s) | process | none in this release | blocked: untouched by this change (the plan editor), and it is the machine-load flake the Makefile's WORKERS note already records |
 
 ## Follow-ups landed in this milestone
 

@@ -306,10 +306,11 @@ final class LensWireTests: XCTestCase {
 /// Web App to the glasses.
 final class LensPairingTests: XCTestCase {
 
-    func testAPairingCodeIsReadWithOrWithoutItsPrefix() {
+    func testAPairingCodeIsReadOnlyWithItsPrefix() {
         let key = "abcdefghij0123456789_-"
         XCTAssertEqual(LensPairing.parse("rflens1:\(key)"), .init(key: key, fragment: nil))
-        XCTAssertEqual(LensPairing.parse("  \(key)\n"), .init(key: key, fragment: nil))
+        XCTAssertEqual(LensPairing.parse("  rflens1:\(key)\n"), .init(key: key, fragment: nil))
+        XCTAssertNil(LensPairing.parse(key), "a bare key is refused: a gym pass's code can look like one")
         XCTAssertEqual(LensPairing.parse("rflens1:\(key)#k=a&lk=b"), .init(key: key, fragment: "k=a&lk=b"))
     }
 

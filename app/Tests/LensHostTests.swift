@@ -18,7 +18,7 @@ final class FakeTransport: LensTransport {
 
     struct Shown { let screen: LensScreen; let ticket: Int; let pinch: LensHost.Pinch }
     private(set) var shown: [Shown] = []
-    private(set) var ends: [(clearing: Bool, reason: LensHost.Idle)] = []
+    private(set) var ends: [(clearing: Bool, reason: LensHost.Idle, ticket: Int)] = []
     private(set) var wakes = 0
 
     /// The next `show` waits until `release`.
@@ -29,6 +29,9 @@ final class FakeTransport: LensTransport {
     struct Dropped: Error {}
 
     func ensure() async -> Bool {
+        // As the native lens does after its teardown await: a screen that is
+        // no longer wanted opens nothing.
+        guard wanted?() == true else { return false }
         isEngaged = true
         return ready
     }
@@ -47,9 +50,9 @@ final class FakeTransport: LensTransport {
         if throwing { waiting?.resume(throwing: Dropped()) } else { waiting?.resume() }
     }
 
-    func end(clearing: Bool, reason: LensHost.Idle) {
+    func end(clearing: Bool, reason: LensHost.Idle, ticket: Int) {
         isEngaged = false
-        ends.append((clearing, reason))
+        ends.append((clearing, reason, ticket))
     }
 
     func wake() { wakes += 1 }
@@ -234,7 +237,7 @@ final class LensHostTests: XCTestCase {
         XCTAssertFalse(inAir.pinch(.logSet))
         XCTAssertTrue(driverPinches.isEmpty)
         XCTAssertTrue(mirrored.isEmpty, "the bench's Log set must never log a cable fly")
-        XCTAssertEqual(fake.wakes, 1, "a change of exercise is not a lens that stopped answering")
+        XCTAssertEqual(fake.wakes, 2, "once on use, once on arm: a change of exercise is not a lens that stopped answering")
     }
 
     func testDisarmingMidSendNeverMarksTheOldScreenShowing() async {
@@ -417,6 +420,70 @@ final class LensHostTests: XCTestCase {
         XCTAssertEqual(web.last?.screen, bench())
         XCTAssertTrue(web.last!.pinch(.logSet))
         XCTAssertEqual(driverPinches, [.logSet])
+    }
+
+    /// The last word gets its own ticket, so the next screen is always newer.
+    func testTheLastWordHasATicketOfItsOwn() async {
+        driverScreen = bench()
+        let (host, fake) = makeHost()
+        await host.beat()
+        let shown = fake.last!.ticket
+        driverScreen = nil
+        await host.beat()
+        let idle = try! XCTUnwrap(fake.ends.last?.ticket)
+        XCTAssertGreaterThan(idle, shown)
+        driverScreen = bench()
+        await host.beat()
+        XCTAssertGreaterThan(fake.last!.ticket, idle)
+    }
+
+    func testDisarmingWithNoDriverGivesTheLensBack() async {
+        let fake = FakeTransport()
+        let host = LensHost(pumps: false)
+        host.use(fake)
+        let owner = UUID()
+        host.arm(owner: owner, source: { [unowned self] in self.bench([.logSet]) }, onPinch: { _ in })
+        await host.beat()
+        XCTAssertTrue(host.isShowing)
+        let screen = try! XCTUnwrap(fake.last)
+        host.disarm(owner: owner)
+        XCTAssertEqual(fake.ends.last?.clearing, true)
+        XCTAssertFalse(host.isShowing)
+        XCTAssertFalse(screen.pinch(.logSet))
+        XCTAssertEqual(fake.wanted?(), false, "nothing is wanted on the lens any more")
+    }
+
+    func testArmingWakesTheLens() async {
+        let (host, fake) = makeHost()
+        let before = fake.wakes
+        host.arm(owner: UUID(), source: { nil }, onPinch: { _ in })
+        XCTAssertEqual(fake.wakes, before + 1)
+    }
+
+    func testLosingTheLensClosesTheMusicCard() async {
+        driverScreen = bench()
+        let (host, fake) = makeHost(music: true)
+        await host.beat()
+        _ = fake.last!.pinch(.music)
+        await settle(host)
+        guard case .card = fake.last?.screen else { return XCTFail("no music card") }
+        fake.onEvent?(.lost)
+        await host.beat()
+        XCTAssertEqual(fake.last?.screen.actions, [.logSet, .fewerReps, .back, .music],
+                       "glasses off and on come back to the workout, not the card")
+    }
+
+    func testAReadyLensIsDrawnOn() async {
+        driverScreen = bench()
+        let fake = FakeTransport()
+        fake.ready = false
+        let (host, _) = makeHost(fake)
+        await host.beat()
+        XCTAssertTrue(fake.shown.isEmpty)
+        fake.ready = true
+        fake.onEvent?(.ready)
+        await settle(host)
+        XCTAssertEqual(fake.shown.count, 1)
     }
 
     func testSwitchingOffSaysSo() async {

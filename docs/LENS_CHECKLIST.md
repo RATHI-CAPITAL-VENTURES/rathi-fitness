@@ -44,3 +44,6 @@ App has been worn through a real workout and accepted.
 | W8 | Switch Settings → Glasses → Lens to Native mid-rest | The page says "Moved to the native lens"; the rest carries on, natively |
 | W9 | AirPods triple-press during a set, with music playing | Logs the set, as in Native mode (see the v0.18.0 retro) |
 | W10 | Meta's back gesture | Leaves the page (the page is not told); reopen it and the workout is back |
+| W11 | Close from the lens, then open the app on the phone | The page leaves "Closed…" and shows today's list (the ticket after `idle` is newer) |
+| W12 | Spotify or Music.app playing, Web App mode, let a rest run out | The chime is heard over it (ducked for the cue only) |
+| W13 | After the workout ends (or the lens is switched to Native/off) | Spotify / Music.app back at full volume; the phone no longer plays silence |

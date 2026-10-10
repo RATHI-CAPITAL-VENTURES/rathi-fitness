@@ -41,8 +41,11 @@ protocol LensTransport: AnyObject {
     /// ticket, its layer — and answers whether the pinch was honoured.
     func show(_ screen: LensScreen, ticket: Int, onPinch: @escaping LensHost.Pinch) async throws
     /// Let go of the lens. `clearing`: we are leaving, so blank it (native) or
-    /// tell the page why (web).
-    func end(clearing: Bool, reason: LensHost.Idle)
+    /// tell the page why (web). `ticket` is reserved from the gate for that
+    /// last word, so the next screen's ticket is always newer than it — a page
+    /// renders only what is newer, and a reused number left it stuck on
+    /// "closed" (found in review).
+    func end(clearing: Bool, reason: LensHost.Idle, ticket: Int)
     /// Retry now. The throttle is for a lens that is not answering, not a
     /// penalty for changing exercise.
     func wake()
@@ -159,11 +162,12 @@ final class LensHost: ObservableObject {
         music.close()
         old?.onEvent = nil
         old?.wanted = nil
-        old?.end(clearing: true, reason: reason)
+        old?.end(clearing: true, reason: reason, ticket: gate.reserve())
         transport = next
         pacer.heartbeat = next?.heartbeat
         next?.onEvent = { [weak self] event in self?.event(event) }
         next?.wanted = { [weak self] in self?.source != nil }
+        next?.wake()
         if next == nil {
             pump?.cancel()
             pump = nil
@@ -340,12 +344,16 @@ final class LensHost: ObservableObject {
             if idleReason != why { idleReason = why }
             return
         }
+        if idleReason != nil { idleReason = nil }
         guard await transport.ensure(), transport === self.transport else {
-            let why = transport.waitingReason
-            if idleReason != why { idleReason = why }
+            // Only this transport's words, and only if it is still ours: after
+            // a switch mid-await the old one's reason is about nothing.
+            if transport === self.transport {
+                let why = transport.waitingReason
+                if idleReason != why { idleReason = why }
+            }
             return
         }
-        if idleReason != nil { idleReason = nil }
         let paced = transport.pacesClockFree ? state.clockFree : state
         guard pacer.shouldSend(paced) else { return }
 
@@ -411,6 +419,6 @@ final class LensHost: ObservableObject {
         pacer.forget()
         gate.close()
         music.close()
-        transport?.end(clearing: clearing, reason: reason)
+        transport?.end(clearing: clearing, reason: reason, ticket: gate.reserve())
     }
 }

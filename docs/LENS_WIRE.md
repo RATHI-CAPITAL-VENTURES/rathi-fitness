@@ -61,10 +61,26 @@ Everything here is **additive** inside v1. Nothing in §3 was removed.
     `#<fragment>` — the Web App's own URL fragment (`k=…&lk=…`). §3 said only
     "a terminal QR holding the phone key". The fragment, when present, lets
     Settings offer "Add to glasses" with the same encoding as
-    `bin/glasses-url`; without it that row is not shown. A bare key is also
-    accepted.
+    `bin/glasses-url`; without it that row is not shown. **The prefix is
+    required** — the scanner also reads gym passes, and a stored pass code
+    would replace a good key.
 11. **All times are milliseconds**: `endsAt` (phone clock), `relayedAt` and
     `roomNow` (room clock), `t` (sender's clock).
+12. **The late rule fails closed.** An `input` with no numeric `relayedAt` is
+    refused `late`; before the phone knows the room clock (the first
+    `hello-ok`/`pong`), a write is refused `late` and navigation is allowed.
+    **The room must set `relayedAt` itself on every input, overwriting any the
+    lens sent** — a relay that passed the lens's value through would let the
+    page decide what counts as on time.
+13. **`idle` shares the screen ticket space.** Its `seq` is reserved from the
+    same gate, so it is always newer than the screen before it and older than
+    the screen after; "render only if newer" orders the two with no tie.
+14. **Every refused input repaints** with a fresh ticket (§3 said so for
+    honoured ones). A page sending garbage therefore moves the ticket; the
+    page must send inputs only for the screen it shows.
+15. **When the room's lens count drops to 0** the phone closes the gate (an
+    input that still arrives is `closed`) and offers nothing until a lens is
+    back.
 
 ## Connecting
 
@@ -198,8 +214,8 @@ In this order; the first that fails is the `why` in the `ack`:
 
 | `why` | Refused when |
 | --- | --- |
-| `closed` | nothing honourable is on the lens: no screen yet, or the phone was **frozen** — its 1 Hz tick came more than **2 s** late, which closes the gate **before** the socket is read again |
-| `late` | `relayedAt` is more than **1.5 s** old by the phone's estimate of room time |
+| `closed` | nothing honourable is on the lens: no screen yet, no lens connected, or the phone was **frozen** — its 1 Hz tick came more than **2 s** late, which closes the gate **before** the socket is read again |
+| `late` | `relayedAt` is missing, or more than **1.5 s** old by the phone's estimate of room time; or a write arrives before the phone knows the room clock |
 | `wrongEpoch` | not this run's epoch |
 | `wrongSeq` | not the ticket on the lens |
 | `notOnScreen` | the action is not on that screen (a row out of range included) |

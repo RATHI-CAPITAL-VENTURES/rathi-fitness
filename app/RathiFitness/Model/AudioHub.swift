@@ -148,6 +148,7 @@ final class AudioHub: ObservableObject, LensKeepAlive {
     /// your podcast for no reason.
     func activate() {
         guard Self.isEnabled else { return }
+        deactivateOwed = false
         #if os(iOS)
         guard !sessionActive else { return }
         let session = AVAudioSession.sharedInstance()
@@ -171,7 +172,13 @@ final class AudioHub: ObservableObject, LensKeepAlive {
         speaker.stopSpeaking(at: .immediate)
         if engineRunning { engine.stop() }
         #if os(iOS)
-        guard sessionActive, !isHoldingForLens else { return }
+        if isHoldingForLens, sessionActive {
+            // Owed, not dropped: the lens lets go later, and the session must
+            // go back then — or Spotify stays ducked after the workout.
+            deactivateOwed = true
+            return
+        }
+        guard sessionActive else { return }
         try? AVAudioSession.sharedInstance()
             .setActive(false, options: [.notifyOthersOnDeactivation])
         sessionActive = false
@@ -283,6 +290,8 @@ final class AudioHub: ObservableObject, LensKeepAlive {
     private var lensSilence: AVAudioPlayer?
     private var lensWatching = false
     private var lensActivatedSession = false
+    /// `deactivate()` was asked for while the lens held the session.
+    private var deactivateOwed = false
     private var duckUntil: Date?
     #if canImport(UIKit)
     private var lensWindow: UIBackgroundTaskIdentifier = .invalid
@@ -331,7 +340,7 @@ final class AudioHub: ObservableObject, LensKeepAlive {
             lensSilence = nil
             closeLensWindow()
             #if os(iOS)
-            if lensActivatedSession, !isHoldingRemoteControl {
+            if (lensActivatedSession || deactivateOwed), !isHoldingRemoteControl, !ownMusicIsPlaying {
                 try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
                 sessionActive = false
             } else if sessionActive {
@@ -339,6 +348,7 @@ final class AudioHub: ObservableObject, LensKeepAlive {
             }
             #endif
             lensActivatedSession = false
+            deactivateOwed = false
         }
     }
 
@@ -506,9 +516,13 @@ final class AudioHub: ObservableObject, LensKeepAlive {
         // you are not looking at the screen.
         let level = max(0, min(1, volume))
         cueNode.volume = Float(cue.overMusic ? max(0.75, level) : level)
+        // BEFORE scheduling: if changing the session's options restarts the
+        // engine, it must not take this cue with it (found in review).
+        duckAroundCue(seconds: Double(buffer.frameLength) / format.sampleRate)
+        startEngineIfNeeded()
+        guard engineRunning else { return }
         cueNode.scheduleBuffer(buffer, at: nil, options: [.interrupts])
         if !cueNode.isPlaying { cueNode.play() }
-        duckAroundCue(seconds: Double(buffer.frameLength) / format.sampleRate)
     }
 
     /// One partial of a cue: a sine at `hz`, starting at `start`, lasting

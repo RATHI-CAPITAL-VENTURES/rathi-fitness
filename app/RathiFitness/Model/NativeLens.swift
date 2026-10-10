@@ -79,6 +79,9 @@ final class NativeLens: ObservableObject, LensTransport {
     func ensure() async -> Bool { await ensureLens() }
 
     func show(_ screen: LensScreen, ticket: Int, onPinch: @escaping LensHost.Pinch) async throws {
+        // Unreachable today: `ensure` said yes with no await since, and that
+        // means a display. Thrown rather than returned so the host forgets
+        // the screen instead of believing it landed.
         guard let display else { throw NoDisplay() }
         let view = LensRenderer.view(for: screen) { action in
             Task { @MainActor in _ = onPinch(action) }
@@ -86,7 +89,7 @@ final class NativeLens: ObservableObject, LensTransport {
         try await display.send(view)
     }
 
-    func end(clearing: Bool, reason: LensHost.Idle) {
+    func end(clearing: Bool, reason: LensHost.Idle, ticket: Int) {
         tearDown(clearingLens: clearing)
     }
 
@@ -152,6 +155,8 @@ final class NativeLens: ObservableObject, LensTransport {
         linked = nil
         lastError = nil
         status = .off
+        // Switching back on is not a lens that stopped answering.
+        nextConnectAttempt = .distantPast
     }
 
     private func dropDeviceTokens() {

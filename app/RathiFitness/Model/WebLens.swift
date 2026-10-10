@@ -137,12 +137,12 @@ final class WebLens: ObservableObject, LensTransport {
         try await socket.send(LensWire.text(message))
     }
 
-    func end(clearing: Bool, reason: LensHost.Idle) {
+    func end(clearing: Bool, reason: LensHost.Idle, ticket: Int) {
         let leaving = socket
         if clearing, let leaving, link == .up {
             // Said, then closed: the page shows why instead of "phone not
             // reachable" (LENS_WIRE.md, `idle`).
-            let idle = LensWire.text(LensWire.idleMessage(epoch: epoch, seq: (lastSeq ?? 0) + 1,
+            let idle = LensWire.text(LensWire.idleMessage(epoch: epoch, seq: ticket,
                                                           reason: reason.reason, text: reason.text))
             Task { try? await leaving.send(idle); leaving.close() }
         } else {
@@ -169,11 +169,21 @@ final class WebLens: ObservableObject, LensTransport {
     /// The key changed in the Keychain (paired, or forgotten).
     func keyChanged() {
         paired = key() != nil
-        if engaged {
+        guard engaged else { return }
+        // Whatever the old key's socket showed no longer speaks for the app.
+        onEvent?(.lost)
+        if paired {
             socket?.close()
             socket = nil
             link = .down
+            shown = nil
             retryAt = now()
+        } else {
+            // Forgotten mid-workout. The host stops asking an unavailable
+            // transport anything, so it would never end this one — and the
+            // keep-alive would hold the phone awake for nothing (found in
+            // review). Let go here.
+            end(clearing: false, reason: .off, ticket: 0)
         }
     }
 
@@ -183,6 +193,7 @@ final class WebLens: ObservableObject, LensTransport {
         guard let key = key() else {
             paired = false
             link = .down
+            retryAt = nil
             return
         }
         let socket = makeSocket()
@@ -308,13 +319,26 @@ final class WebLens: ObservableObject, LensTransport {
         let was = lenses
         lenses = max(0, n)
         if was == 0, lenses > 0 { onEvent?(.repaint) }
+        if was > 0, lenses == 0 {
+            // No page, nothing offered — to pinch, as well as to draw on.
+            shown = nil
+            onEvent?(.lost)
+        }
     }
 
     private func pong(_ message: [String: Any], at t1: Double) {
         guard let room = message["roomNow"] as? Double, !pings.isEmpty else { return }
         // By id when the room echoes it; else the oldest outstanding — pongs
         // come back in order on one socket.
-        let index = (message["id"] as? Int).flatMap { id in pings.firstIndex { $0.id == id } } ?? 0
+        let index: Int
+        if let id = message["id"] as? Int {
+            // An id we are not waiting for is not a guess at the oldest: a
+            // wrong pairing skews the room clock the late rule reads.
+            guard let found = pings.firstIndex(where: { $0.id == id }) else { return }
+            index = found
+        } else {
+            index = 0
+        }
         let t0 = pings.remove(at: index).t0
         if let best = offset.add(t0: t0, t1: t1, roomNow: room) { roomRttMs = Int(best.rtt) }
     }
@@ -342,18 +366,22 @@ final class WebLens: ObservableObject, LensTransport {
     /// Nil = honoured, and the ticket is spent.
     private func judge(_ message: [String: Any], at t: Double) -> Refusal? {
         guard let shown else { return .closed }
-        let relayedAt = message["relayedAt"] as? Double
+        // Fails CLOSED. An input the room did not stamp cannot be judged for
+        // lateness, and a relay build that dropped the stamp must not quietly
+        // switch the rule off (found in review). With no room clock yet —
+        // before the first answer, a round trip after connecting — navigation
+        // is allowed and a write is not.
+        guard let relayedAt = message["relayedAt"] as? Double else { return .late }
         let roomNow = offset.toRoom(t)
-        // No offset yet means lateness cannot be judged, so it is not refused
-        // for it — `hello-ok` gives one within a round trip of connecting.
-        if let relayedAt, let roomNow, roomNow - relayedAt > Self.lateMs { return .late }
+        if let roomNow, roomNow - relayedAt > Self.lateMs { return .late }
         guard message["epoch"] as? String == epoch else { return .wrongEpoch }
         guard message["seq"] as? Int == shown.seq else { return .wrongSeq }
         guard let action = LensWire.action(from: message["action"]),
               shown.actions.contains(action) else { return .notOnScreen }
         if action.writes, lenses != 1 { return .lenses }
+        if action.writes, roomNow == nil { return .late }
         guard shown.onPinch(action) else { return .gate }
-        if let relayedAt, let roomNow { lastPinchMs = Int(max(0, roomNow - relayedAt)) }
+        if let roomNow { lastPinchMs = Int(max(0, roomNow - relayedAt)) }
         return nil
     }
 
