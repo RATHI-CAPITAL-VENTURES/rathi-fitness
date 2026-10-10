@@ -1895,7 +1895,10 @@ live in the model, which is a refactor of a 650-line view and its own milestone.
 The hardware is ready for it — a tall list scrolls, the first row arrives lit —
 and the plan is written down in the project's glasses artifact.
 
-**Rejected: Meta's Web App path.** It runs on the glasses with only local
+**Rejected: Meta's Web App path.** (Partly reversed on 2026-10-10 — the
+lens can now run as a Web App with the phone still the only source of truth;
+see that entry. The reason below still holds and is why the phone stays the
+brain.) It runs on the glasses with only local
 storage, and it gets real swipes, which native does not. But this app's data
 lives on the phone on purpose, so it works in a basement; a web app would need
 its own copy of the plan and a network to sync it — a second source of truth in
@@ -2375,3 +2378,136 @@ exercise is in the plan.**
   reading a file from the old app prints exactly what it did before. The one
   behaviour that did change — no `today` on a rotation's day off — is the
   documented contract ("absent on a rest day") finally being met, not a new one.
+
+## 2026-10-10 — The lens can run as a Web App; the phone stays the brain
+
+**Chosen: a second lens transport, `WebLens`, that sends the same screens
+through a relay room to a Fitness Web App the glasses open from their own app
+grid. Native stays the default and stays exactly as it was. Rejected: a
+phone-local socket, a second copy of the glasses face, and — because the spike
+said so — the "glasses run the loop" fallback.**
+
+This reverses half of the 2026-09-21 rejection of Meta's Web App path ("a
+second source of truth in the one place with no signal"). The half it keeps is
+the reason: **the phone is still the only source of truth.** The page renders a
+screen value the phone publishes and sends back "button X on screen #N was
+pressed"; nothing about the workout is computed or stored on the glasses. What
+changed is that the owner wants one Web App for the workout and, later, the
+rest feed (Phase 2), online through the phone. The basement case — no signal at
+all — is what the native lens is for, and it stays one switch away (Settings →
+Glasses → Lens).
+
+### It was measured before it was built
+
+A throwaway spike (its own bundle id, its own room, in a private repo, never
+merged) asked the questions the plan could not answer. Numbers only here:
+
+| Question | Answer | What it decided |
+| --- | --- | --- |
+| Does the display stay lit through an idle rest, and does the page survive it? | Yes — lit through every idle rest; back ~2 s after the glasses go back on | The project continues (the owner's rule: a dark lens in a rest = stop) |
+| Does a locked, pocketed phone stay alive and on the socket with no display session? | 45 min with in-app music: socket up 98.6 %, one 37 s gap — Siri. After the fix: max tick gap 0 s, socket up 100 %, 0 drops, 4 of 4 pinches, Siri ×5 restored in 0.4–5 s, phone locked throughout | `AudioHub.holdForLens` exactly as the spike proved it; the loop-mode fallback is **not** needed |
+| Pinch → new screen | p50 / p95 / max 125 / 159 / 159 ms unlocked (n 5), 144 / 211 / 211 ms locked (n 7), 0 lost. Legs ≈ lens→room 42, room→phone 30, phone 1, phone→room 10, room→lens 44 ms | Every pinch can cross the network; nothing is decided on the page |
+| Feed in a rest, READY back on time (Phase 2) | READY on the lens 103 and 390 ms after the phone's (2 rests) | Phase 2 can proceed |
+| Which keys reach the page? | Arrows and Enter; Meta's Back gesture never does | The in-lens Back / Today / Close buttons stay |
+| What is the glasses' network path? | With their Wi-Fi off the page kept working — through the Meta AI app over Bluetooth, on the phone's cellular | Design unchanged. If that path does not survive a pocketed phone, the setup rule is "glasses join the phone's hotspot", the path the keep-alive run proved |
+
+**What the Siri gap taught, and what the keep-alive is because of it.** The
+first 45-minute run kept the process alive on the in-app music alone. Siri
+paused that music — and MusicKit reports Siri as a *player* state change, not
+an audio-session interruption, so nothing of ours noticed, and iOS suspended
+the app within seconds. Only an unlock brought it back. The plan's premise
+("the in-app player renders through this app's session, so the process already
+holds an active session") was not safe. So `holdForLens` does not trust a flag:
+
+- a **silence loop** (an `AVAudioPlayer` of zero samples, at volume 1) in a
+  `.playback` session with **`.mixWithOthers`**, alongside the music;
+- a **1 Hz watchdog** that asks the player whether it is really playing and,
+  if not, re-asserts the session and restarts it — Siri never delivers an
+  interruption *ended*, so this is what brings it back;
+- a **~30 s background task** whenever our audio is taken (an interruption
+  begins, or the music stops while held), so the process is still running when
+  it can restore itself, without an unlock.
+
+It is held only while something of ours belongs on the lens — around a
+workout, the same rule that decides when the driver takes the lens at all —
+and only in Web App mode. The 1 Hz tick runs in the run loop's `.common` mode:
+in the spike, foreground "tick gaps" of 2–5 s were a timer stalling while a
+List scrolled, and a tick gap closes the gate.
+
+### The face was split, and moved, not copied
+
+`GlassesFace` was 625 lines with the DAT session and the decisions about what
+to show braided together. It is now three parts and a door:
+
+- **`LensHost`** — the layers (set screen over driver), the music card, the
+  pump, the pacer, the gate, `pinched` and both epoch guards. Moved verbatim;
+  the only new things are the transport seam and a clock parameter for tests.
+- **`NativeLens`** — Meta's SDK: registration, the session, the display, the
+  retry throttle. Moved verbatim.
+- **`WebLens`** — new: the socket, the room clock, and the network's rules.
+- **`GlassesFace`** — what Settings binds to; wires the three and owns the two
+  settings (on/off, Native/Web App).
+
+That made the host reachable by a test for the first time — Meta's mock device
+has no display — so `LensHostTests` now drives it against a fake lens and
+holds a send in the air: arming or disarming mid-send, the lens dropping
+mid-send, an owed beat, Music's Back against the driver's. Removing either
+epoch guard or `gate.accept` fails a test; so does removing each of the web
+rules below (the mutations are listed in the retro).
+
+### The network adds three rules to `LensGate`
+
+A pinch still counts once, only for the screen it was aimed at. A network adds:
+
+- **Late pinches are refused.** The room stamps each input on its own clock;
+  the phone learns the room's offset from every pong and refuses one more than
+  **1.5 s** old. A pinch held up by a stalled link was aimed at a screen the
+  wearer may no longer see.
+- **A frozen phone closes the gate first.** If the 1 Hz tick comes more than
+  **2 s** late, the process was suspended; the gate closes *before* the socket
+  is read again, so inputs buffered while frozen meet a closed gate.
+- **Writes need exactly one lens.** Two open pages could each be showing
+  *Log set*.
+
+Nothing is ever queued: the room answers "undeliverable" when the phone is
+away, and the phone never judges an input later than it arrives. A replayed
+input id gets its first answer and does nothing.
+
+### Rest timing became data
+
+The web page ticks the rest clock itself, so a screen carries the rest as
+`RestClock {endsAt, total}` (from `RestTimer`), and the web lens is sent a new
+screen only when the **clock-free** projection changes — a rest ticking down is
+not a change; +30 s is. The native lens is still sent its numeral every second,
+and `LensTests` would catch it otherwise: a native screen built from the clock
+is byte-identical to one built the old way. The music card's Rest carries the
+same deadline; an exercise card's Rest is the planned length and stays text.
+
+### Rejected: a socket served by the phone
+
+The phone and glasses share the hotspot's subnet, so a WebSocket served by the
+phone would skip the internet. Rejected: the page is HTTPS, so `ws://` to a
+private address is mixed content and blocked; `wss://` needs a publicly trusted
+certificate for a name that resolves privately — its private key shipped in
+the app and renewed every 90 days; Chromium-family browsers block public
+origins from private addresses without a preflight, and the glasses' web view
+is unknown; the subnet is iOS's choice, not ours; and the phone would need the
+same keep-alive anyway. Revisit only if round trips on cellular turn out too
+slow — the spike measured 125–211 ms.
+
+### What this costs, said plainly
+
+- **Signal.** The Web App needs the internet through the phone. The native
+  lens does not.
+- **The phone has to stay running** in the background during a workout,
+  playing silence. It is the documented cost of a phone-brained Web App, as the
+  AirPods' silence loop is of hands-free, and it stops when the workout does.
+- **`.mixWithOthers` while held** means the cue no longer ducks Music.app or
+  Spotify by default; it ducks them for the cue's length only when another app
+  is actually playing. Whether the AirPods' triple-press still reaches the app
+  with the session mixing has not been tried on the hardware — mixing sessions
+  do not normally get the now-playing role. It is the first thing to check when
+  the Web App is worn (`docs/LENS_CHECKLIST.md`, W9).
+- **Pairing.** The phone's relay key arrives by scanning a QR the Mac shows,
+  with the live camera, into the Keychain (this device only). Never in source,
+  never from a screenshot.

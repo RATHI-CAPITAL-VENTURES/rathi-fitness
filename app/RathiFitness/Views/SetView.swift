@@ -176,7 +176,7 @@ struct SetView: View {
             exercise: exercise.name, day: item.day?.name,
             nextSet: nextWorkingSet, of: plan.sets,
             weight: weight, word: exercise.weightWord, reps: reps,
-            resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil)
+            resting: restingHere ? rest.clock.map { .init($0, at: .now) } : nil)
     }
 
     /// The answer to "where am I", for the announce gesture.

@@ -312,11 +312,11 @@ final class WorkoutDriver {
     private func lifting(_ item: PlanItem, _ exercise: Exercise, _ board: Board, at now: Date) -> LensScreen {
         let plan = Swaps.prescription(for: item, doing: exercise)
         let nextSet = Workout.working(item, in: progress(board)).count + 1
-        let resting = rest.isResting && rest.exerciseName == exercise.name
+        let resting = rest.exerciseName == exercise.name ? rest.clock : nil
         var state = LensState.strength(
             exercise: exercise.name, day: board.day.name, nextSet: nextSet, of: plan.sets,
             weight: weight, word: exercise.weightWord, reps: reps,
-            resting: resting ? .init(remaining: rest.remaining(at: now), total: rest.total) : nil)
+            resting: resting.map { .init($0, at: now) })
 
         switch state.tone {
         case .ready:

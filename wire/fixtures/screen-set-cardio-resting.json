@@ -1,0 +1,1 @@
+{"epoch":"fixture0","screen":{"actions":["skipRest","extendRest","music"],"detail":"Then interval 2 of 3","eyebrow":"RESTING","kind":"set","rest":{"endsAt":45000,"remainingMsAtSend":45000,"totalMs":60000},"title":"Treadmill","tone":"resting"},"seq":7,"type":"screen","v":1}

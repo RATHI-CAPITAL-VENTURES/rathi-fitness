@@ -211,6 +211,59 @@ SB=$(sandbox); printf 'Text("x").listRowBackground(Color.clear)\n' \
   > "$SB/app/RathiFitness/Views/Bad.swift"
 check "listRowBackground is not a false positive" 0 "" dead-controls
 
+# ------------------------------------------------------------------ wire-schema
+echo "wire-schema"
+wire() {
+  mkdir -p "$1/wire/fixtures"
+  printf 'enum LensWire {\n    static let version = 1\n}\n' > "$1/app/RathiFitness/Model/LensWire.swift"
+  printf '# The lens wire\n\nWire version: 1\n' > "$1/docs/LENS_WIRE.md"
+  printf '{"epoch":"fixture0","screen":{"kind":"set","title":"Bench Press","hero":"185 × 8"},"seq":1,"type":"screen","v":1}\n' \
+    > "$1/wire/fixtures/screen-a.json"
+  printf 'static let x = ["Bench Press", "Treadmill", "Leg Press"]\n' > "$1/app/RathiFitness/Model/Catalogue.swift"
+}
+SB=$(sandbox); wire "$SB"
+check "agrees across app, docs and fixtures" 0 "agrees" wire-schema
+
+SB=$(sandbox); wire "$SB"; printf 'Wire version: 2\n' > "$SB/docs/LENS_WIRE.md"
+check "docs behind the app is caught" 1 "documents v2" wire-schema
+
+SB=$(sandbox); wire "$SB"
+printf '{"type":"screen","v":2}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a fixture on another version is caught" 1 "screen-b.json" wire-schema
+
+SB=$(sandbox); wire "$SB"; rm "$SB/wire/fixtures/"*.json
+check "no fixtures at all is caught" 1 "no fixtures" wire-schema
+
+# ------------------------------------------------------- wire-fixtures-synthetic
+echo "wire-fixtures-synthetic"
+SB=$(sandbox); wire "$SB"
+check "Catalogue names and synthetic loads pass" 0 "synthetic" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Treadmill is left","lines":["4 of 4 done"]},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a catalogue machine 'is left' passes" 0 "synthetic" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Bohemian Rhapsody"},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a real track title is caught" 1 "Bohemian Rhapsody" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Bench Press","hero":"190 × 8"},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a real load is caught" 1 "load 190" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Bench Press","detail":"Then set 2 · 22.5 each × 10"},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a dumbbell load is read too" 1 "load 22.5" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Bench Press","rest":{"endsAt":1760112000000}},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a real timestamp is caught" 1 "timestamp" wire-fixtures-synthetic
+
+SB=$(sandbox); wire "$SB"
+printf '{"screen":{"title":"Bench Press","lines":["2026-10-10"]},"v":1}\n' > "$SB/wire/fixtures/screen-b.json"
+check "a date is caught" 1 "has a date" wire-fixtures-synthetic
+
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

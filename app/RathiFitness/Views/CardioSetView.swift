@@ -557,7 +557,7 @@ struct CardioSetView: View {
         .cardio(
             exercise: exercise.name, day: day?.name, seconds: seconds,
             boutsDone: slotBouts, of: plan.sets,
-            resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil,
+            resting: restingHere ? rest.clock.map { .init($0, at: .now) } : nil,
             canLog: hasSomethingToLog)
     }
 

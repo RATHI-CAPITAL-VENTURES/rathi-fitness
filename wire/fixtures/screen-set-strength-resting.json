@@ -1,0 +1,1 @@
+{"epoch":"fixture0","screen":{"actions":["skipRest","extendRest","list","music"],"detail":"Then set 3 of 4 · 185 × 8","eyebrow":"RESTING","kind":"set","rest":{"endsAt":72000,"remainingMsAtSend":72000,"totalMs":90000},"title":"Bench Press","tone":"resting"},"seq":2,"type":"screen","v":1}

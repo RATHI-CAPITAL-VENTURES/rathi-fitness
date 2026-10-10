@@ -1,0 +1,1 @@
+{"epoch":"fixture0","screen":{"actions":["pause","nextTrack","back"],"eyebrow":"MUSIC · PLAYING","kind":"card","lines":["Synthetic Artist"],"specs":[{"label":"Rest","rest":{"endsAt":72000,"remainingMsAtSend":72000,"totalMs":90000}}],"title":"Synthetic Track"},"seq":18,"type":"screen","v":1}
