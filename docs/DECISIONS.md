@@ -2539,3 +2539,58 @@ whole app over Wi-Fi. Both are overridable from the environment.
 
 **Upstream.** `deploy/autoupdate/` is RIA's `templates/autoupdate`; this fix has
 not been ported there, so `bootstrap --check` will report drift until it is.
+
+## 2026-10-10 — A Short's sound pauses the music, and READY brings it back — only ours
+
+**Chosen: the phone, which owns the music and the rest, decides. The lens only
+reports that a Short's sound went on or off (`feedAudio`). Rejected: the page
+pausing the music itself, and "resume at READY whatever happened".**
+
+The owner's rule (2026-10-09, decision 2) is two sentences: a Short with sound
+pauses the workout music, and the music resumes automatically at READY. Both
+halves are the phone's: the music is the in-app player (`MusicController`),
+and READY is the phone's rest ending — run out or skipped — not the page's
+local clock, which can be a second off and is only a display.
+
+**The whole rule is one bit, `FeedAudio.pausedByUs`.** It is set only when the
+sound came on during a rest while the music was actually playing, and the
+resume happens only if it is still set. Everything else is about when it must
+be forgotten, because "resume at READY" applied blindly starts music somebody
+stopped:
+
+- **You paused it before the Short** — nothing was paused by us, so nothing is
+  resumed.
+- **You pressed play mid-feed** (phone, AirPods, the music card) — the music
+  playing again without us drops the claim; if you then pause it, READY leaves
+  it paused.
+- **A call or Siri takes the audio** — the claim is dropped at the
+  interruption's start. Resuming after a call is fighting the system for a
+  song you may no longer want. Siri sends `began` and never `ended` (measured
+  in the Phase 0 spike), so "interrupted" — which only blocks a new pause —
+  clears itself when the music plays again or a rest ends, or the feature
+  would switch itself off for the rest of the workout.
+
+The mutation check found one guard no test could reach: "do not resume during
+an interruption". It was dead because the claim is already gone by then, and
+it was removed rather than kept as untested reassurance.
+
+**The keep-alive is untouched by our pause.** In Web App mode the in-app music
+was one of the things holding a locked phone awake; pausing it is exactly the
+"music stopped while held" case the keep-alive already treats as audio being
+taken (a background window, the silence re-asserted). A test pins it: our
+pause leaves `holdForLens` held and the silence playing.
+
+**No wire change.** The room already forwards `feedAudio {on, relayedAt}` to a
+present phone. It is not a pinch: never acked, never judged by the gate, never
+a repaint.
+
+**Pairing is choosing the Web App.** The owner paired, the lens stayed on
+Native, and the glasses said "No workout" — a pairing that changed nothing
+visible. A successful pair now switches the lens to Web App and Settings says
+so; picking Native afterwards is still yours.
+
+**The lens says what to do, in the lens's words.** `idle.text` used to carry
+Settings' sentence ("Open the app to bring the workout back…", "…on Today"),
+which on the glasses read as the glasses being broken — which app? there is no
+Today there. The driver now keeps a second, lens-facing sentence that names
+the phone: "Start a workout on your phone."

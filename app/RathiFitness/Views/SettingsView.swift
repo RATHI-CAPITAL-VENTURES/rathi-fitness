@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var exportFiles: [URL]?
     @State private var pairingLens = false
     @State private var pairingResult: String?
+    @State private var pairingNote: String?
     @Environment(\.openURL) private var openURL
 
     @Query private var allSets: [SetEntry]
@@ -72,8 +73,13 @@ struct SettingsView: View {
             .sheet(isPresented: $pairingLens) {
                 CodeScanner { value, _ in
                     pairingLens = false
-                    pairingResult = glasses.pair(value)
-                        ? nil : "That code is not a pairing code. Run bin/pair-phone on the Mac and scan the code it shows."
+                    if glasses.pair(value) {
+                        pairingResult = nil
+                        pairingNote = "Paired. The lens is now the Web App — open Fitness on your glasses."
+                    } else {
+                        pairingNote = nil
+                        pairingResult = "That code is not a pairing code. Run bin/pair-phone on the Mac and scan the code it shows."
+                    }
                 }
             }
             .sheet(isPresented: $declaringAway) {
@@ -542,6 +548,12 @@ struct SettingsView: View {
             ActionRow(label: "Pair again", symbol: "qrcode.viewfinder") { pairingResult = nil; pairingLens = true }
             ActionRow(label: "Forget the pairing", symbol: "xmark.circle",
                       tint: RFDesign.ember, showsDivider: false) { glasses.unpair() }
+        }
+        if let pairingNote {
+            Text(pairingNote)
+                .font(RFDesign.ui(12.5))
+                .foregroundStyle(RFDesign.ready)
+                .padding(.top, 8)
         }
         if let pairingResult {
             Text(pairingResult)

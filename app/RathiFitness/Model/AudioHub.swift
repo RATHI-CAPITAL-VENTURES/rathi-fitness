@@ -352,6 +352,10 @@ final class AudioHub: ObservableObject, LensKeepAlive {
         }
     }
 
+    /// Whether the keep-alive's silence is playing right now — for the tests
+    /// that pin "the phone stays awake while the music is paused".
+    var isLensSilencePlaying: Bool { lensSilence?.isPlaying == true }
+
     /// Once a second while held. Silent unless it has to act.
     func lensWatchdog() {
         guard isHoldingForLens else { return }

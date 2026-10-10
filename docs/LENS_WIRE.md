@@ -95,6 +95,25 @@ Everything here is **additive** inside v1. Nothing in §3 was removed.
     — checked against CFNetwork 3896 on 2026-10-10 by capturing the upgrade
     request — which is what the room's phone path requires.
 
+17. **`feedAudio` is read (v0.19.0, Phase 2).** No change of shape: the
+    room forwards `{v:1, type:"feedAudio", on, relayedAt}` from the lens and
+    the phone acts on it — only a boolean `on` counts. **On**, during a rest,
+    with the in-app music playing: the phone pauses the music and remembers
+    that it did. **Off**, or the phone's READY (the rest ending on the phone,
+    run out or skipped): the music is resumed **only if the phone paused it**.
+    It never resumes music the wearer paused, never resumes after the wearer
+    pressed play themselves, and drops its claim when a call or Siri takes the
+    audio. `feedAudio` is not a pinch: it is never acked, never judged by the
+    gate, and does not repaint. The page should send `on:false` when the
+    Short's sound goes off or the wearer leaves the feed; READY is the
+    phone's own and needs nothing from the page.
+18. **`idle.text` is written for the lens (v0.19.0).** It names the phone and
+    the one thing to do there — "Start a workout on your phone.", "Closed
+    from your glasses — start a workout on your phone to bring it back.",
+    "Rest day — start Push on your phone if you want it." — and not the
+    Settings sentence it used to carry ("Open the app…", "…on Today"). Same
+    field, same message; the page shows it as is.
+
 ## Connecting
 
 `wss://feed-api.ishanrathi.com/room`, subprotocols **`fitness.v1`** and
@@ -221,7 +240,8 @@ reading "update the phone app". Labels are the page's (they match
 | `pong {roomNow, id?, t?}` | room | refines the room clock offset (smallest round trip of the last 12 wins) |
 | `input {id, epoch, seq, action, relayedAt}` | lens, stamped by the room | judges it (below) and answers `ack` |
 | `repaint` / `resume` | room | draws again with a fresh ticket |
-| `feedAudio`, `ack`, `undeliverable` | — | ignored (feed audio is Phase 2) |
+| `feedAudio {on, relayedAt}` | lens, stamped by the room | pauses the in-app music during a rest (on), resumes it if — only if — the phone paused it (off, or READY); see change 17 |
+| `ack`, `undeliverable` | — | ignored (the page's) |
 
 ### How an `input` is judged
 

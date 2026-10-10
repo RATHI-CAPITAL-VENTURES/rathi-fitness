@@ -64,6 +64,9 @@ final class WebLens: ObservableObject, LensTransport {
 
     var onEvent: (@MainActor (LensEvent) -> Void)?
     var wanted: (@MainActor () -> Bool)?
+    /// `feedAudio {on}` from the lens: a Short's sound went on or off. Not a
+    /// pinch and not the host's — `GlassesFace` hands it to `FeedAudio`.
+    var onFeedAudio: (@MainActor (Bool) -> Void)?
 
     private let makeSocket: @MainActor () -> LensSocket
     private let keepAlive: LensKeepAlive?
@@ -345,8 +348,11 @@ final class WebLens: ObservableObject, LensTransport {
             input(message, at: t)
         case "repaint", "resume":
             onEvent?(.repaint)
+        case "feedAudio":
+            // Only a boolean `on` counts; anything else is not a sound change.
+            if let on = message["on"] as? Bool { onFeedAudio?(on) }
         default:
-            // `ack` and `undeliverable` are the page's; `feedAudio` is Phase 2.
+            // `ack` and `undeliverable` are the page's.
             break
         }
     }

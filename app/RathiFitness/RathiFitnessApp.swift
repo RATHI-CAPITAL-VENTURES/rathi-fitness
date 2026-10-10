@@ -144,7 +144,8 @@ struct RathiFitnessApp: App {
                     let lens = WorkoutDriver(context: context, rest: rest, snapshots: snapshots)
                     driver = lens
                     glasses.host(source: { lens.screen() }, onPinch: { lens.pinched($0) },
-                                 idle: { lens.idleReason }, onScreenClosed: { lens.screenClosed() })
+                                 idle: { lens.idleReason }, lensIdle: { lens.lensIdle },
+                                 onScreenClosed: { lens.screenClosed() })
                     // Music over both layers, straight to the player that the
                     // phone's bar and the AirPods drive. Play and Pause are
                     // explicit, never the toggle — see `LensAction.drivesPlayer`.
@@ -171,6 +172,18 @@ struct RathiFitnessApp: App {
                             music.$now.removeDuplicates().map { _ in () },
                             music.$status.removeDuplicates().map { _ in () })
                             .eraseToAnyPublisher())
+                    // A Short's sound on the lens pauses this music, and READY
+                    // brings it back — only if it was the Short that paused it.
+                    glasses.feedAudio(
+                        isPlaying: { music.now?.isPlaying == true },
+                        isResting: { rest.isResting },
+                        pause: { music.pause() },
+                        play: { Task { await music.play() } },
+                        playback: music.$now.map { $0?.isPlaying == true }.removeDuplicates().eraseToAnyPublisher(),
+                        // READY: a rest that was running is not any more.
+                        restEnded: rest.$endsAt.map { $0 != nil }.removeDuplicates()
+                            .scan((false, false)) { ($0.1, $1) }
+                            .filter { $0.0 && !$0.1 }.map { _ in () }.eraseToAnyPublisher())
                     lens.touch()
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and

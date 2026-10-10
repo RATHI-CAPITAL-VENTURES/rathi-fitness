@@ -14,88 +14,41 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.18.1 — 2026-10-10
-
-### Fixed
-
-- **The phone installer can no longer hang for ever.** On 2026-10-08 a
-  `devicectl device info details` call hung 11+ minutes with the phone reachable;
-  launchd will not start a new run while one is running, so installs stopped until
-  it was killed by hand. Every `devicectl` call in `deploy/autoupdate/apply.d/ios.sh`
-  (`info details`, `info processes`, `install app`) is now bounded (60 s, 600 s
-  for the install; `AU_DEVICECTL_TIMEOUT` / `AU_DEVICECTL_INSTALL_TIMEOUT`). A
-  timeout is "not now": exit 10, one log line. `autoupdate.test.sh` gains a
-  stub that hangs on each call; the cases fail on the old script.
-
-## 0.18.0 — 2026-10-10
+## 0.19.0 — 2026-10-10
 
 ### Added
 
-- **The lens can run as a Web App.** Settings → Glasses → Lens: **Native**
-  (as before, the default) or **Web App** — the same screens in the Fitness Web
-  App the glasses open from their own app grid, through the relay room in
-  ria-ar-feed. The phone stays the only source of truth: the page renders what
-  the phone sends and sends back which button was pinched. The rest clock ticks
-  on the lens itself, so a rest is one message, not ninety. Switching mode
-  mid-workout carries the set or rest straight over.
-- **Pairing.** Settings → Glasses → Pair scans the code `bin/pair-phone` shows
-  on the Mac — with the live camera, never a screenshot — into the Keychain.
-  "Add to glasses" opens Meta AI to add the Web App when the code carried its
-  link. Settings shows the relay, the lens count, the room's round trip, the
-  last pinch's delay and every version in play.
-- **The phone keeps itself awake for the Web App lens** while a workout is
-  live: a mixing silence loop, a once-a-second watchdog that restores it, and a
-  short background window whenever audio is taken — the keep-alive the spike
-  proved through Siri with the phone locked (`AudioHub.holdForLens`).
-- **`docs/LENS_WIRE.md` and `wire/fixtures/`**: the wire contract (v1) and a
-  synthetic fixture for every screen the lens can show, which ria-ar-feed's CI
-  tests against. Two guards hold them: `wire-schema` (the version agrees in
-  Swift, the doc and every fixture) and `wire-fixtures-synthetic` (Catalogue
-  names, fixed loads, no dates or timestamps — this repo is public).
-- **`docs/LENS_CHECKLIST.md`**: the worn checklist for any release that touches
-  the lens, in both modes.
+- **A Short's sound pauses the music, and READY brings it back.** In Web App
+  mode, unmuting a Short in the rest's feed pauses the in-app workout music;
+  when the rest ends on the phone (or the Short is muted, or you leave the
+  feed) the music resumes — **only if the Short paused it**. Music you paused
+  stays paused; pressing play yourself mid-feed hands it back to you; a call
+  or Siri is never fought for. The phone stays awake throughout (`FeedAudio`,
+  `LensWire` change 17).
 
 ### Changed
 
-- **`GlassesFace` is three parts.** `LensHost` (what is on the lens and which
-  pinch counts), `NativeLens` (Meta's SDK) and `WebLens` (the relay), moved out
-  of one 625-line file — moved, not copied. The native lens behaves exactly as
-  before.
-- **A rest is data in the screen value** (`RestClock`): native screens are
-  byte-identical, and the web lens is paced on a clock-free projection.
-
-### Fixed (integration review, against ria-ar-feed #4)
-
-- **A refused key is not "offline".** After a key rotation the relay closes
-  with 4001 (or answers 401 at the upgrade); the phone used to retry every 5 s
-  for ever, say "is the phone online?" and keep itself awake for it. Now it
-  stops, lets the phone sleep, and Settings says "The relay refused this
-  phone's key — pair again". A 403 is shown as its own thing. The phone sends
-  no Origin header, which the relay's phone path needs (checked).
-- Settings' "relay" version reads the room's `roomVersion`; `peerVersion` is
-  the lens's.
-- The room clock no longer takes a sample stamped before the TLS handshake:
-  the first ping goes once the link is up.
-- The pairing code `bin/pair-phone` prints (`rflens1:<key>#k=…&lk=…`, 43-char
-  keys) is pinned by a test.
+- **Pairing switches the lens to the Web App** and Settings says so. The
+  owner paired, the lens stayed on Native, and the glasses said "No workout".
+- **The lens's "no workout" sentence is written for the lens**: "Start a
+  workout on your phone." instead of Settings' "Open the app…" (LensWire
+  change 18).
 
 ### Tests
 
-- `LensHostTests` (21) drive the host against a fake lens for the first time,
-  holding a send in the air: arm/disarm and a drop mid-send, an owed beat,
-  Music's Back against the driver's, pacing per transport, switching lenses.
-- `WebLensTests` (20): wrong epoch, seq, action or row; duplicate ids; a pinch
-  relayed 3 s ago; a 3 s tick gap closing the gate before the socket is read;
-  two lenses refusing a write; reconnect with a fresh ticket; backoff; pings.
-- `LensWireTests` (13) and `LensPairingTests` (3): every fixture byte for byte,
-  native parity, the clock-free projection, the `bin/glasses-url` encoding.
-- Ten mutants — each epoch guard, `gate.accept`, the frozen check, the late
-  check, the epoch check, the one-lens rule, a refusal treated as offline, a
-  401 not read as refused, a clock sample taken before the link is up — each
-  fail the suite.
+- `FeedAudioTests` (14): pause and resume, sound-off, user-paused music never
+  resumed, user's play drops the claim, a call mid-feed, Siri's missing
+  `ended`, only during a rest, through the wire, READY from the phone, pairing
+  → Web App, and the keep-alive held and playing while the music is paused.
+- `testTheIdleTextIsTheLensWording`, `testTheLensIsToldToStartAWorkoutOnThePhone`.
+- Mutants: resume without the claim, claim un-played music, the user's play
+  not dropping the claim, pairing leaving the lens, the lens text ignored —
+  each fails the suite. A sixth (resume during an interruption) survived
+  because the guard was unreachable; the guard was removed.
 
 ## Earlier
 
+- [0.18](./docs/changelog/0.18.md)
 - [0.17](./docs/changelog/0.17.md)
 - [0.16](./docs/changelog/0.16.md)
 - [0.15](./docs/changelog/0.15.md)

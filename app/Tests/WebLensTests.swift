@@ -485,6 +485,21 @@ final class WebLensTests: XCTestCase {
         XCTAssertEqual(keepAlive.holds, [true, false], "and the phone is let sleep")
     }
 
+    /// The lens is told what to do, in its own words, not Settings'.
+    func testTheIdleTextIsTheLensWording() async {
+        host.host(source: { [unowned self] in self.screen }, onPinch: { _ in },
+                  idle: { "Open the app to bring the workout back." },
+                  lensIdle: { "Start a workout on your phone." }, onScreenClosed: {})
+        screen = bench()
+        await connect()
+        let first = socket
+        screen = nil
+        await host.beat()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(first.sent("idle").last?["text"] as? String, "Start a workout on your phone.")
+        XCTAssertEqual(host.idleReason, "Open the app to bring the workout back.", "Settings keeps its own words")
+    }
+
     func testMovingToTheNativeLensSaysSo() async {
         screen = bench()
         await connect()
