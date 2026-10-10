@@ -53,6 +53,35 @@ export DEVELOPER_DIR="${AU_IOS_DEVELOPER_DIR:-$(xcode-select -p)}"
 XCRUN="${AU_XCRUN:-xcrun}"
 XCODEBUILD="${AU_XCODEBUILD:-xcodebuild}"
 
+# Every devicectl call is bounded. On 2026-10-08 `device info details` hung for
+# 11+ minutes with the phone reachable, and launchd will not start a new run
+# while one is running, so the installer sat stuck until it was killed by hand.
+# macOS has no `timeout`, and `gtimeout` is only there with coreutils; perl is
+# always there, so it is the one implementation (no fallback to keep honest).
+# The command runs in its own process group and the WHOLE group is killed: a
+# devicectl that spawned a helper would otherwise leave it holding the pipe
+# open, and `$(...)` would wait for it anyway.
+# Exit 124 means "timed out". Anything else is the command's own status, or
+# 128+signal if it died of one.
+DEVICECTL_TIMEOUT="${AU_DEVICECTL_TIMEOUT:-60}"
+# An install writes the whole app over Wi-Fi, so it gets longer than an info call.
+DEVICECTL_INSTALL_TIMEOUT="${AU_DEVICECTL_INSTALL_TIMEOUT:-600}"
+bounded() {
+    local secs="$1"; shift
+    perl -e '
+        my $t = shift @ARGV;
+        my $pid = fork();
+        defined $pid or exit 127;
+        if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
+        $SIG{ALRM} = sub {
+            kill "TERM", -$pid; select(undef, undef, undef, 1);
+            kill "KILL", -$pid; waitpid($pid, 0); exit 124;
+        };
+        alarm $t; waitpid($pid, 0);
+        exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+    ' "$secs" "$@"
+}
+
 # ------------------------------------------------- is the device even here?
 # The EXIT CODE does not answer this, which is what this line used to trust.
 # `devicectl device info details` exits 0 for a paired phone that is miles away:
@@ -65,7 +94,7 @@ XCODEBUILD="${AU_XCODEBUILD:-xcodebuild}"
 # Matched on the state observed, not on an allow-list of good ones: a state
 # nobody has seen yet falls through to a build attempt, which fails loudly,
 # rather than into a silent "not now" that would stall installs for ever.
-details=$("$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null)
+details=$(bounded "$DEVICECTL_TIMEOUT" "$XCRUN" devicectl device info details --device "$DEVICE" 2>/dev/null)
 rc=$?
 # Not "the device is away" but "the TOOL is away", and swallowing that as "not
 # now" would stall installs for ever without a word. Measured on this Mac:
@@ -76,6 +105,9 @@ rc=$?
 # bogus DEVELOPER_DIR returns, and the two cannot be told apart.
 case "$rc" in
     0) ;;
+    # Neither "the phone is away" nor "the tool is missing": devicectl is stuck.
+    # Next run (ten minutes on) tries again, with a fresh process.
+    124) log "devicectl timed out after ${DEVICECTL_TIMEOUT}s (info details) — not now"; exit 10 ;;
     72|127) log "devicectl unavailable (exit $rc) — check AU_IOS_DEVELOPER_DIR"; exit 1 ;;
     *) exit 10 ;;
 esac
@@ -107,8 +139,15 @@ grep -qiE 'Device State:[[:space:]]*(connected|available)' <<<"$details" && pres
 # Installing over a running app terminates it. For a workout logger that means
 # losing a set to a background job, which is a far worse bug than being one
 # commit behind. So: open app means wait, for ever if necessary.
-if "$XCRUN" devicectl device info processes --device "$DEVICE" 2>/dev/null \
-        | grep -qF "$APP_PROCESS"; then
+# Captured first, so a hang is told apart from "the app is not open". Piped
+# straight into grep, a timeout would look like an empty list and the install
+# would go ahead over a possibly-open app.
+procs=$(bounded "$DEVICECTL_TIMEOUT" "$XCRUN" devicectl device info processes --device "$DEVICE" 2>/dev/null)
+if [ $? -eq 124 ]; then
+    log "devicectl timed out after ${DEVICECTL_TIMEOUT}s (info processes) — not now"
+    exit 10
+fi
+if grep -qF "$APP_PROCESS" <<<"$procs"; then
     log "skipped: the app is open on the device — not interrupting it"
     exit 10
 fi
@@ -175,5 +214,7 @@ fi
 app="$DERIVED/Build/Products/Debug-iphoneos/$SCHEME.app"
 [ -d "$app" ] || { log "built, but no .app at $app"; exit 1; }
 
-"$XCRUN" devicectl device install app --device "$DEVICE" "$app" >>"${AU_LOG:-/dev/null}" 2>&1 \
-    || { log "install failed — will retry"; exit 1; }
+bounded "$DEVICECTL_INSTALL_TIMEOUT" "$XCRUN" devicectl device install app --device "$DEVICE" "$app" >>"${AU_LOG:-/dev/null}" 2>&1
+rc=$?
+[ "$rc" -eq 124 ] && { log "devicectl timed out after ${DEVICECTL_INSTALL_TIMEOUT}s (install app) — not now"; exit 10; }
+[ "$rc" -eq 0 ] || { log "install failed — will retry"; exit 1; }

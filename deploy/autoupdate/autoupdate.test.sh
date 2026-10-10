@@ -58,6 +58,9 @@ case "\$*" in
   # so the two agreed with each other and with nothing else. A paired phone
   # that is out of reach exits ZERO and says so in the text. STUB_UNKNOWN is a
   # device this Mac has never paired with — the one case that does exit 1.
+  # A devicectl that never answers, as seen on 2026-10-08. STUB_HANG names the
+  # subcommand; it spawns a child that outlives a plain kill of the parent.
+  *"\${STUB_HANG:-@@none@@}"*) sleep 37 & wait; exit 0 ;;
   *"info details"*)   [ -n "\${STUB_XCRUN_RC:-}" ] && exit "\${STUB_XCRUN_RC}"
                       [ -n "\${STUB_UNKNOWN:-}" ] && exit 1
                       echo "Current device information:"
@@ -123,7 +126,7 @@ STUB
 }
 teardown() { rm -rf "$TMP"
     unset STUB_REACHABLE STUB_RUNNING STUB_BUILD_FAILS STUB_INSTALL_FAILS STUB_UNKNOWN \
-          STUB_NO_DESTINATION STUB_STATE STUB_LONG STUB_LOCKED STUB_XCRUN_RC; }
+          STUB_NO_DESTINATION STUB_STATE STUB_LONG STUB_LOCKED STUB_XCRUN_RC STUB_HANG; }
 
 run() {
     AU_CONF=/dev/null AU_REPO="$CLONE" AU_LOG="$LOG" AU_STATE="$STATE" \
@@ -134,6 +137,7 @@ run() {
     AU_IOS_ECID="E" AU_IOS_DEVICE="D" AU_IOS_APP_PROCESS="/Thing.app/" \
     AU_IOS_DERIVED="$TMP/derived" AU_IOS_DEVELOPER_DIR="/usr" \
     AU_XCRUN="$BIN/xcrun" AU_XCODEBUILD="$BIN/xcodebuild" \
+    AU_DEVICECTL_TIMEOUT="${AU_DEVICECTL_TIMEOUT:-60}" \
     bash "$SPINE"
     echo $?
 }
@@ -305,6 +309,28 @@ setup
   run > /dev/null
   says "devicectl unavailable" "and so is a missing xcrun (127)"
 teardown
+
+# A devicectl that hangs (2026-10-08: `info details`, 11+ minutes, phone
+# reachable) must end as "not now", not hold the launchd job for ever. Each of
+# the three calls is bounded; the timeout is 2 s here and the stub sleeps 37.
+# `timed` fails on the unfixed script because it would wait the full 37 s.
+for sub in "info details" "info processes" "install app"; do
+  setup
+    new_commit; export STUB_REACHABLE=1 STUB_HANG="$sub"
+    start=$SECONDS
+    AU_DEVICECTL_TIMEOUT=2 AU_DEVICECTL_INSTALL_TIMEOUT=2 run > /dev/null
+    took=$((SECONDS - start))
+    # The spine turns the hook's exit 10 into a quiet run, so "not now" is
+    # witnessed as: no APPLIED / FAILED / REFUSING line.
+    quiet "a hung '$sub' is 'not now', not a failure"
+    ok "$([ "$took" -lt 20 ] && echo timed || echo "waited ${took}s")" "timed" "and does not wait out the hang ('$sub')"
+    ok "$(grep -c "devicectl timed out" "$LOG")" "1" "and logs the timeout once ('$sub')"
+    if [ "$sub" != "install app" ]; then
+      ok "$([ -e "$TMP/xcodebuild-ran" ] && echo built || echo untouched)" "untouched" "without building ('$sub')"
+    fi
+    ok "$(pgrep -f 'sleep 37' >/dev/null && echo leaked || echo clean)" "clean" "and leaves no stuck child behind ('$sub')"
+  teardown
+done
 
 # ...but a real build failure on a phone that IS there stays loud.
 setup
