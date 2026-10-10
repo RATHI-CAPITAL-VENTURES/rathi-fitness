@@ -10,11 +10,11 @@ final class FakeSocket: LensSocket {
     private(set) var sent: [[String: Any]] = []
     private(set) var closed = false
     private var onText: (@MainActor (String) -> Void)?
-    private var onClose: (@MainActor (String) -> Void)?
+    private var onClose: (@MainActor (WebLens.Close) -> Void)?
 
     func open(_ url: URL, protocols: [String],
               onText: @escaping @MainActor (String) -> Void,
-              onClose: @escaping @MainActor (String) -> Void) {
+              onClose: @escaping @MainActor (WebLens.Close) -> Void) {
         self.url = url
         self.protocols = protocols
         self.onText = onText
@@ -33,7 +33,7 @@ final class FakeSocket: LensSocket {
         onText?(String(data: data, encoding: .utf8)!)
     }
 
-    func drop() { onClose?("gone") }
+    func drop(code: Int? = 1006, http: Int? = nil) { onClose?(.init(code: code, http: http, why: "gone")) }
 
     func sent(_ type: String) -> [[String: Any]] { sent.filter { $0["type"] as? String == type } }
 }
@@ -97,8 +97,16 @@ final class WebLensTests: XCTestCase {
     /// Connect, the room answers with `lenses` pages, and the screen goes out.
     private func connect(lenses: Int = 1) async {
         await host.beat()
-        socket.deliver(["type": "hello-ok", "roomNow": roomNow, "peerVersion": "relay-1", "lenses": lenses])
+        socket.deliver(["type": "hello-ok", "roomNow": roomNow, "roomVersion": "relay-1", "lenses": lenses])
+        await answerPing()
         await settle()
+    }
+
+    /// The room's pong to the latest ping, at once (a 0 ms round trip).
+    private func answerPing() async {
+        for _ in 0..<5 { await Task.yield() }      // the ping is sent from a Task
+        guard let id = socket.sent("ping").last?["id"] as? Int else { return }
+        socket.deliver(["type": "pong", "id": id, "roomNow": roomNow])
     }
 
     private var screens: [[String: Any]] { socket.sent("screen") }
@@ -268,6 +276,7 @@ final class WebLensTests: XCTestCase {
         await host.beat()
         XCTAssertEqual(sockets.count, 2, "backoff is 0.5 s to start with")
         socket.deliver(["type": "hello-ok", "roomNow": roomNow, "lenses": 1])
+        await answerPing()
         await settle()
         XCTAssertGreaterThan(lastSeq, before)
         let stale = await input("logSet", seq: before)
@@ -328,10 +337,85 @@ final class WebLensTests: XCTestCase {
     func testThePongSetsTheRoomClock() async {
         screen = bench()
         await host.beat()
+        socket.deliver(["type": "hello-ok", "roomNow": roomNow, "roomVersion": "relay-1", "peerVersion": "page-7"])
+        for _ in 0..<5 { await Task.yield() }
+        let id = try! XCTUnwrap(socket.sent("ping").last?["id"] as? Int)
         clock += 0.1
-        socket.deliver(["type": "pong", "id": 1, "roomNow": roomNow - 50])
+        socket.deliver(["type": "pong", "id": id, "roomNow": roomNow - 50])
         XCTAssertEqual(web.roomRttMs, 100)
         XCTAssertEqual(web.offset.best?.off ?? 0, roomAhead, accuracy: 0.5)
+        XCTAssertEqual(web.relayVersion, "relay-1", "the relay's version is `roomVersion`")
+        XCTAssertEqual(web.lensVersion, "page-7", "`peerVersion` is the lens's, for the phone")
+    }
+
+    /// The handshake is not a round trip: nothing stamped before the first
+    /// frame may set the room clock.
+    func testNoClockSampleIsTakenBeforeTheLinkIsUp() async {
+        screen = bench()
+        await host.beat()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertTrue(socket.sent("ping").isEmpty, "no clocked ping goes out before the handshake is done")
+        clock += 2                                   // a slow TLS handshake
+        socket.deliver(["type": "hello-ok", "roomNow": roomNow])
+        XCTAssertNil(web.offset.best, "hello-ok's roomNow is not a sample: the hello left before the handshake")
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(socket.sent("ping").count, 1, "the first ping goes once the link is up")
+    }
+
+    /// After a key rotation the room says no. That is not "offline": no retry,
+    /// the phone is let sleep, and Settings says to pair again.
+    func testARefusedKeyStopsRetryingAndLetsThePhoneSleep() async {
+        screen = bench()
+        await connect()
+        socket.drop(code: 4001)
+        XCTAssertEqual(web.link, .refused)
+        XCTAssertEqual(web.waitingReason, "The relay refused this phone's key — pair again.")
+        XCTAssertEqual(keepAlive.holds, [true, false])
+        XCTAssertFalse(host.isShowing)
+        for _ in 0..<10 {
+            clock += 1
+            web.tickNow()
+            await host.beat()
+        }
+        XCTAssertEqual(sockets.count, 1, "never retried with the refused key")
+        key = "phone-key-rotated-0123"
+        web.keyChanged()
+        await host.beat()
+        XCTAssertEqual(sockets.count, 2, "a new key is tried at once")
+    }
+
+    func testA401AtTheUpgradeIsARefusedKeyToo() async {
+        screen = bench()
+        await host.beat()
+        socket.drop(code: nil, http: 401)
+        XCTAssertEqual(web.link, .refused)
+        clock += 10
+        await host.beat()
+        XCTAssertEqual(sockets.count, 1)
+    }
+
+    func testA403IsSaidDistinctlyAndNotRetriedUntilWoken() async {
+        screen = bench()
+        await host.beat()
+        socket.drop(code: nil, http: 403)
+        XCTAssertEqual(web.link, .forbidden)
+        XCTAssertTrue(web.waitingReason?.contains("403") == true)
+        clock += 10
+        await host.beat()
+        XCTAssertEqual(sockets.count, 1)
+        host.arm(owner: UUID(), source: { [unowned self] in self.bench() }, onPinch: { _ in })
+        await host.beat()
+        XCTAssertEqual(sockets.count, 2, "opening an exercise tries once more")
+    }
+
+    func testAnOrdinaryDropStillRetries() async {
+        screen = bench()
+        await connect()
+        socket.drop(code: 1006, http: 101)
+        XCTAssertEqual(web.link, .down)
+        clock += 1
+        await host.beat()
+        XCTAssertEqual(sockets.count, 2)
     }
 
     /// Close, then reopen: the next screen must be newer than the `idle`, or

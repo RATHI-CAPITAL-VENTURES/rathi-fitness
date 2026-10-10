@@ -314,6 +314,20 @@ final class LensPairingTests: XCTestCase {
         XCTAssertEqual(LensPairing.parse("rflens1:\(key)#k=a&lk=b"), .init(key: key, fragment: "k=a&lk=b"))
     }
 
+    /// Exactly what ria-ar-feed's `bin/pair-phone` prints: three
+    /// `secrets.token_urlsafe(32)` keys (43 characters each), the phone's
+    /// before the `#`, the Web App's fragment after it.
+    func testWhatPairPhonePrintsIsRead() {
+        let phone = "Zk3_9Qx-Lw0pT7rNcV2bYhJ8sMdA4eUoG6iKqF1lR5w"
+        let feed = "a8Fh2-kLmN0pQrStUvWxYz_1234567890ABCDEFGHIJ"
+        let lens = "Qw-Er_Ty1Ui2Op3As4Df5Gh6Jk7Lz8Xc9Vb0NmMnBvC"
+        XCTAssertEqual([phone, feed, lens].map(\.count), [43, 43, 43])
+        let paired = LensPairing.parse("rflens1:\(phone)#k=\(feed)&lk=\(lens)")
+        XCTAssertEqual(paired, .init(key: phone, fragment: "k=\(feed)&lk=\(lens)"))
+        XCTAssertEqual(LensPairing.addToGlasses(fragment: paired!.fragment!)?.absoluteString,
+                       "fb-viewapp://web_app_deep_link?appName=Fitness&appUrl=https%3A%2F%2Ffeed.app.ishanrathi.com%2F%23k%3D\(feed)%26lk%3D\(lens)")
+    }
+
     /// The camera reads every QR it sees. A gym pass or a URL is not a key.
     func testAnythingElseIsNotAKey() {
         XCTAssertNil(LensPairing.parse("rflens1:short"))

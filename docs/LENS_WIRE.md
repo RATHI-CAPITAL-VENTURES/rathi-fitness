@@ -46,8 +46,13 @@ Everything here is **additive** inside v1. Nothing in §3 was removed.
    phone's socket (one arrives at least every 5 s while it is up). The
    10 s staleness rule is unchanged.
 4. **`hello` (phone → room) is specified:** `{v, type:"hello", version}`, the
-   app's marketing version. The phone reads `hello-ok {roomNow, peerVersion,
-   lenses?}` — `lenses`, when present, saves waiting for the first `presence`.
+   app's marketing version. The phone reads `hello-ok {roomVersion,
+   peerVersion, lenses?}`: `roomVersion` is the relay's (shown as "relay" in
+   Settings), `peerVersion` the lens's, and `lenses`, when present, saves
+   waiting for the first `presence`. Its `roomNow` is **not** used for the
+   clock — the hello left before the TCP/TLS/upgrade, so a sample from it is
+   skewed by half the handshake. The phone sends its first ping when the
+   first frame arrives, and the clock starts from that pong.
 5. **`ack` carries `why`.** `{v, type:"ack", id, accepted, why}`; `why` is
    `null` when accepted, else one of the refusal codes below.
 6. **A spec is `{label, value}` or `{label, rest}`, never both.** A running
@@ -81,6 +86,14 @@ Everything here is **additive** inside v1. Nothing in §3 was removed.
 15. **When the room's lens count drops to 0** the phone closes the gate (an
     input that still arrives is `closed`) and offers nothing until a lens is
     back.
+16. **Refused is not offline.** Close code **4001**, or **401** on the upgrade
+    (a rotated key), makes the phone stop retrying, release its keep-alive and
+    say "The relay refused this phone's key — pair again"; it tries again
+    only when the key changes. **403** (the room refusing the Origin) is
+    shown distinctly and retried only when the lens is woken (an exercise is
+    opened). The phone's `URLSessionWebSocketTask` sends **no Origin header**
+    — checked against CFNetwork 3896 on 2026-10-10 by capturing the upgrade
+    request — which is what the room's phone path requires.
 
 ## Connecting
 
@@ -132,9 +145,11 @@ were switched off in Settings. Only the phone reopens the workout.
 { "v":1, "type":"ping", "id":17, "t":1700000000000, "epoch":"3f9a1c0e", "seq":412 }
 ```
 
-The liveness beat. It carries the ticket on the lens so the page knows the
-phone is still behind it — and it is **not** a re-sent screen, so the ticket
-never moves under a finger.
+The liveness beat, **for the room only**: the room answers it (`pong`, the
+phone's clock) and uses it to judge the phone present, and does not forward
+it — the page learns the phone is there from `presence`. The `epoch`/`seq` it
+carries are for the room's diagnostics. It is **not** a re-sent screen, so the
+ticket never moves under a finger.
 
 ### `hello`, `ack`
 
@@ -201,7 +216,7 @@ reading "update the phone app". Labels are the page's (they match
 
 | `type` | From | The phone… |
 | --- | --- | --- |
-| `hello-ok {roomNow, peerVersion, lenses?}` | room | learns the room clock offset and the relay version |
+| `hello-ok {roomVersion, peerVersion, lenses?}` | room | learns the relay's and the lens's versions (its `roomNow` is not a clock sample) |
 | `presence {lenses, lensVersion?, …}` | room | offers a screen only while `lenses ≥ 1`; a 0 → n change repaints |
 | `pong {roomNow, id?, t?}` | room | refines the room clock offset (smallest round trip of the last 12 wins) |
 | `input {id, epoch, seq, action, relayedAt}` | lens, stamped by the room | judges it (below) and answers `ack` |

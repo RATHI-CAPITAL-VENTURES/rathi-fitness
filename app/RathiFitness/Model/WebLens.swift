@@ -30,7 +30,23 @@ final class WebLens: ObservableObject, LensTransport {
     /// No reply of any kind in this long and the socket is treated as dead.
     static let silenceLimitMs: Double = 12_000
 
-    enum Link: String { case off, connecting, up, down }
+    /// `refused`: the room said no to this phone's key (close 4001, or 401 at
+    /// the upgrade) — after a rotation, typically. `forbidden`: 403, which the
+    /// room answers to a connection whose Origin it does not accept; the phone
+    /// sends no Origin (checked against CFNetwork, 2026-10-10), so this means
+    /// the relay changed. Neither is fixed by trying again, so neither retries.
+    enum Link: String { case off, connecting, up, down, refused, forbidden }
+
+    /// How a socket closed: the WebSocket close code, and the HTTP status if
+    /// it never got past the upgrade.
+    struct Close: Equatable {
+        var code: Int?
+        var http: Int?
+        var why: String = ""
+
+        var refusedKey: Bool { code == 4001 || http == 401 }
+        var forbidden: Bool { http == 403 }
+    }
 
     @Published private(set) var link: Link = .off
     /// Pages connected to the room, by the room's count.
@@ -74,7 +90,6 @@ final class WebLens: ObservableObject, LensTransport {
     private var pingN = 0
     private var lastPingAt: Double = 0
     private var lastHeard: Double = 0
-    private var helloAt: Double?
 
     init(socket: @escaping @MainActor () -> LensSocket = { URLSessionLensSocket() },
          keepAlive: LensKeepAlive? = nil,
@@ -95,7 +110,9 @@ final class WebLens: ObservableObject, LensTransport {
 
     // MARK: - LensTransport
 
-    var isAvailable: Bool { paired }
+    /// Paired, and not refused. A refused or forbidden link is not asked
+    /// again until the key changes (or, for 403, the lens is woken).
+    var isAvailable: Bool { paired && link != .refused && link != .forbidden }
     var isEngaged: Bool { engaged }
     var pacesClockFree: Bool { true }
     /// None: liveness is the ping, which carries the ticket and never moves it.
@@ -109,6 +126,8 @@ final class WebLens: ObservableObject, LensTransport {
         switch link {
         case .off, .connecting: return "Connecting to the relay…"
         case .down: return "No connection to the relay — is the phone online?"
+        case .refused: return "The relay refused this phone's key — pair again."
+        case .forbidden: return "The relay refused the connection (403) — the relay needs a look, not the phone."
         case .up: return lenses == 0 ? "Open Fitness on your glasses." : nil
         }
     }
@@ -161,6 +180,7 @@ final class WebLens: ObservableObject, LensTransport {
     }
 
     func wake() {
+        if link == .forbidden { link = .off }
         if engaged, socket == nil { retryAt = now() }
     }
 
@@ -169,6 +189,7 @@ final class WebLens: ObservableObject, LensTransport {
     /// The key changed in the Keychain (paired, or forgotten).
     func keyChanged() {
         paired = key() != nil
+        if link == .refused || link == .forbidden { link = .off }
         guard engaged else { return }
         // Whatever the old key's socket showed no longer speaks for the app.
         onEvent?(.lost)
@@ -208,15 +229,26 @@ final class WebLens: ObservableObject, LensTransport {
                         guard let self, let socket, self.socket === socket else { return }
                         self.receive(text)
                     },
-                    onClose: { [weak self, weak socket] why in
+                    onClose: { [weak self, weak socket] close in
                         guard let self, let socket, self.socket === socket else { return }
-                        self.dropped(why)
+                        self.closed(close)
                     })
         let t = nowMs()
-        helloAt = t
         lastHeard = t
+        lastPingAt = t
+        // No clocked ping yet: anything stamped now includes the TCP, TLS and
+        // upgrade time and skews the room clock by half of it. The first ping
+        // goes when the first frame arrives (`receive`).
         send(LensWire.hello(version: appVersion))
-        ping(at: t)
+    }
+
+    private func closed(_ close: Close) {
+        guard close.refusedKey || close.forbidden else { return dropped(close.why) }
+        // Not offline: told no. Retrying every 5 s would never succeed, would
+        // say "is the phone online?", and would keep the phone awake for it.
+        onEvent?(.lost)
+        end(clearing: false, reason: .off, ticket: 0)
+        link = close.refusedKey ? .refused : .forbidden
     }
 
     private func dropped(_ why: String) {
@@ -292,13 +324,17 @@ final class WebLens: ObservableObject, LensTransport {
         if link != .up {
             link = .up
             attempt = 0
+            // The first clocked ping, now the handshake is behind us.
+            ping(at: t)
             // A new connection: draw again, with a fresh ticket.
             onEvent?(.repaint)
         }
         switch message["type"] as? String {
         case "hello-ok":
-            if let room = message["roomNow"] as? Double, let t0 = helloAt { offset.add(t0: t0, t1: t, roomNow: room) }
-            relayVersion = message["peerVersion"] as? String ?? relayVersion
+            // `roomNow` here is not used for the clock: the hello went out
+            // before the handshake. `peerVersion` is the LENS's version.
+            relayVersion = message["roomVersion"] as? String ?? relayVersion
+            lensVersion = message["peerVersion"] as? String ?? lensVersion
             if let n = message["lenses"] as? Int { lensesChanged(n) }
         case "presence":
             if let n = message["lenses"] as? Int { lensesChanged(n) }
@@ -458,7 +494,7 @@ struct SeenInputs {
 protocol LensSocket: AnyObject {
     func open(_ url: URL, protocols: [String],
               onText: @escaping @MainActor (String) -> Void,
-              onClose: @escaping @MainActor (String) -> Void)
+              onClose: @escaping @MainActor (WebLens.Close) -> Void)
     func send(_ text: String) async throws
     func close()
 }
@@ -478,11 +514,11 @@ protocol LensKeepAlive: AnyObject {
 final class URLSessionLensSocket: LensSocket {
     private var task: URLSessionWebSocketTask?
     private var onText: (@MainActor (String) -> Void)?
-    private var onClose: (@MainActor (String) -> Void)?
+    private var onClose: (@MainActor (WebLens.Close) -> Void)?
 
     func open(_ url: URL, protocols: [String],
               onText: @escaping @MainActor (String) -> Void,
-              onClose: @escaping @MainActor (String) -> Void) {
+              onClose: @escaping @MainActor (WebLens.Close) -> Void) {
         self.onText = onText
         self.onClose = onClose
         let task = URLSession.shared.webSocketTask(with: url, protocols: protocols)
@@ -498,7 +534,12 @@ final class URLSessionLensSocket: LensSocket {
                 switch result {
                 case .failure(let error):
                     self.task = nil
-                    self.onClose?("\(task.closeCode.rawValue) \(error.localizedDescription)")
+                    // A refused upgrade never becomes a WebSocket, so its 401
+                    // or 403 is only on the HTTP response (close code 0).
+                    let code = task.closeCode.rawValue
+                    self.onClose?(WebLens.Close(code: code == 0 ? nil : code,
+                                                http: (task.response as? HTTPURLResponse)?.statusCode,
+                                                why: error.localizedDescription))
                 case .success(let message):
                     if case .string(let text) = message { self.onText?(text) }
                     self.receive(task)

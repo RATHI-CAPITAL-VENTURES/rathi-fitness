@@ -419,6 +419,7 @@ struct SettingsView: View {
     private var glassesStatusValue: String {
         if glasses.enabled, glasses.lens == .web {
             guard glasses.web.paired else { return "not paired" }
+            if glasses.web.link == .refused { return "key refused" }
             if glasses.isShowing { return "showing" }
             return glasses.web.link == .up ? "web · ready" : "web"
         }
@@ -557,6 +558,8 @@ struct SettingsView: View {
         case .connecting: return "Relay · connecting…"
         case .down: return "Relay · no connection"
         case .up: return "Relay · \(web.lenses) \(web.lenses == 1 ? "lens" : "lenses")"
+        case .refused: return "Relay · key refused"
+        case .forbidden: return "Relay · connection refused"
         }
     }
 
@@ -566,7 +569,11 @@ struct SettingsView: View {
     /// on three schedules (docs/LENS_WIRE.md, version skew).
     private var webDetail: String {
         let web = glasses.web
-        var parts = [glasses.isShowing ? "On the lens now." : (glasses.idleReason ?? "Waiting for a workout.")]
+        // Refused or forbidden is the transport's own news: the host stops
+        // asking an unavailable lens anything, so its idle text is stale.
+        let refused = web.link == .refused || web.link == .forbidden
+        var parts = [refused ? (web.waitingReason ?? "") :
+                        glasses.isShowing ? "On the lens now." : (glasses.idleReason ?? "Waiting for a workout.")]
         if web.lenses > 1 { parts.append("More than one lens: Log set is refused until only one is open.") }
         var numbers: [String] = []
         if let rtt = web.roomRttMs { numbers.append("room \(rtt) ms") }

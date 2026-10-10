@@ -51,6 +51,21 @@ A **MINOR bump is a milestone** and must ship a retro under
 - **A rest is data in the screen value** (`RestClock`): native screens are
   byte-identical, and the web lens is paced on a clock-free projection.
 
+### Fixed (integration review, against ria-ar-feed #4)
+
+- **A refused key is not "offline".** After a key rotation the relay closes
+  with 4001 (or answers 401 at the upgrade); the phone used to retry every 5 s
+  for ever, say "is the phone online?" and keep itself awake for it. Now it
+  stops, lets the phone sleep, and Settings says "The relay refused this
+  phone's key — pair again". A 403 is shown as its own thing. The phone sends
+  no Origin header, which the relay's phone path needs (checked).
+- Settings' "relay" version reads the room's `roomVersion`; `peerVersion` is
+  the lens's.
+- The room clock no longer takes a sample stamped before the TLS handshake:
+  the first ping goes once the link is up.
+- The pairing code `bin/pair-phone` prints (`rflens1:<key>#k=…&lk=…`, 43-char
+  keys) is pinned by a test.
+
 ### Tests
 
 - `LensHostTests` (21) drive the host against a fake lens for the first time,
@@ -61,8 +76,10 @@ A **MINOR bump is a milestone** and must ship a retro under
   two lenses refusing a write; reconnect with a fresh ticket; backoff; pings.
 - `LensWireTests` (13) and `LensPairingTests` (3): every fixture byte for byte,
   native parity, the clock-free projection, the `bin/glasses-url` encoding.
-- Seven mutants — each epoch guard, `gate.accept`, the frozen check, the late
-  check, the epoch check, the one-lens rule — each fail the suite.
+- Ten mutants — each epoch guard, `gate.accept`, the frozen check, the late
+  check, the epoch check, the one-lens rule, a refusal treated as offline, a
+  401 not read as refused, a clock sample taken before the link is up — each
+  fail the suite.
 
 ## Earlier
 
