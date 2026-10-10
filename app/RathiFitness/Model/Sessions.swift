@@ -24,7 +24,8 @@ enum Sessions {
             .filter(\.isOpen) ?? []
 
         if let match = open.first(where: {
-            calendar.isDate($0.startedAt, inSameDayAs: now) && isSame($0.plannedDay, day)
+            !$0.isCardioOnly
+                && calendar.isDate($0.startedAt, inSameDayAs: now) && isSame($0.plannedDay, day)
         }) {
             return match
         }
@@ -37,8 +38,56 @@ enum Sessions {
         let session = Session(startedAt: now,
                               dayName: day?.name ?? Session.unnamed,
                               plannedDay: day)
+        if day != nil, !isScheduled(in: context, now: now, calendar: calendar) {
+            session.kind = Session.Kind.optional.rawValue
+        }
         context.insert(session)
         return session
+    }
+
+    /// Today's open cardio-only session, opening one if there is none.
+    ///
+    /// The "+ Cardio" on a day off. One session for the visit: a treadmill and
+    /// then a bike are one trip to the gym, so a second machine joins the open
+    /// session and its name grows ("Treadmill + Rower") rather than starting a
+    /// second workout ten minutes after the first. Opening it closes anything
+    /// else open, by the same rule as `current`.
+    ///
+    /// It has no planned day and `kind == .cardio`, which is what keeps it out
+    /// of the rotation, the every-N-days clock and "showing up".
+    @discardableResult
+    static func cardio(named name: String, in context: ModelContext,
+                       now: Date = .now, calendar: Calendar = .current) -> Session {
+        let open = (try? context.fetch(FetchDescriptor<Session>()))?.filter(\.isOpen) ?? []
+        if let match = open.first(where: {
+            $0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: now)
+        }) {
+            let names = match.dayName.components(separatedBy: " + ")
+            if !names.contains(name) { match.dayName = (names + [name]).joined(separator: " + ") }
+            return match
+        }
+        for stale in open { close(stale, in: context) }
+        let session = Session(startedAt: now, dayName: name, plannedDay: nil)
+        session.kind = Session.Kind.cardio.rawValue
+        context.insert(session)
+        return session
+    }
+
+    /// Does the schedule have a workout today? Asked once, when a lifting
+    /// session opens, and the answer is kept on it as `kind` — see
+    /// `Session.Kind`. The same question Today asks (`Workout.today`), over the
+    /// same rows, so a session is optional exactly when Today said "Rest day".
+    static func isScheduled(in context: ModelContext, now: Date = .now,
+                            calendar: Calendar = .current) -> Bool {
+        let days = (try? context.fetch(FetchDescriptor<PlannedDay>(sortBy: [SortDescriptor(\.order)]))) ?? []
+        let sessions = (try? context.fetch(FetchDescriptor<Session>())) ?? []
+        let sets = (try? context.fetch(FetchDescriptor<SetEntry>())) ?? []
+        let config = (try? context.fetch(FetchDescriptor<Schedule>()))?.first?.config
+            ?? Rotation.Config()
+        return Workout.today(
+            days: days, config: config, sessionDates: Workout.rotationDates(sessions),
+            lastSession: Workout.lastSessionDate(in: sets, now: now, calendar: calendar),
+            now: now, calendar: calendar) != nil
     }
 
     /// Start the workout when the bout that opened it began, not when it was

@@ -352,20 +352,41 @@ def day_notes_lines(data) -> list:
                                  for n in notes]
 
 
+def extra_lines(heading: str, extras: list) -> list:
+    """Cardio outside the plan — added to a workout, or done on its own.
+
+    Its own block, under its own heading, so it can never be read as one of
+    the plan's rows or as moving "N of N done"."""
+    if not extras:
+        return []
+    lines = ["", heading]
+    for e in extras:
+        lines.append(f"  + {e['name']:<22} {cardio_line(e.get('cardio') or {})}")
+    return lines
+
+
 def cmd_today(args, data) -> None:
     today = data.get("today")
     body = data.get("body_weight", {})
     if not today:
-        # A rest day can still have a locker and a parking level.
+        # A rest day can still have a locker and a parking level — and, from
+        # 0.17.0, an optional workout on offer and cardio done on its own.
+        # `rest_day` is absent from older snapshots; then it says what it said.
+        rest = data.get("rest_day") or {}
+        offer = rest.get("optional")
+        cardio = rest.get("cardio") or []
         payload = {"training": False, "body_weight": body.get("current"),
+                   "optional": offer, "cardio": cardio,
                    "day_notes": day_notes(data)}
+        head = f"Rest day — optional: {offer}" if offer else "Rest day — nothing scheduled."
         emit(args, payload,
-             "\n".join(["Rest day — nothing scheduled.",
-                        f"Body weight {num(body.get('current'))} lb"]
+             "\n".join([head, f"Body weight {num(body.get('current'))} lb"]
+                       + extra_lines("Cardio on its own", cardio)
                        + day_notes_lines(data)))
         return
 
-    lines = [f"{today['day']} · {today['date']}",
+    optional = " · optional day" if today.get("optional") else ""
+    lines = [f"{today['day']} · {today['date']}{optional}",
              f"{today['exercises_done']} of {today['exercises_planned']} done · "
              f"{today['sets_done']} of {today['sets_planned']} sets", ""]
     for item in today["items"]:
@@ -395,8 +416,17 @@ def cmd_today(args, data) -> None:
             mark, tail = "·", f"{item['target_sets']} × {item['target_reps']}"
         lines.append(f"  {mark} {item['name']:<22} {num(item['target_weight']):>5} lb{each(item)}   "
                      f"{tail}{stand_in(item)}")
+    extras = today.get("extras") or []
+    # Cardio done on its own earlier today (`cardio_alone`, from 0.17.0) — its
+    # own session, so not this workout's, but today's all the same.
+    alone = today.get("cardio_alone") or []
+    lines += extra_lines("Extra · not in the plan", extras)
+    lines += extra_lines("Cardio on its own", alone)
     moved = today.get("volume") or 0
-    minutes = sum((i.get("cardio") or {}).get("seconds", 0) for i in today["items"])
+    # Extras and rides on their own are in the cardio total — the minutes
+    # happened — and in none of the counts above.
+    minutes = sum((i.get("cardio") or {}).get("seconds", 0)
+                  for i in today["items"] + extras + alone)
     if moved or minutes:
         summary = []
         if moved:
@@ -591,6 +621,11 @@ def cmd_sessions(args, data) -> None:
             nth = f"#{s['ordinal']}" if (s.get("ordinal") or 1) > 1 else ""
             stamp = f"{s['date']} {when}{nth}".rstrip()
         head = f"  {stamp:<17}{s.get('day') or 'workout':<8}"
+        # From 0.17.0: an optional day, or cardio on its own. Absent = planned.
+        if s.get("kind") == "optional":
+            head += " (optional)"
+        elif s.get("kind") == "cardio":
+            head += " (cardio only)"
         body = f"{s['exercises']} exercises · {s['sets']} sets · {tonnage(s['volume'])} moved"
         if s.get("cardio_minutes"):
             body += f" · {clock(s['cardio_minutes'] * 60)} cardio"
@@ -627,17 +662,27 @@ def cmd_volume(args, data) -> None:
         monday = d - dt.timedelta(days=d.weekday())
         week = by_week.setdefault(monday.isoformat(),
                                   {"week_of": monday.isoformat(), "volume": 0.0,
-                                   "sessions": 0, "sets": 0})
+                                   "sessions": 0, "sets": 0, "optional": 0, "cardio": 0})
         week["volume"] += s.get("volume") or 0
         week["sessions"] += 1
         week["sets"] += s.get("sets") or 0
+        # "4 + 1 optional", not "5": an optional day and a ride on their own
+        # are workouts, but not the plan's four.
+        if s.get("kind") in ("optional", "cardio"):
+            week[s["kind"]] += 1
 
     weeks = sorted(by_week.values(), key=lambda w: w["week_of"])[-args.weeks:]
     values = [w["volume"] for w in weeks]
     lines = []
     for w in weeks:
+        planned = w["sessions"] - w["optional"] - w["cardio"]
+        count = plural(planned, "workout")
+        if w["optional"]:
+            count += f" + {w['optional']} optional"
+        if w["cardio"]:
+            count += f" + {w['cardio']} cardio"
         lines.append(f"  week of {w['week_of']}   {tonnage(w['volume']):>11}   "
-                     f"{plural(w['sessions'], 'workout')} · {w['sets']} sets")
+                     f"{count} · {w['sets']} sets")
     if len(values) > 1:
         lines += ["", f"  {sparkline(values)}  oldest → newest"]
     total = sum(values)

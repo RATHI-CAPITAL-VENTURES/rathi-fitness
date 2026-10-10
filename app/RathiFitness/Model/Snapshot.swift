@@ -80,6 +80,20 @@ struct Snapshot: Codable {
     /// synthesized `init(from:)` ignores it and would throw on a file without
     /// the key. Nothing decodes a snapshot today (the reader is Python).
     var dayNotes = DayNotesBlock(date: "", items: [])
+    /// Present exactly when `today` is absent: a day the schedule has nothing
+    /// on and no workout has been started. Says what "Start optional day"
+    /// would start, and what cardio was done on its own. An addition — a reader
+    /// that ignores it is told nothing false. See docs/SNAPSHOT.md, "Days off".
+    var restDay: RestDay?
+
+    struct RestDay: Codable {
+        var date: String
+        /// The workout on offer — the next in the rotation, or in weekday mode
+        /// the next weekday's. Absent when the plan is empty.
+        var optional: String?
+        /// Cardio-only sessions today, per machine. `[]` when there were none.
+        var cardio: [Today.Extra]
+    }
 
     struct DayNotesBlock: Codable {
         /// The local day these belong to, `YYYY-MM-DD` — for a human reading
@@ -135,6 +149,30 @@ struct Snapshot: Codable {
         /// Total load moved today: every set's weight × reps.
         var volume: Double
         var items: [Item]
+        /// `true` when this workout is on a day the schedule left empty — an
+        /// optional day. It counts like any workout and advanced the rotation;
+        /// absent on a scheduled day.
+        var optional: Bool?
+        /// Cardio added to this workout outside the plan ("Add cardio"), per
+        /// machine. In NONE of the counts above — not `sets_done`, not
+        /// `exercises_done`, not `items[]` — and in every cardio total.
+        var extras: [Extra] = []
+        /// Cardio done ON ITS OWN today, before this workout — a ride in the
+        /// morning, a lift in the evening. Its own session (`kind: "cardio"`),
+        /// so it is in none of this workout's counts; listed here so that
+        /// lifting later in the day does not make it vanish from `today`.
+        /// A bout logged on its own WHILE a workout is open joins that workout
+        /// and is in `extras` instead. `[]` when there was none.
+        var cardioAlone: [Extra] = []
+
+        /// Cardio done outside the plan: one machine's bouts.
+        struct Extra: Codable {
+            var slug: String
+            var name: String
+            var cardio: CardioDone?
+            var performed: [Performed]
+        }
+
         struct Item: Codable {
             var slug: String
             var name: String
@@ -348,6 +386,11 @@ struct Snapshot: Codable {
         /// per workout loses half a minute each — two hours adrift of the
         /// phone's lifetime tile after a hundred and fifty workouts.
         var gymSeconds: Int = 0
+        /// `optional` — a lifting workout on a day the schedule left empty; it
+        /// advanced the rotation. `cardio` — a cardio-only session started on
+        /// its own; it advanced nothing. Absent on a scheduled workout, which
+        /// is every session before v0.17.0.
+        var kind: String?
     }
 }
 
@@ -383,14 +426,15 @@ enum SnapshotBuilder {
         // failure this whole file exists to prevent.
         let bodyWeightLog = Tally.BodyWeightLog(
             weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        let todayBlock = today(days: days, sets: allSets, bodyWeightLog: bodyWeightLog,
+                               sessions: sessionRecords,
+                               schedule: schedules.first, now: now, cal: cal)
 
-        return Snapshot(
+        var snapshot = Snapshot(
             generatedAt: Fmt.iso(now),
             appVersion: appVersion,
             bodyWeight: bodyWeight(weighIns, now: now, cal: cal),
-            today: today(days: days, sets: allSets, bodyWeightLog: bodyWeightLog,
-                         sessions: sessionRecords,
-                         schedule: schedules.first, now: now, cal: cal),
+            today: todayBlock,
             exercises: exercises
                 .map { summary($0, sets: allSets, bodyWeightLog: bodyWeightLog,
                                now: now, cal: cal) }
@@ -420,6 +464,20 @@ enum SnapshotBuilder {
                 items: DayNotes.on(now, among: dayNotes, calendar: cal).map {
                     Snapshot.DayNoteLine(kind: $0.kind, heading: $0.heading, text: $0.text)
                 }))
+        if todayBlock == nil {
+            let cycle = days.sorted { $0.order < $1.order }
+            let offer = Workout.optionalDay(
+                days: cycle, config: schedules.first?.config ?? Rotation.Config(),
+                sessionDates: Workout.rotationDates(sessionRecords),
+                lastSession: Workout.lastSessionDate(in: allSets, now: now, calendar: cal),
+                now: now, calendar: cal)
+            let rode = sessionRecords
+                .filter { $0.isCardioOnly && cal.isDate($0.startedAt, inSameDayAs: now) }
+                .flatMap(\.orderedSets)
+            snapshot.restDay = .init(date: Fmt.day(now), optional: offer?.name,
+                                     cardio: extras(rode))
+        }
+        return snapshot
     }
 
     // MARK: pieces
@@ -462,33 +520,43 @@ enum SnapshotBuilder {
                               bodyWeightLog: Tally.BodyWeightLog,
                               sessions: [Session], schedule: Schedule?,
                               now: Date, cal: Calendar) -> Snapshot.Today? {
+        // Lifting sessions only: a ride on its own is not "the workout in
+        // progress", and its bouts are not this workout's.
         let todaysSessions = sessions
-            .filter { cal.isDate($0.startedAt, inSameDayAs: now) }
+            .filter { cal.isDate($0.startedAt, inSameDayAs: now) && !$0.isCardioOnly }
             .sorted { $0.startedAt < $1.startedAt }
 
+        // Sorted by `order`, because that IS the cycle. The fetch is unsorted
+        // and `TodayView` reads its days through `@Query(sort: \PlannedDay.order)`
+        // — indexing into the raw fetch gave a different workout from the
+        // phone, which is the exact class of disagreement this exists to end.
+        let cycle = days.sorted { $0.order < $1.order }
+        let config = schedule?.config ?? Rotation.Config()
+        // `Workout.current` is the phone's own answer, rest days included.
+        // This used to resolve the rotation by index alone and never asked
+        // whether today WAS a training day — so on a rotation's day off the
+        // snapshot had a `today` the phone did not, against SNAPSHOT.md's
+        // "absent on a rest day". Fixed with the optional day (v0.17.0).
         let day: PlannedDay?
         if let open = todaysSessions.last(where: \.isOpen), let planned = open.plannedDay {
             day = planned
         } else {
-            let config = schedule?.config ?? Rotation.Config()
-            switch config.mode {
-            case .weekday:
-                let weekday = cal.component(.weekday, from: now)
-                day = days.first { $0.weekday == weekday }
-            case .rotation, .everyNDays:
-                // Sorted by `order`, because that IS the cycle. The fetch above
-                // is unsorted and `TodayView` reads its days through
-                // `@Query(sort: \PlannedDay.order)` — indexing into the raw
-                // fetch here gave a different workout from the phone, which is
-                // the exact class of disagreement this change exists to end.
-                let cycle = days.sorted { $0.order < $1.order }
-                let index = Rotation.index(on: now,
-                                           sessionDates: sessions.map(\.startedAt),
-                                           dayCount: cycle.count, calendar: cal)
-                day = index.flatMap { cycle.indices.contains($0) ? cycle[$0] : cycle.first }
-            }
+            day = Workout.current(days: cycle, config: config, sessions: sessions,
+                                  allSets: sets, now: now, calendar: cal)
         }
         guard let day else { return nil }
+        // Optional or not is the SESSION's stored kind once there is one —
+        // decided when it opened, so a schedule changed since cannot relabel
+        // it. Only before the first set is the schedule asked.
+        let optional: Bool
+        if let session = Workout.latestSession(for: day, among: sessions, now: now, calendar: cal) {
+            optional = session.isOptional
+        } else {
+            optional = Workout.today(
+                days: cycle, config: config, sessionDates: Workout.rotationDates(sessions),
+                lastSession: Workout.lastSessionDate(in: sets, now: now, calendar: cal),
+                now: now, calendar: cal) == nil
+        }
 
         // The sets that belong to the workout being described, not to the
         // calendar day — otherwise the second workout of a two-a-day is
@@ -501,6 +569,7 @@ enum SnapshotBuilder {
             // same cut for the same reason.
             todaysSets = sets.filter {
                 cal.isDate($0.date, inSameDayAs: now)
+                    && !($0.session?.isCardioOnly ?? false)
                     && ($0.session == nil
                         || $0.session?.plannedDay?.persistentModelID == day.persistentModelID)
             }
@@ -517,8 +586,9 @@ enum SnapshotBuilder {
             // Everything done in the SLOT today, stand-ins and all — the same
             // rule the phone's checklist uses (`Swaps.slugsCounting`).
             let counting = Swaps.slugsCounting(toward: item, on: now, calendar: cal)
+            // Never an extra bout — the same rule as `Workout.performed`.
             let performed = todaysSets
-                .filter { counting.contains($0.exercise?.slug ?? "") }
+                .filter { !$0.extra && counting.contains($0.exercise?.slug ?? "") }
                 .sorted { $0.date < $1.date }
             // Warm-ups do not move you toward the target. Three warm-ups used to
             // mark an exercise done, which is the checklist lying to you.
@@ -558,7 +628,28 @@ enum SnapshotBuilder {
                      setsDone: items.reduce(0) { $0 + $1.setsDone },
                      setsPlanned: items.reduce(0) { $0 + $1.targetSets },
                      exercisesDone: done, exercisesPlanned: items.count,
-                     volume: moved, items: items)
+                     volume: moved, items: items,
+                     optional: optional ? true : nil,
+                     extras: extras(Workout.extras(in: todaysSets)),
+                     cardioAlone: extras(sessions
+                        .filter { $0.isCardioOnly && cal.isDate($0.startedAt, inSameDayAs: now) }
+                        .flatMap(\.orderedSets)))
+    }
+
+    /// Cardio outside the plan, one entry per machine in the order first used.
+    private static func extras(_ bouts: [SetEntry]) -> [Snapshot.Today.Extra] {
+        var order: [String] = []
+        var byMachine: [String: [SetEntry]] = [:]
+        for bout in bouts.sorted(by: { $0.date < $1.date }) {
+            guard let slug = bout.exercise?.slug else { continue }
+            if byMachine[slug] == nil { order.append(slug) }
+            byMachine[slug, default: []].append(bout)
+        }
+        return order.compactMap { slug in
+            guard let rows = byMachine[slug], let exercise = rows.first?.exercise else { return nil }
+            return .init(slug: slug, name: exercise.name, cardio: cardioDone(rows),
+                         performed: rows.map(performedLine))
+        }
     }
 
     private static func performedLine(_ e: SetEntry) -> Snapshot.Today.Performed {
@@ -777,14 +868,15 @@ enum SnapshotBuilder {
         // grouped by day — the assumption the old code made — and carry no
         // `day` name, because inventing one is what the guessing used to do.
         var groups: [(date: String, started: Date, ended: Date?,
-                      name: String?, sets: [SetEntry])] = records.map {
+                      name: String?, kind: String?, sets: [SetEntry])] = records.map {
             (Fmt.day($0.startedAt), $0.startedAt, $0.endedAt,
-             $0.dayName.isEmpty ? nil : $0.dayName, $0.orderedSets)
+             $0.dayName.isEmpty ? nil : $0.dayName,
+             $0.sessionKind == .planned ? nil : $0.kind, $0.orderedSets)
         }
         for (date, sets) in Dictionary(grouping: orphans, by: { Fmt.day($0.date) }) {
             let ordered = sets.sorted { $0.date < $1.date }
             guard let first = ordered.first, let last = ordered.last else { continue }
-            groups.append((date, first.date, last.date, nil, ordered))
+            groups.append((date, first.date, last.date, nil, nil, ordered))
         }
 
         let byDay = Dictionary(grouping: groups) { $0.date }
@@ -836,7 +928,8 @@ enum SnapshotBuilder {
                         Tally.Bout(seconds: $0.seconds, distance: $0.distance)
                     })),
                     cardioDistance: round1(entries.reduce(0) { $0 + $1.distance }),
-                    gymSeconds: Tally.gymSeconds(entries.map(\.log)))
+                    gymSeconds: Tally.gymSeconds(entries.map(\.log)),
+                    kind: group.kind)
             }
             .sorted {
                 $0.date == $1.date ? $0.ordinal > $1.ordinal : $0.date > $1.date

@@ -15,8 +15,45 @@ import SwiftData
 /// when you step off — which is the actual gap this fills, because otherwise
 /// that number exists nowhere ten seconds later.
 struct CardioSetView: View {
-    let item: PlanItem
+    /// What the bout is FOR. The screen is the same for all three — the owner
+    /// asked for "the existing cardio set UI" — and WHERE the bout goes is
+    /// `Workout.cardioHome`'s decision, not this view's. See `Workout.CardioPurpose`.
+    typealias Purpose = Workout.CardioPurpose
+
+    let purpose: Purpose
     let exercise: Exercise
+
+    init(item: PlanItem, exercise: Exercise) {
+        self.purpose = .slot(item)
+        self.exercise = exercise
+    }
+
+    init(purpose: Purpose, exercise: Exercise) {
+        self.purpose = purpose
+        self.exercise = exercise
+    }
+
+    /// The plan slot, when there is one.
+    private var item: PlanItem? {
+        if case .slot(let item) = purpose { return item }
+        return nil
+    }
+
+    /// The workout this bout belongs to, when it belongs to one.
+    private var day: PlannedDay? {
+        switch purpose {
+        case .slot(let item): return item.day
+        case .extra(let day): return day
+        case .alone: return nil
+        }
+    }
+
+    /// Where a bout logged now would go, and whether it is an extra there.
+    private var home: (session: Session?, extra: Bool) {
+        Workout.cardioHome(purpose, among: sessions, calendar: calendar)
+    }
+
+    private var isExtra: Bool { home.extra }
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -39,35 +76,41 @@ struct CardioSetView: View {
     private var calendar: Calendar { .current }
     /// What the slot asks of THIS machine. Twenty minutes carries over to a
     /// stand-in; two miles at 3% does not — see `Swaps.Prescription`.
-    private var plan: Swaps.Prescription { Swaps.prescription(for: item, doing: exercise) }
-    private var isStandIn: Bool { Swaps.isStandIn(exercise, in: item) }
+    ///
+    /// Off the plan there is nothing to ask: one bout, no target, no intervals
+    /// — "whatever you feel like", with last time's numbers offered instead.
+    private var plan: Swaps.Prescription {
+        guard let item else { return Swaps.Prescription(sets: 1, reps: 0, restSeconds: 0, seconds: 0) }
+        return Swaps.prescription(for: item, doing: exercise)
+    }
+    private var isStandIn: Bool { item.map { Swaps.isStandIn(exercise, in: $0) } ?? false }
     private var mine: [SetEntry] { allSets.filter { $0.exercise?.slug == exercise.slug } }
-    /// This workout's bouts, not today's — see `SetView.todays`.
+    /// This workout's bouts, not today's — see `SetView.todays`. Only the ones
+    /// with this screen's purpose: the plan's treadmill and an extra treadmill
+    /// in the same workout are numbered, undone and counted apart.
     private var todays: [SetEntry] {
         guard let session = currentSession else { return [] }
         return mine
             .filter { $0.session?.persistentModelID == session.persistentModelID }
+            .filter { $0.extra == isExtra }
             .sorted { $0.setIndex < $1.setIndex }
     }
 
-    private var currentSession: Session? {
-        sessions.first {
-            $0.isOpen
-                && calendar.isDate($0.startedAt, inSameDayAs: .now)
-                && $0.plannedDay?.persistentModelID == item.day?.persistentModelID
-        }
-    }
+    private var currentSession: Session? { home.session }
     /// Cardio is usually one bout; intervals are the reason `targetSets` still
     /// means something here.
     private var isFinished: Bool { slotBouts >= max(1, plan.sets) }
     /// Bouts done in this SLOT — this machine's and any other that stood in
     /// the slot today. `todays` stays per-machine: numbering, undo and records
     /// are about this one. See `Swaps.slugsCounting`.
+    /// Off the plan there is no slot, so it is this machine's bouts.
     private var slotBouts: Int {
         guard let session = currentSession else { return 0 }
+        guard let item else { return todays.count }
         let slugs = Swaps.slugsCounting(toward: item)
         return allSets.filter {
             $0.session?.persistentModelID == session.persistentModelID
+                && !$0.extra
                 && slugs.contains($0.exercise?.slug ?? "")
         }.count
     }
@@ -100,7 +143,7 @@ struct CardioSetView: View {
         }
         .scrollIndicators(.hidden)
         .background(RoomBackground(hue: roomHue, energy: roomEnergy))
-        .navigationTitle(item.day?.name ?? exercise.name)
+        .navigationTitle(day?.name ?? "Cardio")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { metric in
             MetricSheet(metric: metric, value: values[metric] ?? 0) { values[metric] = $0 }
@@ -124,8 +167,14 @@ struct CardioSetView: View {
             Text(exercise.name)
                 .font(RFDesign.title(29))
                 .foregroundStyle(RFDesign.speech)
-            if isStandIn, let planned = item.exercise {
+            if isStandIn, let planned = item?.exercise {
                 Text("Today, instead of \(planned.name)").rfEyebrow()
+            }
+            // By where the bout will GO: "on its own" with a workout open
+            // joins that workout, and says so.
+            if item == nil {
+                Text(isExtra ? "Extra · not part of the plan"
+                             : "On its own · your lifting days stay as they are").rfEyebrow()
             }
             if plan.sets > 1 {
                 SetPips(total: plan.sets, done: slotBouts)
@@ -392,7 +441,11 @@ struct CardioSetView: View {
             }
             if target > 0 {
                 values[metric] = target
-            } else if let last, metric == .incline || metric == .resistance || metric == .speed {
+            } else if let last, metric == .incline || metric == .resistance || metric == .speed
+                        // Off the plan there is no length to open on, and an
+                        // empty clock is a dead "Log it": last time's length,
+                        // which the console will correct.
+                        || (item == nil && metric == .duration) {
                 values[metric] = last.value(for: metric)
             } else {
                 values[metric] = 0
@@ -430,12 +483,7 @@ struct CardioSetView: View {
             incline: values[.incline] ?? 0,
             resistance: values[.resistance] ?? 0,
             averageHeartRate: Int(values[.heartRate] ?? 0))
-        let session = Sessions.current(for: item.day, in: context)
-        entry.session = session
-        context.insert(entry)
-        // If this bout is what opened the workout, the workout began when the
-        // bout did, not when you stepped off and logged it.
-        if let session { Sessions.backdate(session, toCover: entry) }
+        Workout.logBout(entry, for: purpose, in: context)
         note = ""
         context.saveOrReport("logging a set")
         snapshots.setNeedsWrite(context)
@@ -489,7 +537,7 @@ struct CardioSetView: View {
             describe: { announcement },
             isResting: { restingHere })
         remote.arm()
-        remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
+        remote.publishNowPlaying(title: exercise.name, subtitle: day?.name)
         // See SetView: the lens is a third caller of the same actions.
         glasses.arm(owner: lensOwner, source: { .set(lensState) },
                     onPinch: { if let action = $0.remote { remote.run(action) } })
@@ -507,7 +555,7 @@ struct CardioSetView: View {
     /// pinch — so it never repainted, and the same live button took another.
     private var lensState: LensState {
         .cardio(
-            exercise: exercise.name, day: item.day?.name, seconds: seconds,
+            exercise: exercise.name, day: day?.name, seconds: seconds,
             boutsDone: slotBouts, of: plan.sets,
             resting: restingHere ? .init(remaining: rest.remaining(), total: rest.total) : nil,
             canLog: hasSomethingToLog)

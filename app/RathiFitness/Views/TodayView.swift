@@ -36,6 +36,10 @@ struct TodayView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var swapping: PlanItem?
     @AppStorage("today.swapHintSeen") private var swapHintSeen = false
+    /// The cardio picker is up ("Add cardio" / "Cardio on its own").
+    @State private var addingCardio = false
+    /// The machine just picked, pushed straight onto its screen.
+    @State private var cardioPick: Exercise?
 
     private var calendar: Calendar { .current }
     private var config: Rotation.Config { schedules.first?.config ?? Rotation.Config() }
@@ -45,7 +49,9 @@ struct TodayView: View {
     /// Was every set's date, deduped by day inside `Rotation.index`. Sessions
     /// make the count honest: two workouts on Tuesday advance the rotation
     /// twice, and twenty sets in one of them still advance it once.
-    private var sessionDates: [Date] { sessions.map(\.startedAt) }
+    ///
+    /// Cardio-only sessions are not in it: see `Workout.rotationDates`.
+    private var sessionDates: [Date] { Workout.rotationDates(sessions) }
 
     private var lastSession: Date? { Workout.lastSessionDate(in: allSets, calendar: calendar) }
 
@@ -63,9 +69,44 @@ struct TodayView: View {
         if let chosen = overrideDay ?? launchArgumentDay { return chosen }
         // The schedule's answer is `Workout.today`'s, so that the glasses —
         // which have no view to ask — reach the same day. The two overrides
-        // above are this screen's own and stay here.
+        // above are this screen's own and stay here. On a day off, the
+        // workout already started today (an optional day) stays on screen.
+        return scheduledToday ?? Workout.resumed(among: sessions, calendar: calendar)
+    }
+
+    /// What the schedule alone says about today — nil on a day off.
+    ///
+    /// `-RFRestDay` makes today a day off whatever the calendar says — the
+    /// optional day's twin of `-RFDay`, for the UI tests and for looking at a
+    /// rest day on a Monday. It changes this screen only; the session a set
+    /// opens is still judged against the real schedule.
+    private var scheduledToday: PlannedDay? {
+        if ProcessInfo.processInfo.arguments.contains("-RFRestDay") { return nil }
         return Workout.today(days: days, config: config, sessionDates: sessionDates,
                              lastSession: lastSession, calendar: calendar)
+    }
+
+    /// A workout on a day the schedule left empty. It counts like any other
+    /// (the session is marked `optional`), and the header says so.
+    ///
+    /// Read from the session once there is one — the kind is decided when it
+    /// opens and kept, so changing the schedule cannot relabel it. Before the
+    /// first set there is no session, and the schedule is all there is to ask.
+    private var isOptionalDay: Bool {
+        guard let today else { return false }
+        if let session = Workout.latestSession(for: today, among: sessions, calendar: calendar) {
+            return session.isOptional
+        }
+        return scheduledToday == nil
+    }
+
+    /// What "Start optional day" would start — see `Workout.optionalDay`.
+    /// Gated on THIS screen's idea of a day off, so `-RFRestDay` gets the
+    /// offer too: a UI test run on a real training day otherwise had none.
+    private var offeredOptionalDay: PlannedDay? {
+        guard scheduledToday == nil else { return nil }
+        return Workout.nextWorkout(days: days, config: config, sessionDates: sessionDates,
+                                   calendar: calendar)
     }
 
     /// The workout the rotation has reached, training day or not — so a rest day
@@ -114,6 +155,8 @@ struct TodayView: View {
     private var todaysSessions: [Session] {
         sessions.filter {
             calendar.isDate($0.startedAt, inSameDayAs: .now)
+                // A ride on its own is not "workout 2" of anything.
+                && $0.countsAsWorkout
                 // A session with no sets did not happen. `pruneEmpty` removes
                 // them, and this is the belt to its braces: an empty one here
                 // made the header say "workout 3" on a one-workout day.
@@ -237,6 +280,18 @@ struct TodayView: View {
                     snapshots.setNeedsWrite(context)
                 }
             }
+            .sheet(isPresented: $addingCardio) {
+                ExercisePickerView(cardioOnly: true) { chosen in cardioPick = chosen }
+            }
+            // On a lifting day it joins the workout as an extra; on a day off it
+            // is a session of its own. Decided here, by what is on screen.
+            .navigationDestination(item: $cardioPick) { exercise in
+                if let day = today {
+                    CardioSetView(purpose: .extra(day), exercise: exercise)
+                } else {
+                    CardioSetView(purpose: .alone, exercise: exercise)
+                }
+            }
         }
     }
 
@@ -255,6 +310,8 @@ struct TodayView: View {
                 if let day = today {
                     progress(for: day)
                     rows(for: day)
+                    extras(for: day)
+                    cardioOnItsOwn(workout: day)
                     swapHint
                     moved(for: day)
                 } else {
@@ -303,7 +360,10 @@ struct TodayView: View {
     /// weeks on a fresh install is the app opening with a reprimand.
     @ViewBuilder private var consistency: some View {
         let band = Tally.consistency(
-            sessions: sessions.map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
+            // A cardio-only session is not a workout of the plan, so it covers
+            // none of it. An optional day does: it is one of the plan's.
+            sessions: Workout.workouts(sessions)
+                .map { Tally.Done(date: $0.startedAt, workout: $0.dayName) },
             targets: weeklyTargets,
             away: timeAway.map { Tally.Away(from: $0.startedAt, to: $0.endedAt) },
             calendar: calendar)
@@ -358,6 +418,9 @@ struct TodayView: View {
         if let nth = workoutNumberToday, nth > 1 {
             return "\(Fmt.weekdayDate(.now)) · workout \(nth)"
         }
+        // Before "out of order": on a day off, anything you start is optional,
+        // however you got to it.
+        if isOptionalDay { return "\(Fmt.weekdayDate(.now)) · optional day" }
         if overrideDay != nil || launchArgumentDay != nil { return "Doing out of order" }
         guard config.mode != .weekday, days.count > 1,
               let index = Rotation.index(on: .now, sessionDates: sessionDates,
@@ -486,6 +549,9 @@ struct TodayView: View {
     private var restDay: some View {
         VStack(alignment: .leading, spacing: RFDesign.sm) {
             EmptyNote(title: "Rest day.", message: restMessage)
+            if let offer = offeredOptionalDay { optionalOffer(offer) }
+            cardioOnItsOwn(workout: nil)
+            addCardio("Cardio on its own")
             Button { showingPlan = true } label: {
                 Label("Edit the plan", systemImage: "slider.horizontal.3")
                     .font(RFDesign.ui(14, bold: true))
@@ -493,6 +559,151 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// "Start optional day" — the workout the next training day would get.
+    ///
+    /// An invitation, not a reminder: outlined in the ready colour rather than
+    /// filled, and nothing anywhere notices if it is ignored. Starting it puts
+    /// that workout on screen (and on the glasses, through `Workout.chosen`);
+    /// the session it opens on the first set is marked optional.
+    private func optionalOffer(_ day: PlannedDay) -> some View {
+        Button {
+            overrideDay = day
+            Workout.chosen = (day.persistentModelID, .now)
+        } label: {
+            HStack(spacing: RFDesign.md) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Optional day").rfEyebrow()
+                    Text("Start \(day.name)")
+                        .font(RFDesign.uiMedium(16))
+                        .foregroundStyle(RFDesign.ready)
+                    Text(optionalLine(for: day))
+                        .font(RFDesign.ui(12.5))
+                        .foregroundStyle(RFDesign.labelDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(RFDesign.ready)
+            }
+            .padding(RFDesign.md)
+            .background {
+                RoundedRectangle(cornerRadius: RFDesign.radiusSmall)
+                    .stroke(RFDesign.ready.opacity(0.35), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: RFDesign.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("start-optional-day")
+    }
+
+    /// What doing it changes, in a sentence — the two modes really differ.
+    private func optionalLine(for day: PlannedDay) -> String {
+        guard config.mode == .weekday else {
+            return "Next in the rotation. Do it and the days after move up one; "
+                 + "skip it and nothing changes."
+        }
+        let names = calendar.weekdaySymbols
+        let weekday = names.indices.contains(day.weekday - 1) ? names[day.weekday - 1] : "Its day"
+        return "\(weekday)'s workout, early. \(weekday) keeps it either way."
+    }
+
+    /// "Add cardio" and "Cardio on its own" — one button, two meanings, chosen
+    /// by whether a workout is on screen (see `navigationDestination`).
+    private func addCardio(_ title: String) -> some View {
+        Button { addingCardio = true } label: {
+            Label(title, systemImage: "plus")
+                .font(RFDesign.ui(14, bold: true))
+                .foregroundStyle(RFDesign.ready)
+                .padding(.vertical, RFDesign.xs)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("add-cardio")
+    }
+
+    /// Cardio added to this workout outside the plan, in its own section so it
+    /// can never be read as one of the plan's rows. Done, never pending: it
+    /// exists only once it has been logged.
+    @ViewBuilder private func extras(for day: PlannedDay) -> some View {
+        let bouts = Workout.extras(in: todaysSets)
+        VStack(alignment: .leading, spacing: 0) {
+            if !bouts.isEmpty {
+                Text("Extra · not in the plan").rfEyebrow()
+                    .padding(.top, RFDesign.sm)
+                cardioRows(bouts) { CardioSetView(purpose: .extra(day), exercise: $0) }
+            }
+            addCardio("Add cardio")
+                .padding(.top, RFDesign.xs)
+        }
+    }
+
+    /// Today's cardio-only session — what you rode, and the way back into it.
+    ///
+    /// `workout` is the day's workout when one is on screen. Then a row opens
+    /// the bout as an EXTRA in that workout, never `.alone`: an `.alone` bout
+    /// used to open a cardio session, which closed the lifting one, and the
+    /// next lifted set opened a second workout that advanced the rotation
+    /// again. `Workout.cardioHome` routes `.alone` safely too; this keeps the
+    /// screen from even offering it.
+    @ViewBuilder private func cardioOnItsOwn(workout: PlannedDay?) -> some View {
+        let bouts = sessions
+            .filter { $0.isCardioOnly && calendar.isDate($0.startedAt, inSameDayAs: .now) }
+            .flatMap(\.orderedSets)
+        if !bouts.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Cardio today").rfEyebrow().padding(.top, RFDesign.xs)
+                cardioRows(bouts) { exercise in
+                    if let workout {
+                        CardioSetView(purpose: .extra(workout), exercise: exercise)
+                    } else {
+                        CardioSetView(purpose: .alone, exercise: exercise)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One row per machine, in the order they were first used.
+    private func cardioRows<Destination: View>(
+        _ bouts: [SetEntry], destination: @escaping (Exercise) -> Destination
+    ) -> some View {
+        var order: [Exercise] = []
+        for bout in bouts.sorted(by: { $0.date < $1.date }) {
+            if let exercise = bout.exercise, !order.contains(where: { $0.slug == exercise.slug }) {
+                order.append(exercise)
+            }
+        }
+        return ForEach(order, id: \.persistentModelID) { exercise in
+            let mine = bouts.filter { $0.exercise?.slug == exercise.slug }
+            NavigationLink { destination(exercise) } label: {
+                ExerciseRow(name: exercise.name, meta: Self.boutsLine(mine),
+                            trailing: Self.boutsFigure(mine), state: .done)
+                    .accessibilityIdentifier("cardio-\(exercise.slug)")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// The figure on the right: minutes, or miles when no time was entered —
+    /// a rower logged by distance alone is not "0 min".
+    private static func boutsFigure(_ bouts: [SetEntry]) -> String {
+        let seconds = bouts.reduce(0) { $0 + $1.seconds }
+        if seconds > 0 { return Fmt.minutes(seconds) }
+        return "\(Fmt.distance(bouts.reduce(0) { $0 + $1.distance })) mi"
+    }
+
+    /// "2.1 mi · 2 bouts" — what the console said, summed, minus whatever the
+    /// figure on the right already says.
+    private static func boutsLine(_ bouts: [SetEntry]) -> String {
+        var parts: [String] = []
+        let miles = bouts.reduce(0) { $0 + $1.distance }
+        if miles > 0, bouts.contains(where: { $0.seconds > 0 }) {
+            parts.append("\(Fmt.distance(miles)) mi")
+        }
+        parts.append(bouts.count == 1 ? "1 bout" : "\(bouts.count) bouts")
+        return parts.joined(separator: " · ")
     }
 
     /// What the hour added up to.
@@ -504,7 +715,10 @@ struct TodayView: View {
         let sets = todaysSets.map {
             $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date))
         }
-        if !sets.isEmpty {
+        // A lifted set, not just any: a treadmill has no tonnage, and with
+        // "Add cardio" a workout can now open on one — "Moved today: nothing
+        // yet" under it is the scoreboard telling you off.
+        if todaysSets.contains(where: { !$0.isCardio }) {
             let comparison = Tally.SessionComparison(
                 volume: Tally.volume(sets),
                 previousVolume: previousVolume(for: day))
@@ -566,8 +780,11 @@ struct TodayView: View {
     /// what is coming, and "nothing scheduled" answers neither question.
     private var restMessage: String {
         guard config.mode != .weekday else {
-            return "Pick a day from the calendar button to do one anyway, or change "
-                 + "what happens on \(Fmt.weekdayDate(.now))."
+            // The optional day below already says what you could do instead;
+            // this says only why there is nothing.
+            let weekday = DateFormatter()
+            weekday.dateFormat = "EEEE"
+            return "Your plan has nothing on \(weekday.string(from: .now))s."
         }
         var parts: [String] = []
         if let next = rotationDay { parts.append("Next up is \(next.name)") }

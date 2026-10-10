@@ -2279,3 +2279,99 @@ half of what was lifted, on every screen and in the snapshot.
   through and the CLI says, under any tonnage, that a pair counts once there.
 - **Not touched: Apple Health.** Workouts go to Health with a duration and no
   energy, and no load at all — there was nothing to correct.
+
+## 2026-10-08 — An optional day takes the next workout; skipping it moves nothing
+
+**Chosen: on a day the schedule has nothing, offer the workout the next
+training day would get. Doing it is a session like any other, so the rotation
+moves on; not doing it changes nothing. Rejected: a "make-up" day that repeats
+the last workout, and any mark for a day off left unused.**
+
+The owner's words: "if we mark 5 days in our plan, on Sat it will show me a
+start optional day with the next workout planned; if we don't work these days,
+they stay the original days; if we do, that day has the next workout".
+
+- **The rotation already did the hard half.** `Rotation.index` counts the
+  sessions before today, whatever day they were on, so a Saturday session
+  already advanced it. Nothing about the rotation had to change; what was
+  missing was the offer, and a name for what had happened.
+- **`Session.kind`, decided when the session opens.** `optional` exactly when
+  `Workout.today` is nil — the same question Today asks, so a session is
+  optional precisely when Today said "Rest day". However you got there (the
+  button, the calendar menu on a rest day, the glasses) it is the same fact.
+  Stored rather than recomputed: changing the schedule next month must not turn
+  last Saturday into a planned day.
+- **It does not restart the every-N-days clock.** `Workout.lastSessionDate`
+  counts planned sessions only. Without that, every 2 days with an optional
+  Tuesday would have moved Wednesday's training to Thursday — the opposite of
+  "they stay the original days". With it, Wednesday is still a training day and
+  gets the workout after Tuesday's.
+- **Weekday mode: the next weekday's workout, pulled forward.** A weekday plan
+  has no rotation to advance, so "the next workout" can only mean the next day
+  that has one. Doing Monday's workout on Saturday leaves Monday with Monday's —
+  the card says so ("Monday's workout, early. Monday keeps it either way"),
+  because in this mode the honest consequence is a repeat, not a shift.
+  Rejected: offering the workout that was last done (a make-up), which is a
+  different feature nobody asked for.
+- **Calm, not nagging.** An outlined card in the ready colour under "Rest day.",
+  never filled, never red. Ignored, it leaves no trace: there is no streak to
+  break, the band counts distinct workouts per week capped at the target, and
+  `Session.kind` exists only for sessions that happened.
+- **The rotation counts sessions, not which workout.** Pick Shoulders and
+  Back from the calendar on a rest day when Leg Day was offered, and the next
+  training day gets the workout after Leg Day, not after Shoulders and Back:
+  one session done, one step on. That was already true of an off-schedule pick
+  on a training day; the optional day only makes it easier to reach.
+- **Kept on screen after a relaunch.** `Workout.chosen` is not persisted, so
+  `Workout.current` falls back to today's lifting session's day when the
+  schedule has none. The glasses and the snapshot use the same call, which is
+  also how the lens follows an optional day without being told.
+
+## 2026-10-08 — Cardio outside the plan: an extra in the workout, or a session that moves nothing
+
+**Chosen: "Add cardio" on a lifting day writes bouts flagged `extra` into that
+workout; the + on a day off opens a cardio-only session (`kind: cardio`). An
+extra never counts toward the plan; a cardio-only session never advances it.
+Rejected: a hidden plan slot for extras, and deciding "extra" by whether the
+exercise is in the plan.**
+
+- **A flag, not an inference.** "Any bout whose machine is not in today's plan"
+  fails the first time the extra is a treadmill and the plan has a treadmill
+  slot later on: the warm-up walk would tick the planned run off. `SetEntry.extra`
+  is read by `Workout.performed` — the one place a slot's sets are found — so the
+  checklist, "N of N done", the lens list and `today.items[]` all leave extras
+  out by construction.
+- **In every cardio total.** The minutes happened. `sessions[].cardio_minutes`,
+  Trends and `gym cardio` read all bouts; tonnage was never in question, since a
+  treadmill has none.
+- **A cardio-only session does not advance the rotation** — the contrast with
+  the optional lifting day, and on purpose: the owner's intent is that lifting
+  days keep their workouts. It is left out of `Workout.rotationDates`, of
+  `lastSessionDate` (the every-N clock) and of the "showing up" band, which
+  counts the plan's workouts. One session per visit: a second machine joins the
+  open one and its name grows ("Treadmill + Rower").
+- **"On its own" never closes a workout.** Where a bout goes is one model
+  function, `Workout.cardioHome` (written by `Workout.logBout`), not the view's
+  choice. With a lifting workout open today, an "on its own" bout joins it as
+  an extra. Found in review: the "Cardio today" row on a workout screen opened
+  a cardio session, which closed the lifting one; the next lifted set opened a
+  second optional workout, and the rotation moved twice. The workout screen
+  now offers only "extra", and the model routes `.alone` safely regardless.
+- **A session that only ever held extras is not a workout.** "Add cardio"
+  opens the day's workout to put the bout in. If nothing is then lifted,
+  `Session.countsAsWorkout` is false, and the rotation, the every-N-days clock,
+  "showing up" and Trends' count of workouts all leave it out
+  (`Workout.workouts`).
+- **The same cardio screen for all three.** `CardioSetView` takes a `Purpose`
+  (`slot`, `extra`, `alone`) instead of a plan slot. Off the plan there is no
+  target and one bout; the clock opens on last time's length so "Log it" is not
+  dead on arrival.
+- **Snapshot schema stays 8.** Everything is an addition — `today.optional`,
+  `today.extras[]`, `rest_day`, `sessions[].kind` — and no existing field
+  changed meaning: `today.items[]` and its counts were always the plan's, and a
+  cardio-only session is still one workout in `sessions[]`. So there is no
+  window where the Mac is blind: until this merges, RIA's `gym` reads the new
+  file and ignores the new keys; after, it prints them; and the new `gym`
+  reading a file from the old app prints exactly what it did before. The one
+  behaviour that did change — no `today` on a rotation's day off — is the
+  documented contract ("absent on a rest day") finally being met, not a new one.

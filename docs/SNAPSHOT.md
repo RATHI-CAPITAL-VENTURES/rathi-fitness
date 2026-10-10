@@ -81,12 +81,13 @@ the build if that stops being true.
 | `schema`, `generated_at`, `app_version` | provenance |
 | `time_away[]` | declared trips: `from`, `to` (inclusive), optional `note` |
 | `body_weight` | `current`, `current_date`, `change_30d`, `trend_per_week`, `history[]` |
-| `today` | the day's plan and what has been done — **absent on a rest day**, not empty |
+| `today` | the day's plan and what has been done — **absent on a rest day**, not empty. `optional: true` on a day off that was trained anyway; `extras[]` is cardio outside the plan. See "Days off". |
+| `rest_day` | present exactly when `today` is absent: `date`, `optional` (the workout on offer), `cardio[]` done on its own. See "Days off". |
 | `exercises[]` | `slug`, `name`, `loading`, `modality`, `working_weight`, `best`, `change_30d`, `recent[]`, `machine_settings[]`, `cardio_best`, `dumbbells` |
 | `plan[]` | the rotation: each day and its target sets/reps/weight/rest, plus `cardio_target` on a cardio slot |
 | `passes[]` | metadata only, see above |
 | `day_notes` | `{ date, items[] }` — what he jotted down for **today**: `kind`, `heading`, `text`. See "Day notes". |
-| `sessions[]` | one row per workout: counts, volume, top lifts, `cardio_minutes`, `cardio_distance`, `gym_seconds` |
+| `sessions[]` | one row per workout: counts, volume, top lifts, `cardio_minutes`, `cardio_distance`, `gym_seconds`, `kind` (`optional` / `cardio`, absent when planned) |
 
 ### Cardio
 
@@ -141,6 +142,53 @@ combination that opens it — this folder is readable by any process — so the
 app offers no chip for one (`DayNoteKind`). A test pins the list of kinds
 exactly, so adding ANY kind fails until someone decides it may reach this file.
 A free-text note can of course hold anything; the sheet says where it goes.
+
+### Days off
+
+    rest_day.date              "2026-10-10"
+    rest_day.optional          "Leg Day"  — what "Start optional day" would start
+    rest_day.cardio[]          { slug, name, cardio, performed[] } per machine
+    today.optional             true — absent on a scheduled day
+    today.extras[]             { slug, name, cardio, performed[] } per machine
+    today.cardio_alone[]       the same, for cardio done on its own earlier today
+    sessions[].kind            "optional" | "cardio" — absent when planned
+
+Added in 0.17.0, all additions to schema 8.
+
+**`today` is absent on a day the schedule has nothing**, in every mode. Until
+0.17.0 a rotation's day off still had a `today` — the builder indexed the
+rotation and never asked whether it was a training day — which contradicted
+the line in the table above. It asks the phone's question now
+(`Workout.current`).
+
+**An optional day.** On a day off, `rest_day.optional` names the workout on
+offer: the next in the rotation, or in weekday mode the next weekday's. If he
+trains anyway, `today` reappears with `optional: true` and the session is
+`kind: "optional"`. That session **advanced the rotation** — the next training
+day gets the workout after it. Not training leaves no trace anywhere: a reader
+must not count an unused `rest_day.optional` as a missed workout.
+
+**Extras are outside every count.** `today.extras[]` is cardio added to the
+workout with "Add cardio". It is in none of `today.sets_done`,
+`exercises_done` or `items[]`, adds nothing to `volume`, and is in the session's
+`cardio_minutes` and `cardio_distance`. A reader summing cardio minutes for the
+day should add `extras[].cardio.seconds` to `items[].cardio.seconds` — `gym
+today` does.
+
+**A cardio-only session advanced nothing.** `kind: "cardio"` is a session
+started on its own on a day off: no planned day, named for its machines
+("Treadmill + Rower"). It is not one of the plan's workouts — leave it out when
+judging how much of the plan was covered. On its day it is listed under
+`rest_day.cardio`, or, once he lifts as well, under `today.cardio_alone`, so
+lifting later in the day does not make it vanish. A bout logged "on its own"
+while a workout is open joins that workout and is in `today.extras` instead.
+`gym today` counts all three in its cardio minutes.
+
+**`today.optional` is the session's stored kind**, decided when the session
+opened. Changing the schedule afterwards does not relabel it. Before the first
+set it is the schedule's answer. "4 workouts + 1 optional" is
+`sessions[]` grouped by week and split by `kind`, which is what `gym volume`
+prints.
 
 ### Stand-ins
 

@@ -15,7 +15,8 @@ enum Export {
     /// never make you ask, and a blank cell reads as "not applicable" to
     /// everybody without being explained.
     static let header = "date,exercise,slug,modality,assisted,muscle,set,kind,weight_lb,dumbbells,reps,"
-        + "rpe,volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source"
+        + "rpe,volume_lb,seconds,distance_mi,speed_mph,incline_pct,resistance,avg_hr,note,source,"
+        + "extra,workout"
 
     static func csv(from context: ModelContext) throws -> String {
         let sets = try context.fetch(
@@ -63,6 +64,11 @@ enum Export {
                 entry.averageHeartRate > 0 ? String(entry.averageHeartRate) : "",
                 escape(entry.note),
                 entry.source,
+                // Appended, so a sheet built on the old columns still lines up.
+                // `extra`: cardio added outside the plan. `workout`: `planned`,
+                // `optional` (a day off, done anyway) or `cardio` (on its own).
+                entry.extra ? "true" : "false",
+                entry.session?.kind ?? "",
             ].joined(separator: ","))
         }
         return lines.joined(separator: "\n")
