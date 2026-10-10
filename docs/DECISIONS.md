@@ -2511,3 +2511,31 @@ slow — the spike measured 125–211 ms.
 - **Pairing.** The phone's relay key arrives by scanning a QR the Mac shows,
   with the live camera, into the Keychain (this device only). Never in source,
   never from a screenshot.
+
+## 2026-10-10 — Every devicectl call in the installer has a time limit
+
+**What happened.** On 2026-10-08 `devicectl device info details` hung for 11+
+minutes with the phone reachable. The installer is a launchd job and launchd does
+not start a new run while one is alive, so nothing installed until the process was
+killed by hand.
+
+**Chosen.** `ios.sh` runs each of its three `devicectl` calls through `bounded`,
+a few lines of perl: fork, own process group, `alarm`, kill the whole group on
+expiry, exit 124. A timeout is "not now" (exit 10) with one log line, the same as
+a locked or absent phone, because the next tick (ten minutes) starts a fresh
+process. 60 s for the two info calls, 600 s for `install app`, which writes the
+whole app over Wi-Fi. Both are overridable from the environment.
+
+**Rejected.**
+- `gtimeout` / `timeout`: not on a stock Mac (here `/usr/local/bin` has them only
+  because coreutils is installed), and a fallback path would be the one never
+  tested. perl ships with macOS.
+- A plain `kill` of the `devicectl` pid: a child it spawned can keep the `$(...)`
+  pipe open and the script waits anyway. The group is killed instead.
+- Piping `info processes` straight into `grep -q`: a timeout would read as an
+  empty process list, i.e. "the app is not open", and the install would run over
+  a possibly-open workout. The output is captured first and the exit status
+  checked.
+
+**Upstream.** `deploy/autoupdate/` is RIA's `templates/autoupdate`; this fix has
+not been ported there, so `bootstrap --check` will report drift until it is.

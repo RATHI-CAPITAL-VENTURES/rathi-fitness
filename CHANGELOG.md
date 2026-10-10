@@ -14,6 +14,19 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.18.1 — 2026-10-10
+
+### Fixed
+
+- **The phone installer can no longer hang for ever.** On 2026-10-08 a
+  `devicectl device info details` call hung 11+ minutes with the phone reachable;
+  launchd will not start a new run while one is running, so installs stopped until
+  it was killed by hand. Every `devicectl` call in `deploy/autoupdate/apply.d/ios.sh`
+  (`info details`, `info processes`, `install app`) is now bounded (60 s, 600 s
+  for the install; `AU_DEVICECTL_TIMEOUT` / `AU_DEVICECTL_INSTALL_TIMEOUT`). A
+  timeout is "not now": exit 10, one log line. `autoupdate.test.sh` gains a
+  stub that hangs on each call; the cases fail on the old script.
+
 ## 0.18.0 — 2026-10-10
 
 ### Added

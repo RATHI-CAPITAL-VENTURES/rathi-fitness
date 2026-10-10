@@ -111,6 +111,10 @@ The mechanism is **shared** — `deploy/autoupdate/` comes from RIA's
 ships the server only and deliberately never touches a native face: an `app/`
 change could be merged, green in CI, and still not on the phone.
 
+Every `devicectl` call has a time limit (60 s, 600 s for the install; a hang is
+"not now"), because a hung call once held the launchd job for 11+ minutes and
+blocked every later run.
+
 It never interrupts a workout — if the app is open on the phone the hook returns
 "not now" and the agent believes it, because installing over a running app
 terminates it. It also only acts on a clean `main`, refuses a diverged remote
