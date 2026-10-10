@@ -2539,3 +2539,76 @@ whole app over Wi-Fi. Both are overridable from the environment.
 
 **Upstream.** `deploy/autoupdate/` is RIA's `templates/autoupdate`; this fix has
 not been ported there, so `bootstrap --check` will report drift until it is.
+
+## 2026-10-10 — A Short's sound pauses the music, and READY brings it back — only ours
+
+**Chosen: the phone, which owns the music and the rest, decides. The lens only
+reports that a Short's sound went on or off (`feedAudio`). Rejected: the page
+pausing the music itself, and "resume at READY whatever happened".**
+
+The owner's rule (2026-10-09, decision 2) is two sentences: a Short with sound
+pauses the workout music, and the music resumes automatically at READY. Both
+halves are the phone's: the music is the in-app player (`MusicController`),
+and READY is the phone's rest ending — run out or skipped — not the page's
+local clock, which can be a second off and is only a display.
+
+**The whole rule is one bit, `FeedAudio.pausedByUs`.** It is set only when the
+sound came on during a rest while the music was actually playing, and the
+resume happens only if it is still set. Everything else is about when it must
+be forgotten, because "resume at READY" applied blindly starts music somebody
+stopped:
+
+- **You paused it before the Short** — nothing was paused by us, so nothing is
+  resumed.
+- **You pressed play mid-feed** (phone, AirPods, the music card) — the music
+  playing again without us drops the claim; if you then pause it, READY leaves
+  it paused.
+- **A phone call takes the audio** — the claim is dropped, and nothing is
+  resumed while a call is active (`CXCallObserver`). Resuming into or after a
+  call is fighting the system for a song you may no longer want. Only a
+  plain-reason interruption counts; the app being suspended or a route going
+  away say nothing about who wants the speaker.
+- **A Siri query does not.** The owner's rule is that the music comes back at
+  READY, and a five-second question is not a reason to leave it off. (The
+  first version dropped the claim on any interruption; review caught it.)
+- **Off then on inside MusicKit's play latency.** Our resume is a `play()` that
+  lands a moment later; a sound coming back on in that window saw the music
+  "not playing", took no claim, and the play landed over the Short. A
+  `resuming` window now lets that `on` take the claim and pause as the play
+  lands.
+
+Does Siri reach this app as an interruption at all? Both have been measured:
+in the spike's first run (our session inactive) it did not — Siri's pause
+arrived only as the player stopping; in the retest (the keep-alive's session
+active) five Siri requests gave five `began` and no `ended`. Settings →
+Glasses now shows the last interruption so the worn check (F6b) can write down
+which happens with the feed.
+
+The mutation check removed two pieces of code no test could reach: a "do not
+resume during an interruption" guard (dead once the claim is dropped) and a
+`removeDuplicates` in the READY pipeline (the pairwise filter already ignores
+repeats).
+
+**The keep-alive is untouched by our pause.** In Web App mode the in-app music
+was one of the things holding a locked phone awake; pausing it is exactly the
+"music stopped while held" case the keep-alive already treats as audio being
+taken (a background window, the silence re-asserted). A test pins it: our
+pause leaves `holdForLens` held and the silence playing.
+
+**No wire change.** The room already forwards `feedAudio {on, relayedAt}` to a
+present phone. It is not a pinch: never acked, never judged by the gate, never
+a repaint.
+
+**Pairing is choosing the Web App.** A successful pair now switches the lens
+to Web App and Settings says so, and pairing is offered from Native mode and
+with the glasses off — it used to be reachable only from inside Web App mode,
+which made the switch impossible to hit. Picking Native afterwards sticks.
+(Corrected after review: the owner's "No workout" was not pairing leaving the
+lens on Native — the phone was already in Web App mode, and the lens was
+showing Settings' idle sentence. That is the next paragraph's fix.)
+
+**The lens says what to do, in the lens's words.** `idle.text` used to carry
+Settings' sentence ("Open the app to bring the workout back…", "…on Today"),
+which on the glasses read as the glasses being broken — which app? there is no
+Today there. The driver now keeps a second, lens-facing sentence that names
+the phone: "Start a workout on your phone."

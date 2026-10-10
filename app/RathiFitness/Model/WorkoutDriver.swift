@@ -69,6 +69,13 @@ final class WorkoutDriver {
     /// way to tell "rest day" from "not started" from "broken".
     private(set) var idleReason = "Open the app at the gym to start."
 
+    /// The same moment, said to the LENS — where "Open the app" is ambiguous
+    /// (which app? the page you are looking at is an app) and "Today" means
+    /// nothing. The Web App shows it under NO WORKOUT, so it names the phone
+    /// and the one thing to do there. The owner read the first wording as the
+    /// glasses being broken (2026-10-10).
+    private(set) var lensIdle = "Start a workout on your phone."
+
     /// You are here: the app came to the front, a pinch arrived, a set screen
     /// just closed.
     func touch(at now: Date = .now) {
@@ -168,6 +175,8 @@ final class WorkoutDriver {
             idleReason = offer.map {
                 "Rest day — optional: \($0.name). Start it on Today and the lens follows."
             } ?? "Nothing is planned today. Pick a workout with the calendar button on Today."
+            lensIdle = offer.map { "Rest day — start \($0.name) on your phone if you want it." }
+                ?? "Nothing planned today — pick a workout on your phone."
             return nil
         }
         let session = Workout.openSession(for: day, among: sessions, now: now, calendar: calendar)
@@ -190,6 +199,9 @@ final class WorkoutDriver {
             idleReason = closed
                 ? "Closed from your glasses. Open the app to bring the workout back."
                 : "Open the app to bring the workout back — the lens is only taken around a workout."
+            lensIdle = closed
+                ? "Closed from your glasses — start a workout on your phone to bring it back."
+                : "Start a workout on your phone."
             return nil
         }
 

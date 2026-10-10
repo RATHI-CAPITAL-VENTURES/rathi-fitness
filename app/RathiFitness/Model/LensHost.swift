@@ -117,6 +117,8 @@ final class LensHost: ObservableObject {
     private var hostSource: Source?
     private var hostPinch: Handler?
     private var hostIdle: (@MainActor () -> String)?
+    /// The same, worded for the lens (sent in `idle`). Falls back to `hostIdle`.
+    private var lensIdle: (@MainActor () -> String)?
     /// Tells the driver a set screen just closed, so it re-reads the store —
     /// the sets logged on the phone happened without it.
     private var onScreenClosed: (@MainActor () -> Void)?
@@ -266,10 +268,12 @@ final class LensHost: ObservableObject {
     /// then nothing of ours is on the lens and the session is given back.
     func host(source: @escaping Source, onPinch: @escaping Handler,
               idle: @escaping @MainActor () -> String,
+              lensIdle: (@MainActor () -> String)? = nil,
               onScreenClosed: @escaping @MainActor () -> Void) {
         hostSource = source
         hostPinch = onPinch
         hostIdle = idle
+        self.lensIdle = lensIdle
         self.onScreenClosed = onScreenClosed
         startPumpIfNeeded()
     }
@@ -340,7 +344,7 @@ final class LensHost: ObservableObject {
             // WHOLE lens for as long as it lasts, so it is given back rather
             // than held dark.
             let why = hostIdle?()
-            if transport.isEngaged { endTransport(clearing: true, reason: .idle(why)) }
+            if transport.isEngaged { endTransport(clearing: true, reason: .idle(lensIdle?() ?? why)) }
             if idleReason != why { idleReason = why }
             return
         }

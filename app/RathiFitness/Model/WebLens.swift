@@ -64,6 +64,9 @@ final class WebLens: ObservableObject, LensTransport {
 
     var onEvent: (@MainActor (LensEvent) -> Void)?
     var wanted: (@MainActor () -> Bool)?
+    /// `feedAudio {on}` from the lens: a Short's sound went on or off. Not a
+    /// pinch and not the host's — `GlassesFace` hands it to `FeedAudio`.
+    var onFeedAudio: (@MainActor (Bool) -> Void)?
 
     private let makeSocket: @MainActor () -> LensSocket
     private let keepAlive: LensKeepAlive?
@@ -345,10 +348,24 @@ final class WebLens: ObservableObject, LensTransport {
             input(message, at: t)
         case "repaint", "resume":
             onEvent?(.repaint)
+        case "feedAudio":
+            if let on = message["on"] as? Bool, feedAudioCounts(message, at: t) { onFeedAudio?(on) }
         default:
-            // `ack` and `undeliverable` are the page's; `feedAudio` is Phase 2.
+            // `ack` and `undeliverable` are the page's.
             break
         }
+    }
+
+    /// Only a boolean `on`, from the one lens, and fresh. Two pages could
+    /// each be playing a Short (the one-lens rule, as for writes); and a
+    /// sound change more than 5 s old by the room's clock is about a Short
+    /// that may have stopped — or a rest that has ended — since.
+    static let feedAudioFreshMs: Double = 5_000
+
+    private func feedAudioCounts(_ message: [String: Any], at t: Double) -> Bool {
+        guard lenses == 1 else { return false }
+        guard let relayedAt = message["relayedAt"] as? Double, let roomNow = offset.toRoom(t) else { return true }
+        return roomNow - relayedAt <= Self.feedAudioFreshMs
     }
 
     private func lensesChanged(_ n: Int) {

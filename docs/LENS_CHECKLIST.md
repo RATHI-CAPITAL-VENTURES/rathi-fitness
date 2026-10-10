@@ -47,3 +47,19 @@ App has been worn through a real workout and accepted.
 | W11 | Close from the lens, then open the app on the phone | The page leaves "Closed…" and shows today's list (the ticket after `idle` is newer) |
 | W12 | Spotify or Music.app playing, Web App mode, let a rest run out | The chime is heard over it (ducked for the cue only) |
 | W13 | After the workout ends (or the lens is switched to Native/off) | Spotify / Music.app back at full volume; the phone no longer plays silence |
+| W14 | Pair (Settings → Glasses → "Use the Web App: pair with the relay") with the lens on Native | Settings says "Paired. The lens is now the Web App"; Lens reads Web App |
+| W15 | Web App on, no workout live (or Close from the lens) | The page says "Start a workout on your phone" (or "Closed from your glasses — start a workout…") |
+
+## The feed in a rest (Phase 2)
+
+| # | Do | Expect |
+| --- | --- | --- |
+| F1 | In-app music playing, log a set, swipe → into the feed, unmute a Short | The music pauses |
+| F2 | Let the rest run out with the Short still sounding | READY pulls the lens back; the Short stops; the music comes back |
+| F3 | Unmute a Short, then mute it (or swipe back to WORKOUT) mid-rest | The music comes back at once |
+| F4 | Pause the music yourself, then unmute a Short and let the rest end | The music stays paused — it was yours |
+| F5 | Unmute a Short, then press play on the phone or AirPods mid-rest, then pause again | READY leaves it paused |
+| F6 | Unmute a Short and take a call mid-rest | Nothing restarts into the call or after it; the next rest's Short pauses the music again |
+| F6b | Unmute a Short, ask Siri something short mid-rest, let the rest end | The music comes back at READY (the owner's rule). Read Settings → Glasses "last audio interruption" before and after: write down whether Siri arrived as an interruption (`began · default`) or not at all |
+| F7 | Phone locked in a pocket throughout F1–F3 | Every pinch is answered: the phone stays awake while the music is paused |
+| F8 | No feed pinch ever logs anything | Check the set count on the phone after a rest spent in the feed |

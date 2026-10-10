@@ -142,6 +142,18 @@ final class WorkoutDriverTests: XCTestCase {
         driver.touch(at: now)
         XCTAssertNil(driver.screen(at: now))
         XCTAssertTrue(driver.idleReason.hasPrefix("Rest day — optional: Push"), driver.idleReason)
+        XCTAssertEqual(driver.lensIdle, "Rest day — start Push on your phone if you want it.")
+    }
+
+    /// What the Web App lens says under NO WORKOUT names the phone and what to
+    /// do there — "Open the app" read as the glasses being broken.
+    func testTheLensIsToldToStartAWorkoutOnThePhone() {
+        XCTAssertEqual(driver.lensIdle, "Start a workout on your phone.")
+        driver.touch(at: now)
+        driver.pinched(.close, at: now)
+        XCTAssertNil(driver.screen(at: now))
+        XCTAssertEqual(driver.lensIdle, "Closed from your glasses — start a workout on your phone to bring it back.")
+        XCTAssertFalse(driver.lensIdle.contains("Today"), "the lens has no Today tab to point at")
     }
 
     /// Once it is started — and the phone relaunched, so `Workout.chosen` is

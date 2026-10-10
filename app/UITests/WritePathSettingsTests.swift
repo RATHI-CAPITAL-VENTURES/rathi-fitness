@@ -83,6 +83,17 @@ final class WritePathSettingsTests: WritePathCase {
 
     // MARK: - the schedule
 
+    /// Pairing must be reachable from Native (and with the glasses off), or
+    /// "pairing switches the lens to Web App" can never happen: it used to be
+    /// offered only inside Web App mode.
+    func testPairingIsOfferedOutsideWebAppMode() {
+        openSettings()
+        let pair = app.buttons.containing(
+            NSPredicate(format: "label BEGINSWITH 'Use the Web App: pair with the relay'")).firstMatch
+        for _ in 0..<12 where !pair.exists { app.swipeUp() }
+        XCTAssertTrue(pair.exists, "Settings → Glasses should offer pairing while the lens is Native or off")
+    }
+
     /// `SettingsView:428` — switching to a rotation, which is the change that
     /// makes every day's subtitle re-read itself.
     func testChangingTheSchedule() {

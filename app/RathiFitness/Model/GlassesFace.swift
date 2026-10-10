@@ -1,3 +1,5 @@
+import AVFoundation
+import CallKit
 import Combine
 import Foundation
 
@@ -51,6 +53,21 @@ final class GlassesFace: ObservableObject {
     }
 
     private var relays: Set<AnyCancellable> = []
+    /// Where a scanned pairing code is kept. A parameter so a test can pair
+    /// without the Keychain.
+    var storeKey: (LensPairing.Paired) -> Bool = { LensKey.store($0) }
+
+    /// The Short's sound against the workout music (`FeedAudio`). Nil until
+    /// the app installs the player with `feedAudio(...)`.
+    private(set) var feed: FeedAudio?
+    private var feedWatchers: Set<AnyCancellable> = []
+    private var interruptionObserver: NSObjectProtocol?
+    private let calls = CXCallObserver()
+    /// The last audio interruption seen, in words, for Settings — so a worn
+    /// session can say whether Siri reaches this app as an interruption at all
+    /// (checklist F6; the spike saw both, depending on whether our session was
+    /// active).
+    @Published private(set) var lastInterruption: String?
 
     init(host: LensHost? = nil, native: NativeLens? = nil, web: WebLens? = nil) {
         self.host = host ?? LensHost()
@@ -108,11 +125,16 @@ final class GlassesFace: ObservableObject {
     // MARK: - Pairing (web)
 
     /// A scanned pairing code. False if it was not one.
+    ///
+    /// Pairing is choosing the Web App: the owner paired, the lens stayed on
+    /// Native, and the glasses said "No workout" — a pairing that changed
+    /// nothing you can see (2026-10-10). So a successful pair switches the
+    /// lens to Web App; picking Native afterwards is still yours.
     @discardableResult
     func pair(_ scanned: String) -> Bool {
-        guard let paired = LensPairing.parse(scanned), LensKey.store(paired) else { return false }
+        guard let paired = LensPairing.parse(scanned), storeKey(paired) else { return false }
         web.keyChanged()
-        if lens == .web { host.refresh() }
+        if lens != .web { lens = .web } else { host.refresh() }
         return true
     }
 
@@ -131,8 +153,9 @@ final class GlassesFace: ObservableObject {
 
     func host(source: @escaping LensHost.Source, onPinch: @escaping LensHost.Handler,
               idle: @escaping @MainActor () -> String,
+              lensIdle: (@MainActor () -> String)? = nil,
               onScreenClosed: @escaping @MainActor () -> Void) {
-        host.host(source: source, onPinch: onPinch, idle: idle, onScreenClosed: onScreenClosed)
+        host.host(source: source, onPinch: onPinch, idle: idle, lensIdle: lensIdle, onScreenClosed: onScreenClosed)
     }
 
     func music(track: @escaping @MainActor () -> LensMusic.Track?,
@@ -144,4 +167,62 @@ final class GlassesFace: ObservableObject {
     }
 
     func refresh() { host.refresh() }
+
+    // MARK: - The feed's sound (Phase 2)
+
+    /// Install the player for `FeedAudio`. Set once, at launch, like `music`.
+    /// `playback` fires with the player's playing state on each change
+    /// (`FeedAudio.playbackPublisher`); `restEnded` fires at READY
+    /// (`FeedAudio.readyPublisher`).
+    func feedAudio(isPlaying: @escaping @MainActor () -> Bool,
+                   hasTrack: @escaping @MainActor () -> Bool,
+                   isResting: @escaping @MainActor () -> Bool,
+                   pause: @escaping @MainActor () -> Void,
+                   play: @escaping @MainActor () -> Void,
+                   playback: AnyPublisher<Bool, Never>,
+                   restEnded: AnyPublisher<Void, Never>) {
+        let calls = self.calls
+        let feed = FeedAudio(isPlaying: isPlaying, hasTrack: hasTrack, isResting: isResting,
+                             isCallActive: { calls.calls.contains { !$0.hasEnded } },
+                             pause: pause, play: play)
+        // While we hold the music, the READY cue is sized for the music that is
+        // about to come back, not for the silence it plays into.
+        feed.claimChanged = { AudioHub.shared.feedHoldsMusic = $0 }
+        self.feed = feed
+        feedWatchers = []
+        playback.sink { [weak feed] in feed?.playbackChanged(isPlaying: $0) }.store(in: &feedWatchers)
+        restEnded.sink { [weak feed] in feed?.restEnded() }.store(in: &feedWatchers)
+        web.onFeedAudio = { [weak feed] on in feed?.lensSound(on: on) }
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self, weak feed] note in
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let began = raw == AVAudioSession.InterruptionType.began.rawValue
+            let reason = (note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionReason.init(rawValue:))
+            MainActor.assumeIsolated {
+                feed?.interruption(began: began, system: Self.isSystemInterruption(reason))
+                let time = Date.now.formatted(date: .omitted, time: .standard)
+                self?.lastInterruption = "\(began ? "began" : "ended") · \(Self.describe(reason)) · \(time)"
+            }
+        }
+    }
+
+    /// Only the plain kind counts: the app being suspended or a route going
+    /// away say nothing about who wants the speaker. No reason at all (older
+    /// systems) is the plain kind.
+    nonisolated static func isSystemInterruption(_ reason: AVAudioSession.InterruptionReason?) -> Bool {
+        guard let reason else { return true }
+        return reason == .default
+    }
+
+    nonisolated static func describe(_ reason: AVAudioSession.InterruptionReason?) -> String {
+        switch reason {
+        case nil: return "no reason"
+        case .default?: return "default"
+        case .builtInMicMuted?: return "mic muted"
+        case .routeDisconnected?: return "route disconnected"
+        default: return "other (\(reason!.rawValue))"
+        }
+    }
 }

@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var exportFiles: [URL]?
     @State private var pairingLens = false
     @State private var pairingResult: String?
+    @State private var pairingNote: String?
     @Environment(\.openURL) private var openURL
 
     @Query private var allSets: [SetEntry]
@@ -72,8 +73,15 @@ struct SettingsView: View {
             .sheet(isPresented: $pairingLens) {
                 CodeScanner { value, _ in
                     pairingLens = false
-                    pairingResult = glasses.pair(value)
-                        ? nil : "That code is not a pairing code. Run bin/pair-phone on the Mac and scan the code it shows."
+                    let wasWeb = glasses.lens == .web
+                    if glasses.pair(value) {
+                        pairingResult = nil
+                        pairingNote = wasWeb ? "Paired."
+                            : "Paired. The lens is now the Web App — open Fitness on your glasses."
+                    } else {
+                        pairingNote = nil
+                        pairingResult = "That code is not a pairing code. Run bin/pair-phone on the Mac and scan the code it shows."
+                    }
                 }
             }
             .sheet(isPresented: $declaringAway) {
@@ -519,6 +527,17 @@ struct SettingsView: View {
                         .padding(.top, 8)
                 }
             }
+            // Pairing reachable from Native (and with the glasses off), not
+            // only from inside Web App mode — where it was the only way in,
+            // so "pairing switches the lens to Web App" could never happen
+            // (found in review). Pairing switches the lens; choosing Native
+            // afterwards sticks.
+            if glasses.lens != .web || !glasses.enabled, !glasses.web.paired {
+                ActionRow(label: "Use the Web App: pair with the relay",
+                          detail: "On the Mac: bin/pair-phone, then scan its code. The lens switches to Web App.",
+                          symbol: "qrcode.viewfinder", showsDivider: false) { startPairing() }
+            }
+            pairingMessages
         }
     }
 
@@ -528,7 +547,7 @@ struct SettingsView: View {
         let web = glasses.web
         if !web.paired {
             ActionRow(label: "Pair with the relay", detail: "On the Mac: bin/pair-phone, then scan its code.",
-                      symbol: "qrcode.viewfinder", showsDivider: false) { pairingResult = nil; pairingLens = true }
+                      symbol: "qrcode.viewfinder", showsDivider: false) { startPairing() }
         } else {
             SettingRow(label: webRoomLine, detail: webDetail) {
                 Image(systemName: "eyeglasses")
@@ -539,9 +558,30 @@ struct SettingsView: View {
                 ActionRow(label: "Add to glasses", detail: "Opens Meta AI to add the Fitness Web App.",
                           symbol: "plus.circle") { openURL(link) }
             }
-            ActionRow(label: "Pair again", symbol: "qrcode.viewfinder") { pairingResult = nil; pairingLens = true }
+            ActionRow(label: "Pair again", symbol: "qrcode.viewfinder") { startPairing() }
             ActionRow(label: "Forget the pairing", symbol: "xmark.circle",
-                      tint: RFDesign.ember, showsDivider: false) { glasses.unpair() }
+                      tint: RFDesign.ember, showsDivider: false) {
+                pairingNote = nil
+                pairingResult = nil
+                glasses.unpair()
+            }
+        }
+    }
+
+    private func startPairing() {
+        pairingNote = nil
+        pairingResult = nil
+        pairingLens = true
+    }
+
+    /// What the last scan did. Below the whole section, so it is seen in
+    /// whichever mode the scan was started from.
+    @ViewBuilder private var pairingMessages: some View {
+        if let pairingNote {
+            Text(pairingNote)
+                .font(RFDesign.ui(12.5))
+                .foregroundStyle(RFDesign.ready)
+                .padding(.top, 8)
         }
         if let pairingResult {
             Text(pairingResult)
@@ -580,6 +620,8 @@ struct SettingsView: View {
         if let pinch = web.lastPinchMs { numbers.append("last pinch +\(pinch) ms") }
         if audio.lensRestores > 0 { numbers.append("kept awake ×\(audio.lensRestores)") }
         if !numbers.isEmpty { parts.append(numbers.joined(separator: " · ")) }
+        // Checklist F6: does Siri reach this app as an interruption at all?
+        if let last = glasses.lastInterruption { parts.append("last audio interruption: \(last)") }
         parts.append("phone \(Bundle.main.appVersion) · relay \(web.relayVersion ?? "—") · lens \(web.lensVersion ?? "—")")
         return parts.joined(separator: "\n")
     }
