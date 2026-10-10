@@ -98,14 +98,22 @@ final class AudioHub: ObservableObject, LensKeepAlive {
     /// audio session, and `.duckOthers` ducks **other** apps. You cannot duck
     /// yourself, so nothing attenuates the music under a cue and the cue has to
     /// carry itself. See `Cue.overMusic`.
+    /// A Short's sound paused our music and READY is about to bring it back
+    /// (`FeedAudio`'s claim). The READY cue is then rendered as over-music:
+    /// sized for silence, it would be buried by the track a moment later.
+    var feedHoldsMusic = false
+
     var ownMusicIsPlaying = false {
         didSet {
-            // Siri pauses the in-app player and tells US nothing: no
-            // interruption, only the player stopping. In the spike that was
-            // the one gap in 45 minutes — with the music gone and nothing of
-            // ours provably playing, iOS suspended the app within seconds
-            // (docs/DECISIONS.md, 2026-10-10). So the music stopping while the
-            // lens is held is treated as an interruption beginning.
+            // Whether Siri reaches us as an audio-session interruption depends
+            // on whether OUR session is active. In the spike's first run it was
+            // not (the silence had quietly stopped), and Siri's pause arrived
+            // only as the player stopping — no interruption at all, and iOS
+            // suspended the app within seconds. With the keep-alive's session
+            // active, the retest saw five `began` (and no `ended`) for five
+            // Siri requests. Both are measured (docs/DECISIONS.md,
+            // 2026-10-10). So the music stopping while the lens is held is
+            // treated as audio being taken either way.
             if oldValue, !ownMusicIsPlaying, isHoldingForLens { lensAudioTaken("music-stopped") }
         }
     }
@@ -511,7 +519,7 @@ final class AudioHub: ObservableObject, LensKeepAlive {
     func play(_ tone: Tone) {
         startEngineIfNeeded()
         guard engineRunning else { return }
-        let cue = Cue(tone: tone, overMusic: ownMusicIsPlaying)
+        let cue = Cue(tone: tone, overMusic: ownMusicIsPlaying || feedHoldsMusic)
         let buffer = buffers[cue] ?? render(cue)
         buffers[cue] = buffer
         // The user's setting still scales it, but never below audibility when

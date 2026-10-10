@@ -97,14 +97,21 @@ Everything here is **additive** inside v1. Nothing in §3 was removed.
 
 17. **`feedAudio` is read (v0.19.0, Phase 2).** No change of shape: the
     room forwards `{v:1, type:"feedAudio", on, relayedAt}` from the lens and
-    the phone acts on it — only a boolean `on` counts. **On**, during a rest,
-    with the in-app music playing: the phone pauses the music and remembers
-    that it did. **Off**, or the phone's READY (the rest ending on the phone,
-    run out or skipped): the music is resumed **only if the phone paused it**.
-    It never resumes music the wearer paused, never resumes after the wearer
-    pressed play themselves, and drops its claim when a call or Siri takes the
-    audio. `feedAudio` is not a pinch: it is never acked, never judged by the
-    gate, and does not repaint. The page should send `on:false` when the
+    the phone acts on it. It counts only when `on` is a boolean, the room
+    counts **exactly one lens** (the one-lens rule, as for writes — two pages
+    could each be playing a Short), and `relayedAt` is at most **5 s** old by
+    the phone's room clock (an older one is about a Short, or a rest, that may
+    be over). **On**, during a rest (a deadline still in the future), with the
+    in-app music playing — or while the phone's own resume is still on its way
+    to MusicKit: the phone pauses the music and remembers that it did. **Off**,
+    or the phone's READY (the rest ending on the phone, run out or skipped):
+    the music is resumed **only if the phone paused it**, and not while a
+    phone call is active, and not when nothing is queued. It never resumes
+    music the wearer paused, never resumes after the wearer pressed play
+    themselves, and drops its claim when a phone call takes the audio. A Siri
+    query does **not** drop it: the music still comes back at READY.
+    `feedAudio` is not a pinch: it is never acked, never judged by the gate,
+    and does not repaint. The page should send `on:false` when the
     Short's sound goes off or the wearer leaves the feed; READY is the
     phone's own and needs nothing from the page.
 18. **`idle.text` is written for the lens (v0.19.0).** It names the phone and

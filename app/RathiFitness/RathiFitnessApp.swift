@@ -176,14 +176,14 @@ struct RathiFitnessApp: App {
                     // brings it back — only if it was the Short that paused it.
                     glasses.feedAudio(
                         isPlaying: { music.now?.isPlaying == true },
-                        isResting: { rest.isResting },
+                        hasTrack: { music.now != nil },
+                        // A deadline that has passed is not a rest, even in the
+                        // instant before the timer's own task clears it.
+                        isResting: { rest.remaining() > 0 },
                         pause: { music.pause() },
                         play: { Task { await music.play() } },
-                        playback: music.$now.map { $0?.isPlaying == true }.removeDuplicates().eraseToAnyPublisher(),
-                        // READY: a rest that was running is not any more.
-                        restEnded: rest.$endsAt.map { $0 != nil }.removeDuplicates()
-                            .scan((false, false)) { ($0.1, $1) }
-                            .filter { $0.0 && !$0.1 }.map { _ in () }.eraseToAnyPublisher())
+                        playback: FeedAudio.playbackPublisher(music.$now.eraseToAnyPublisher()),
+                        restEnded: FeedAudio.readyPublisher(rest.$endsAt.eraseToAnyPublisher()))
                     lens.touch()
                     // Ask HealthKit whether we have already been through its
                     // sheet. Without this the app forgets between launches and

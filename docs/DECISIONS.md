@@ -2563,16 +2563,31 @@ stopped:
 - **You pressed play mid-feed** (phone, AirPods, the music card) — the music
   playing again without us drops the claim; if you then pause it, READY leaves
   it paused.
-- **A call or Siri takes the audio** — the claim is dropped at the
-  interruption's start. Resuming after a call is fighting the system for a
-  song you may no longer want. Siri sends `began` and never `ended` (measured
-  in the Phase 0 spike), so "interrupted" — which only blocks a new pause —
-  clears itself when the music plays again or a rest ends, or the feature
-  would switch itself off for the rest of the workout.
+- **A phone call takes the audio** — the claim is dropped, and nothing is
+  resumed while a call is active (`CXCallObserver`). Resuming into or after a
+  call is fighting the system for a song you may no longer want. Only a
+  plain-reason interruption counts; the app being suspended or a route going
+  away say nothing about who wants the speaker.
+- **A Siri query does not.** The owner's rule is that the music comes back at
+  READY, and a five-second question is not a reason to leave it off. (The
+  first version dropped the claim on any interruption; review caught it.)
+- **Off then on inside MusicKit's play latency.** Our resume is a `play()` that
+  lands a moment later; a sound coming back on in that window saw the music
+  "not playing", took no claim, and the play landed over the Short. A
+  `resuming` window now lets that `on` take the claim and pause as the play
+  lands.
 
-The mutation check found one guard no test could reach: "do not resume during
-an interruption". It was dead because the claim is already gone by then, and
-it was removed rather than kept as untested reassurance.
+Does Siri reach this app as an interruption at all? Both have been measured:
+in the spike's first run (our session inactive) it did not — Siri's pause
+arrived only as the player stopping; in the retest (the keep-alive's session
+active) five Siri requests gave five `began` and no `ended`. Settings →
+Glasses now shows the last interruption so the worn check (F6b) can write down
+which happens with the feed.
+
+The mutation check removed two pieces of code no test could reach: a "do not
+resume during an interruption" guard (dead once the claim is dropped) and a
+`removeDuplicates` in the READY pipeline (the pairwise filter already ignores
+repeats).
 
 **The keep-alive is untouched by our pause.** In Web App mode the in-app music
 was one of the things holding a locked phone awake; pausing it is exactly the
@@ -2584,10 +2599,13 @@ pause leaves `holdForLens` held and the silence playing.
 present phone. It is not a pinch: never acked, never judged by the gate, never
 a repaint.
 
-**Pairing is choosing the Web App.** The owner paired, the lens stayed on
-Native, and the glasses said "No workout" — a pairing that changed nothing
-visible. A successful pair now switches the lens to Web App and Settings says
-so; picking Native afterwards is still yours.
+**Pairing is choosing the Web App.** A successful pair now switches the lens
+to Web App and Settings says so, and pairing is offered from Native mode and
+with the glasses off — it used to be reachable only from inside Web App mode,
+which made the switch impossible to hit. Picking Native afterwards sticks.
+(Corrected after review: the owner's "No workout" was not pairing leaving the
+lens on Native — the phone was already in Web App mode, and the lens was
+showing Settings' idle sentence. That is the next paragraph's fix.)
 
 **The lens says what to do, in the lens's words.** `idle.text` used to carry
 Settings' sentence ("Open the app to bring the workout back…", "…on Today"),

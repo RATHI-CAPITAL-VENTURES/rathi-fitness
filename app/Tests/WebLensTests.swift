@@ -485,6 +485,22 @@ final class WebLensTests: XCTestCase {
         XCTAssertEqual(keepAlive.holds, [true, false], "and the phone is let sleep")
     }
 
+    /// `feedAudio` follows the one-lens rule, and a stale one is about a Short
+    /// (or a rest) that may be over.
+    func testFeedAudioOnlyFromTheOneLensAndFresh() async {
+        var heard: [Bool] = []
+        web.onFeedAudio = { heard.append($0) }
+        screen = bench()
+        await connect(lenses: 2)
+        socket.deliver(["v": 1, "type": "feedAudio", "on": true, "relayedAt": roomNow - 100])
+        XCTAssertEqual(heard, [], "two pages: whose Short?")
+        socket.deliver(["type": "presence", "lenses": 1])
+        socket.deliver(["v": 1, "type": "feedAudio", "on": true, "relayedAt": roomNow - 6_000])
+        XCTAssertEqual(heard, [], "more than 5 s old")
+        socket.deliver(["v": 1, "type": "feedAudio", "on": true, "relayedAt": roomNow - 100])
+        XCTAssertEqual(heard, [true])
+    }
+
     /// The lens is told what to do, in its own words, not Settings'.
     func testTheIdleTextIsTheLensWording() async {
         host.host(source: { [unowned self] in self.screen }, onPinch: { _ in },

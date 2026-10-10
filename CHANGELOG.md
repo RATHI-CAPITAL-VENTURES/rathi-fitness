@@ -34,17 +34,41 @@ A **MINOR bump is a milestone** and must ship a retro under
   workout on your phone." instead of Settings' "Open the app…" (LensWire
   change 18).
 
+### Fixed (review)
+
+- **Off then on inside MusicKit's play latency** no longer leaves the music
+  playing over the Short: a sound that comes on while our resume is on its way
+  takes the claim and pauses as the play lands.
+- **A Siri query no longer cancels "music back at READY".** Only a phone call
+  drops the claim (and nothing is resumed while one is active); interruptions
+  for suspension or a route change do not count. Settings shows the last
+  interruption, for the worn check.
+- **Pairing is reachable from Native and with the glasses off** ("Use the Web
+  App: pair with the relay"), so pairing really can switch the lens.
+- The READY chime is rendered over-music when the music is about to resume; a
+  passed deadline is not a rest; nothing is started from scratch when nothing
+  is queued; `feedAudio` needs exactly one lens and is ignored when over 5 s
+  old; "Paired." when already on the Web App; the pairing note clears.
+- The READY and playback pipelines are functions with tests
+  (`FeedAudio.readyPublisher`, `.playbackPublisher`).
+
 ### Tests
 
-- `FeedAudioTests` (14): pause and resume, sound-off, user-paused music never
-  resumed, user's play drops the claim, a call mid-feed, Siri's missing
-  `ended`, only during a rest, through the wire, READY from the phone, pairing
-  → Web App, and the keep-alive held and playing while the music is paused.
-- `testTheIdleTextIsTheLensWording`, `testTheLensIsToldToStartAWorkoutOnThePhone`.
-- Mutants: resume without the claim, claim un-played music, the user's play
-  not dropping the claim, pairing leaving the lens, the lens text ignored —
-  each fails the suite. A sixth (resume during an interruption) survived
-  because the guard was unreachable; the guard was removed.
+- `FeedAudioTests` (23) and `LensKeepAliveTests` (1): pause and resume,
+  sound-off, user-paused music never resumed, the user's play drops the claim,
+  off→on inside the play latency, calls vs Siri, interruption reasons, the
+  READY pipeline with a real `RestTimer`, the playback mapping, nothing queued,
+  through the wire, pairing → Web App, and the keep-alive held and playing
+  while the music is paused.
+- `WebLensTests`: `feedAudio` only from one lens and fresh; the idle text.
+  `WorkoutDriverTests`: the lens's wording. UI: pairing offered outside Web App
+  mode.
+- Mutants, each failing the suite: resume without the claim; claim un-played
+  music; the user's play not dropping the claim; no resuming window; no pause
+  when the play lands; every interruption dropping the claim; the reason
+  ignored; resume into a call; the READY filter loosened; playback not
+  deduped; `feedAudio` from two lenses; pairing leaving the lens; the lens
+  text ignored. Two survivors showed unreachable code, which was removed.
 
 ## Earlier
 
