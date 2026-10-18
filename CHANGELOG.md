@@ -14,6 +14,24 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.19.1 — 2026-10-18
+
+### Fixed
+
+- **The cooldown follows you to the next exercise.** The rest kept running
+  when you moved on, but the next exercise's screen only showed a rest that
+  was its own, so it opened on "Ready" with Log lit and the clock out of
+  sight. Now any running rest shows there — the ring counting down, "Skip to
+  set 1" and +30s — on the phone and on the lens ("RESTING · Then set 1 of 3").
+  Logging waits for the rest, as it does on the exercise that started it;
+  Skip is one tap.
+- **"Done — back to today" no longer cancels the rest.** After the last set it
+  stopped the cooldown on the way out, which is the path every move to the
+  next machine took. Skip still ends it.
+- **The ring names the rest it is showing.** `RestTimer` now keeps the
+  caption ("Cooldown", or "Move" in a superset) with the rest, instead of the
+  screen re-deriving it from its own slot.
+
 ## 0.19.0 — 2026-10-10
 
 ### Added

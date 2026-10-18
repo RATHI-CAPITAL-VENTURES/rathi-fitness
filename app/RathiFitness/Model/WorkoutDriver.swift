@@ -324,7 +324,9 @@ final class WorkoutDriver {
     private func lifting(_ item: PlanItem, _ exercise: Exercise, _ board: Board, at now: Date) -> LensScreen {
         let plan = Swaps.prescription(for: item, doing: exercise)
         let nextSet = Workout.working(item, in: progress(board)).count + 1
-        let resting = rest.exerciseName == exercise.name ? rest.clock : nil
+        // Any rest, as on the phone: the last exercise's cooldown follows you
+        // to this one rather than vanishing behind a lit Log.
+        let resting = rest.clock
         var state = LensState.strength(
             exercise: exercise.name, day: board.day.name, nextSet: nextSet, of: plan.sets,
             weight: weight, word: exercise.weightWord, reps: reps,
@@ -502,7 +504,7 @@ final class WorkoutDriver {
         // Not while resting, and not past the last set: the lens offers neither,
         // and a pinch that arrives anyway is not a set.
         let plan = Swaps.prescription(for: item, doing: exercise)
-        guard !(rest.isResting && rest.exerciseName == exercise.name),
+        guard !rest.isResting,
               Workout.working(item, in: progress(board)).count < plan.sets else { return }
 
         // Judged and confirmed before the write, as on the phone: the history
@@ -515,7 +517,7 @@ final class WorkoutDriver {
             setIndex: doneHere(exercise, board).count + 1, at: now, in: context)
         snapshots?.setNeedsWrite(context)
         let pause = Workout.rest(after: item, doing: exercise)
-        rest.start(seconds: pause.seconds, exercise: exercise.name)
+        rest.start(seconds: pause.seconds, exercise: exercise.name, caption: pause.caption)
         // The next set opens on the plan's reps again, as the phone's does —
         // "−1 rep" was about the set you just did, not the one coming.
         reps = plan.reps

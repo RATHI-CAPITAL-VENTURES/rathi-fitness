@@ -16,6 +16,11 @@ final class RestTimer: ObservableObject {
     @Published private(set) var endsAt: Date?
     @Published private(set) var total: TimeInterval = 90
     @Published private(set) var exerciseName: String?
+    /// What the ring calls this rest — "Cooldown", or "Move" between the halves
+    /// of a superset. Kept with the rest rather than worked out by whichever
+    /// screen is showing it, because the rest now follows you to the next
+    /// exercise, and that one's own rule would name the wrong rest.
+    @Published private(set) var caption = "Cooldown"
 
     private var completion: Task<Void, Never>?
     private static let notificationID = "rest-over"
@@ -37,7 +42,7 @@ final class RestTimer: ObservableObject {
         return max(0, Int(endsAt.timeIntervalSince(now).rounded(.up)))
     }
 
-    func start(seconds: Int, exercise: String?) {
+    func start(seconds: Int, exercise: String?, caption: String = "Cooldown") {
         // Asked here rather than at launch: the first thing a new app should do
         // is not interrupt you with a permission sheet for a feature you have
         // not reached. By the time you finish a set, the ask explains itself.
@@ -45,6 +50,7 @@ final class RestTimer: ObservableObject {
         total = TimeInterval(max(1, seconds))
         endsAt = Date.now.addingTimeInterval(total)
         exerciseName = exercise
+        self.caption = caption
         scheduleNotification(in: total, exercise: exercise)
         armCompletion()
     }
