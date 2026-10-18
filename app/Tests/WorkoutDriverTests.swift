@@ -262,6 +262,60 @@ final class WorkoutDriverTests: XCTestCase {
         XCTAssertTrue(rest.isResting, "leaving the screen does not cancel the rest")
     }
 
+    /// Asked for by the owner: the bench's cooldown was still running when the
+    /// next exercise opened, and that screen said nothing about it — Log lit,
+    /// clock gone. It follows you now, and says which set comes after it.
+    func testTheCooldownFollowsYouToTheNextExercise() {
+        driver.touch(at: now)
+        open("Bench Press")
+        driver.pinched(.start, at: now)
+        driver.pinched(.logSet, at: now); rest.stop()
+        driver.pinched(.logSet, at: now)              // the last set; now resting
+        driver.pinched(.list, at: now)
+        open("Cable Fly")
+        driver.pinched(.start, at: now)
+
+        XCTAssertEqual(set?.title, "Cable Fly")
+        XCTAssertEqual(set?.eyebrow, "RESTING")
+        XCTAssertEqual(set?.hero, Fmt.clock(rest.remaining(at: now)))
+        XCTAssertEqual(set?.detail, "Then set 1 of 3 · 35 × 12")
+        XCTAssertEqual(set?.actions, [.skipRest, .extendRest, .list])
+
+        driver.pinched(.logSet, at: now)
+        XCTAssertEqual(sets().count, 2, "mid-rest there is no set to log, whose rest it is")
+        driver.pinched(.skipRest, at: now)
+        XCTAssertEqual(set?.actions.first, .logSet)
+        driver.pinched(.logSet, at: now)
+        XCTAssertEqual(sets().last?.exercise?.name, "Cable Fly")
+    }
+
+    /// Within a workout, not across them. Found by CI on the first cut: a
+    /// morning's bench rest followed the owner into the evening's legs and held
+    /// "Log set 1" on the squat shut (`testASecondWorkoutInADayStartsFresh`).
+    func testTheCooldownStaysInTheWorkoutItWasTakenIn() throws {
+        let push = try XCTUnwrap(bench.day).persistentModelID
+        let legs = PlannedDay(name: "Legs", weekday: cal.component(.weekday, from: now))
+        context.insert(legs)
+        try context.save()
+
+        rest.start(seconds: 90, exercise: "Bench Press", day: push)
+        XCTAssertTrue(rest.shows(on: "Bench Press", day: push))
+        XCTAssertTrue(rest.shows(on: "Cable Fly", day: push), "the next exercise of the same workout")
+        XCTAssertFalse(rest.shows(on: "Back Squat", day: legs.persistentModelID), "another workout")
+        XCTAssertFalse(rest.shows(on: "Back Squat", day: nil), "off the plan")
+        rest.stop()
+        XCTAssertFalse(rest.shows(on: "Bench Press", day: push))
+    }
+
+    /// A superset's twenty seconds are called "Move", and that name goes with
+    /// the rest rather than being worked out again by the next screen.
+    func testTheRestKeepsItsOwnCaption() {
+        rest.start(seconds: 20, exercise: "Bench Press", caption: "Move")
+        XCTAssertEqual(rest.caption, "Move")
+        rest.start(seconds: 90, exercise: "Cable Fly")
+        XCTAssertEqual(rest.caption, "Cooldown")
+    }
+
     /// The gate stops a second pinch on a stale button; this is the belt to
     /// those braces. Mid-rest there is no set to log, whoever asks.
     func testLogDuringTheRestWritesNothing() {

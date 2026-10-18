@@ -82,7 +82,15 @@ struct SetView: View {
     }
     private var nextWorkingSet: Int { workingToday.count + 1 }
     private var isFinished: Bool { workingToday.count >= plan.sets }
-    private var restingHere: Bool { rest.isResting && rest.exerciseName == exercise.name }
+    /// This exercise's rest, or one carried from another exercise of the same
+    /// workout. The rest is about your body, not the bar: after the last set of
+    /// the bench you walk to the next machine, and its screen used to open on
+    /// "Ready" while the bench's cooldown was still running, out of sight. Not
+    /// across workouts, though — the evening's legs owe nothing to the
+    /// morning's bench.
+    private var resting: Bool {
+        rest.shows(on: exercise.name, day: item.day?.persistentModelID)
+    }
 
     private var loadout: PlateMath.Loadout {
         PlateMath.loadout(target: weight, bar: exercise.barWeight)
@@ -151,7 +159,7 @@ struct SetView: View {
             skipRest: { rest.stop() },
             extendRest: { rest.extend(by: 30) },
             describe: { announcement },
-            isResting: { restingHere })
+            isResting: { resting })
         remote.arm()
         remote.publishNowPlaying(title: exercise.name, subtitle: item.day?.name)
         // The glasses are armed and disarmed with the AirPods, for the same
@@ -176,13 +184,13 @@ struct SetView: View {
             exercise: exercise.name, day: item.day?.name,
             nextSet: nextWorkingSet, of: plan.sets,
             weight: weight, word: exercise.weightWord, reps: reps,
-            resting: restingHere ? rest.clock.map { .init($0, at: .now) } : nil)
+            resting: resting ? rest.clock.map { .init($0, at: .now) } : nil)
     }
 
     /// The answer to "where am I", for the announce gesture.
     private var announcement: String {
-        if restingHere {
-            return "\(rest.remaining()) seconds left on \(exercise.name)."
+        if resting {
+            return "\(rest.remaining()) seconds left, then \(exercise.name)."
         }
         if isFinished { return "\(exercise.name) is done. \(workingToday.count) sets." }
         return "\(exercise.name). Set \(nextWorkingSet) of \(plan.sets), "
@@ -191,9 +199,9 @@ struct SetView: View {
 
     // MARK: hero
 
-    private var heroProgress: Double { restingHere ? rest.progress() : 1 }
+    private var heroProgress: Double { resting ? rest.progress() : 1 }
     private var heroHue: Double { RFDesign.coolHue(heroProgress) }
-    private var heroEnergy: Double { restingHere ? RFDesign.roomGlowActive : RFDesign.roomGlow }
+    private var heroEnergy: Double { resting ? RFDesign.roomGlowActive : RFDesign.roomGlow }
 
     private var title: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -211,12 +219,12 @@ struct SetView: View {
     /// The ring is always here, so nothing jumps when a rest starts. Idle it
     /// shows the rest you are about to take; running, it counts it down.
     private var hero: some View {
-        TimelineView(.periodic(from: .now, by: restingHere ? 0.25 : 60)) { timeline in
+        TimelineView(.periodic(from: .now, by: resting ? 0.25 : 60)) { timeline in
             let now = timeline.date
             CooldownRing(
-                progress: restingHere ? rest.progress(at: now) : 1,
-                remaining: restingHere ? rest.remaining(at: now) : plan.restSeconds,
-                caption: restingHere ? restForThisSet.caption
+                progress: resting ? rest.progress(at: now) : 1,
+                remaining: resting ? rest.remaining(at: now) : plan.restSeconds,
+                caption: resting ? rest.caption
                                      : (isFinished ? "Done" : "Ready"))
         }
         .frame(maxWidth: .infinity)
@@ -416,14 +424,15 @@ struct SetView: View {
 
     private var actions: some View {
         HStack(spacing: 9) {
-            if restingHere {
+            if resting {
                 SecondaryButton(title: "+30s") { rest.extend(by: 30) }
                 PrimaryButton(title: isFinished ? "Done — back to today"
                                                 : "Skip to set \(nextWorkingSet)",
                               tint: RFDesign.coolColor(rest.progress()),
                               filled: false) {
-                    rest.stop()
-                    if isFinished { dismiss() }
+                    // Leaving does not end the rest: it goes with you to the
+                    // next exercise. Skipping it is for when there is a set here.
+                    if isFinished { dismiss() } else { rest.stop() }
                 }
             } else if isFinished {
                 PrimaryButton(title: "Done — back to today",
@@ -540,7 +549,8 @@ struct SetView: View {
         snapshots.setNeedsWrite(context)
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.
-        rest.start(seconds: restForThisSet.seconds, exercise: exercise.name)
+        rest.start(seconds: restForThisSet.seconds, exercise: exercise.name,
+                   caption: restForThisSet.caption, day: item.day?.persistentModelID)
     }
 
     private func undoLast() {

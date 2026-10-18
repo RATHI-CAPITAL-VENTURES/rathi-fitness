@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import SwiftData
 import UserNotifications
 #if canImport(UIKit)
 import UIKit
@@ -16,6 +17,15 @@ final class RestTimer: ObservableObject {
     @Published private(set) var endsAt: Date?
     @Published private(set) var total: TimeInterval = 90
     @Published private(set) var exerciseName: String?
+    /// What the ring calls this rest — "Cooldown", or "Move" between the halves
+    /// of a superset. Kept with the rest rather than worked out by whichever
+    /// screen is showing it, because the rest now follows you to the next
+    /// exercise, and that one's own rule would name the wrong rest.
+    @Published private(set) var caption = "Cooldown"
+    /// The planned day the rest was taken in, so it can follow you to the next
+    /// exercise of THAT workout and no further. Without it a morning's bench
+    /// rest followed you into the evening's legs and held "Log set 1" shut.
+    private(set) var day: PersistentIdentifier?
 
     private var completion: Task<Void, Never>?
     private static let notificationID = "rest-over"
@@ -37,7 +47,8 @@ final class RestTimer: ObservableObject {
         return max(0, Int(endsAt.timeIntervalSince(now).rounded(.up)))
     }
 
-    func start(seconds: Int, exercise: String?) {
+    func start(seconds: Int, exercise: String?, caption: String = "Cooldown",
+               day: PersistentIdentifier? = nil) {
         // Asked here rather than at launch: the first thing a new app should do
         // is not interrupt you with a permission sheet for a feature you have
         // not reached. By the time you finish a set, the ask explains itself.
@@ -45,8 +56,18 @@ final class RestTimer: ObservableObject {
         total = TimeInterval(max(1, seconds))
         endsAt = Date.now.addingTimeInterval(total)
         exerciseName = exercise
+        self.caption = caption
+        self.day = day
         scheduleNotification(in: total, exercise: exercise)
         armCompletion()
+    }
+
+    /// Whether this rest is the one to show on `exercise`'s screen: its own, or
+    /// carried from another exercise of the same workout day.
+    func shows(on exercise: String, day: PersistentIdentifier?) -> Bool {
+        guard isResting else { return false }
+        if exerciseName == exercise { return true }
+        return day != nil && self.day == day
     }
 
     /// The honest direction. Named `extend`, not `snooze`.
@@ -61,6 +82,7 @@ final class RestTimer: ObservableObject {
     func stop() {
         endsAt = nil
         exerciseName = nil
+        day = nil
         completion?.cancel()
         completion = nil
         UNUserNotificationCenter.current()
@@ -114,6 +136,7 @@ final class RestTimer: ObservableObject {
         AudioHub.shared.play(.restOver)
         endsAt = nil
         exerciseName = nil
+        day = nil
     }
 
     // MARK: - Notifications
