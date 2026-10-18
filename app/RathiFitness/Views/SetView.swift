@@ -82,12 +82,15 @@ struct SetView: View {
     }
     private var nextWorkingSet: Int { workingToday.count + 1 }
     private var isFinished: Bool { workingToday.count >= plan.sets }
-    /// Any rest, not only this exercise's. The rest is about your body, not the
-    /// bar: after the last set of the bench you walk to the next machine, and
-    /// its screen used to open on "Ready" while the bench's cooldown was still
-    /// running, out of sight. Now it opens on the clock, with "then set 1"
-    /// behind it, the way the bench's own screen would.
-    private var resting: Bool { rest.isResting }
+    /// This exercise's rest, or one carried from another exercise of the same
+    /// workout. The rest is about your body, not the bar: after the last set of
+    /// the bench you walk to the next machine, and its screen used to open on
+    /// "Ready" while the bench's cooldown was still running, out of sight. Not
+    /// across workouts, though — the evening's legs owe nothing to the
+    /// morning's bench.
+    private var resting: Bool {
+        rest.shows(on: exercise.name, day: item.day?.persistentModelID)
+    }
 
     private var loadout: PlateMath.Loadout {
         PlateMath.loadout(target: weight, bar: exercise.barWeight)
@@ -547,7 +550,7 @@ struct SetView: View {
         // The rest runs even after the last set, because what follows it is
         // usually a walk to the next machine rather than leaving the gym.
         rest.start(seconds: restForThisSet.seconds, exercise: exercise.name,
-                   caption: restForThisSet.caption)
+                   caption: restForThisSet.caption, day: item.day?.persistentModelID)
     }
 
     private func undoLast() {

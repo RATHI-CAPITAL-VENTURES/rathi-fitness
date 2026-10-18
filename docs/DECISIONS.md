@@ -2620,9 +2620,18 @@ was always global and kept running when you left a lift, but `SetView` and
 the lens's `WorkoutDriver` showed it only when `rest.exerciseName` matched the
 exercise on screen. So the walk to the next machine — the very thing the rest
 after the last set is for — opened on "Ready", Log lit, with ninety seconds
-still on a clock nobody could see. Both now show any running rest, with "then
-set 1" behind it, and logging waits for it as it does on the lift that
-started it. Skip is one tap, and a squeeze mid-rest still means skip.
+still on a clock nobody could see. Both now show a rest taken in the same
+workout day (`RestTimer.shows(on:day:)`), with "then set 1" behind it, and
+logging waits for it as it does on the lift that started it. Skip is one tap,
+and a squeeze mid-rest still means skip.
+
+**Within a workout, not across them.** The first cut showed *any* running
+rest, and CI's `testASecondWorkoutInADayStartsFresh` caught what that means:
+log a bench set in Push A, switch to Legs, and the squat's "Log set 1" was
+held shut by the bench's rest. A different workout owes nothing to the last
+one's cooldown, so `RestTimer` now keeps the planned day it was started in,
+and a rest carries over only to an exercise of that day. Off the plan (no
+day), only the exercise's own rest shows.
 
 **"Done — back to today" stopped the rest on the way out**, so even a screen
 that showed the carried rest would have had nothing to show: that button is

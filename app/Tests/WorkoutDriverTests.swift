@@ -289,6 +289,24 @@ final class WorkoutDriverTests: XCTestCase {
         XCTAssertEqual(sets().last?.exercise?.name, "Cable Fly")
     }
 
+    /// Within a workout, not across them. Found by CI on the first cut: a
+    /// morning's bench rest followed the owner into the evening's legs and held
+    /// "Log set 1" on the squat shut (`testASecondWorkoutInADayStartsFresh`).
+    func testTheCooldownStaysInTheWorkoutItWasTakenIn() throws {
+        let push = try XCTUnwrap(bench.day).persistentModelID
+        let legs = PlannedDay(name: "Legs", weekday: cal.component(.weekday, from: now))
+        context.insert(legs)
+        try context.save()
+
+        rest.start(seconds: 90, exercise: "Bench Press", day: push)
+        XCTAssertTrue(rest.shows(on: "Bench Press", day: push))
+        XCTAssertTrue(rest.shows(on: "Cable Fly", day: push), "the next exercise of the same workout")
+        XCTAssertFalse(rest.shows(on: "Back Squat", day: legs.persistentModelID), "another workout")
+        XCTAssertFalse(rest.shows(on: "Back Squat", day: nil), "off the plan")
+        rest.stop()
+        XCTAssertFalse(rest.shows(on: "Bench Press", day: push))
+    }
+
     /// A superset's twenty seconds are called "Move", and that name goes with
     /// the rest rather than being worked out again by the next screen.
     func testTheRestKeepsItsOwnCaption() {
