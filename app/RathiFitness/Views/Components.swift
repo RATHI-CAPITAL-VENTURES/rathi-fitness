@@ -14,19 +14,30 @@ struct CooldownRing: View {
 
     var body: some View {
         ZStack {
+            // The clock is read at arm's length, so it sits on a solid disc and
+            // not on the room's moving light.
             Circle()
-                .stroke(Color.white.opacity(0.07), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: max(0.001, 1 - progress))
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+                .fill(RFDesign.surface)
+                .overlay(Circle().strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.14), .white.opacity(0.03)],
+                                   startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
+            Group {
+                Circle()
+                    .stroke(RFDesign.track, lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: max(0.001, 1 - progress))
+                    .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .padding(lineWidth * 1.6)
             VStack(spacing: 2) {
                 Text(Fmt.clock(remaining))
                     .font(RFDesign.figure(diameter * 0.243))
                     .monospacedDigit()
                     .foregroundStyle(RFDesign.coolColor(progress, brightness: 0.97))
                 Text(caption)
-                    .rfEyebrow(RFDesign.coolColor(progress, brightness: 0.78), size: 10)
+                    .rfEyebrow(RFDesign.coolColor(progress, brightness: 0.85), size: 10)
                     .tracking(2)
             }
         }
@@ -47,7 +58,7 @@ struct SetPips: View {
         HStack(spacing: 7) {
             ForEach(0..<max(total, 1), id: \.self) { i in
                 Capsule()
-                    .fill(i < done ? RFDesign.ready : Color.white.opacity(0.13))
+                    .fill(i < done ? RFDesign.ready : RFDesign.track)
                     .frame(height: 4)
             }
         }
@@ -146,7 +157,7 @@ struct ExerciseRow: View {
                 .frame(width: 22, height: 22)
         case .pending:
             Circle()
-                .stroke(Color.white.opacity(0.18), lineWidth: 1.5)
+                .stroke(RFDesign.track, lineWidth: 1.5)
                 .frame(width: 22, height: 22)
         }
     }
@@ -201,7 +212,7 @@ struct Rail: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.10))
+                Capsule().fill(RFDesign.track)
                 Capsule().fill(RFDesign.ready)
                     .frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
@@ -224,10 +235,19 @@ struct PrimaryButton: View {
                 .font(RFDesign.ui(16, bold: true))
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .foregroundStyle(filled ? RFDesign.ground : tint)
+                .foregroundStyle(filled ? RFDesign.onAction : tint)
                 .background {
                     RoundedRectangle(cornerRadius: RFDesign.md)
                         .fill(filled ? tint : Color.clear)
+                        // Dusk's primary: the tint lit from above, as a gradient.
+                        .overlay {
+                            if filled {
+                                RoundedRectangle(cornerRadius: RFDesign.md).fill(
+                                    LinearGradient(colors: [.white.opacity(0.28), .black.opacity(0.06)],
+                                                   startPoint: .top, endPoint: .bottom))
+                            }
+                        }
+                        .shadow(color: filled ? tint.opacity(0.28) : .clear, radius: 11, y: 4)
                         .overlay {
                             RoundedRectangle(cornerRadius: RFDesign.md)
                                 .stroke(filled ? Color.clear : tint.opacity(0.7), lineWidth: 1)
@@ -370,7 +390,7 @@ struct ConsistencyBand: View {
             GeometryReader { geo in
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.07))
+                        .fill(RFDesign.track)
                     if week.isAway {
                         // Away weeks are grey rather than empty. Empty reads as
                         // "you missed it", which is the one thing declaring a

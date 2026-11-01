@@ -2647,3 +2647,48 @@ slot on screen (`Workout.rest(after:)` — "Move" mid-superset, else
 hero is the clock you type the bout's time into, and replacing it with a
 lift's cooldown would hide the field you came to fill. Today's row still marks
 as live only the exercise the rest came from.
+
+## 2026-11-01 — Dusk: the app wears the house look, and numbers stay on solid ground
+
+The owner approved Dusk for every face (spec: the Dusk spec; reference
+`~/RIA/projects/ria-browser/App/Design.swift`). Rathi Fitness took it in v0.19.2
+as a restyle only: no behaviour, data, gesture or layout structure moved.
+
+**All of it is in `RFDesign.swift`.** Ground #1B1E27; text #F4F5F7, soft
+#D5D8DF, faint #AEB3BE; solid surfaces #20242E / #262A35 / #2F3442; her teal
+#9EE0D1 for ready; a pastel peach for ember; three blooms behind the room
+(violet, ember, and a third that is the mood). Views hold no colours (the
+`house-style` guard already forbade it); two modifiers, `rfPanel` and
+`rfRecessed`, are the glass.
+
+**The mood still drives the room.** `coolHue` is untouched, so the third bloom
+and the ring still go peach to teal across a rest. Only the saturation ramp
+changed, to pastel (.55 to .30). Ember stays the one warm hue, which keeps a
+problem from looking like a mood.
+
+**Gym legibility wins.** The weight and reps (the stepper block) and the
+cooldown ring sit on a solid #262A35 panel, not on the bloom; so do the
+steppers' buttons. DuskTests holds every text colour at 4.5:1 or better on
+every solid surface, and the whole rest ramp on the ring's surface. Today's
+list is deliberately left unboxed, as Dusk wants ("rows have no fill until
+active"): its figures sit on the darkest part of the room and measure fine, but
+this is the one place a figure is read on light, and the first thing to box
+if it ever reads badly.
+
+**Type.** The system face everywhere; figures in its bold with tabular
+numerals, scaling with Dynamic Type as before. Fraunces is RIA's own voice in
+Dusk and this app has none, so the phone no longer sets it. The font files and
+`Face` names stay, because the lens bitmap still draws with them and
+`TypographyTests` still checks them.
+
+**Light mode: there is none, and there still is none.** The app is forced dark
+(`preferredColorScheme(.dark)` and `UIUserInterfaceStyle`), Dusk is a dark
+ground with light in it, and the pass card remains the one light surface (a
+scanner needs it). Adding a light theme would be a second design, not a
+restyle.
+
+**Left alone, and why.** The lens (glasses) shares `coolHue` but keeps its own
+saturated colours (`readyUIColor`, `coolUIColor`): it is an additive display,
+where a pastel reads as white. The Web App lens and the CLI have their own
+code. There is no widget or Watch target.
+

@@ -92,7 +92,7 @@ struct SettingFigure: View {
                 .font(RFDesign.figure(19, relativeTo: .body))
                 .monospacedDigit()
                 .foregroundStyle(tint)
-            if let unit { Text(unit).rfEyebrow(RFDesign.labelDim, size: 9.5) }
+            if let unit { Text(unit).rfEyebrow(RFDesign.labelDim, size: 9.5).lineLimit(1).fixedSize() }
         }
     }
 }
