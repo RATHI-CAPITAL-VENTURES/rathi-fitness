@@ -14,6 +14,16 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.19.3 — 2026-11-02
+
+### Fixed
+
+- The app rewrote the same workouts into Apple Health every time it opened or came back
+  to the foreground, twice over on a cold launch, and hung for about 30 seconds while it
+  did. A stored "already sent" date no longer matched its session for about half of all
+  start times; dates now compare by whole second. Only one export runs at a time, and
+  each workout carries a sync identifier, so Health itself ignores a repeat.
+
 ## 0.19.2 — 2026-11-01
 
 ### Changed

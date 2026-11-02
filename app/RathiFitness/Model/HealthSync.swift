@@ -91,6 +91,7 @@ enum HealthSync {
                                       alreadyExported: Set<Date>,
                                       now: Date = .now,
                                       calendar: Calendar = .current) -> [Date] {
+        let sent = Set(alreadyExported.map(wholeSecond))
         return sessions
             .filter { $0.ended != nil }
             .map(\.start)
@@ -101,10 +102,38 @@ enum HealthSync {
                 // workout as never sent and write a duplicate of it into Apple
                 // Health — a migration that quietly doubles a year of training.
                 // A day already sent covers the sessions inside it.
-                return !alreadyExported.contains(start)
-                    && !alreadyExported.contains(calendar.startOfDay(for: start))
+                //
+                // Compared by whole second, never as `Date`s. A marked date goes
+                // through `timeIntervalSince1970` and a string, and about half
+                // of all fractional dates do not survive that exactly, so an
+                // exact match called those sessions unsent on every launch and
+                // wrote them into Health again each time (v0.19.3).
+                return !sent.contains(wholeSecond(start))
+                    && !sent.contains(wholeSecond(calendar.startOfDay(for: start)))
             }
             .sorted()
+    }
+
+    private static func wholeSecond(_ date: Date) -> Int64 {
+        Int64(date.timeIntervalSince1970.rounded())
+    }
+
+    /// The stored form of the days already sent.
+    static func encodeExported(_ days: some Sequence<Date>) -> String {
+        days.map { String($0.timeIntervalSince1970) }.joined(separator: ",")
+    }
+
+    static func decodeExported(_ raw: String) -> Set<Date> {
+        Set(raw.split(separator: ",").compactMap {
+            Double($0).map(Date.init(timeIntervalSince1970:))
+        })
+    }
+
+    /// Health's own guard against a repeat. A later save with this identifier
+    /// and the same version does not add a second workout, so a bug in the
+    /// bookkeeping above cannot double anyone's training again.
+    static func syncIdentifier(_ kind: String, at date: Date) -> String {
+        "rathi-fitness.\(kind).\(wholeSecond(date))"
     }
 
     // MARK: - Picking the connection back up
