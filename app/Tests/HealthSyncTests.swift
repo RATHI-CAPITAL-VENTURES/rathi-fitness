@@ -89,6 +89,27 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertTrue(ready.isEmpty, "you might still be in the gym")
     }
 
+    /// A session marked sent stays sent once the mark has been stored. An exact
+    /// `Date` match failed this for about half of all fractional start times,
+    /// and those sessions were written to Health again on every launch.
+    func testAMarkedSessionIsNotSentAgainAfterTheMarkIsStored() {
+        for i in 0..<2_000 {
+            let start = Date(timeIntervalSinceReferenceDate: 8.1e8 + Double(i) * 3_607.123456)
+            let stored = HealthSync.decodeExported(HealthSync.encodeExported([start]))
+            let ready = HealthSync.sessionsReadyToExport(
+                sessions: [(start: start, ended: start.addingTimeInterval(3_600))],
+                alreadyExported: stored, now: start.addingTimeInterval(7_200))
+            XCTAssertTrue(ready.isEmpty, "\(start.timeIntervalSinceReferenceDate) went twice")
+        }
+    }
+
+    func testTheSameWorkoutKeepsItsSyncIdentifier() {
+        let start = Date(timeIntervalSinceReferenceDate: 8.1e8 + 0.25)
+        let stored = HealthSync.decodeExported(HealthSync.encodeExported([start])).first!
+        XCTAssertEqual(HealthSync.syncIdentifier("session", at: start),
+                       HealthSync.syncIdentifier("session", at: stored))
+    }
+
     func testAWorkoutFinishedTodayIsExportedToday() {
         let ready = HealthSync.sessionsReadyToExport(
             sessions: [(start: day(2026, 8, 20, 7), ended: day(2026, 8, 20, 8))],

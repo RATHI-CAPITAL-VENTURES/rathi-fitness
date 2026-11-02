@@ -40,6 +40,8 @@ final class HealthBridge: ObservableObject {
 
     /// Days already sent to Health, so a session is not written twice.
     @AppStorage("health.exportedDays") private var exportedDaysRaw: String = ""
+    /// One export at a time: see `exportWorkouts`.
+    private var exporting = false
 
     #if canImport(HealthKit)
     /// Lazy: constructing `HKHealthStore` opens an XPC connection, and on a
@@ -230,6 +232,11 @@ final class HealthBridge: ObservableObject {
     func exportWorkouts(from context: ModelContext) async {
         #if canImport(HealthKit) && !RF_LOCAL_ONLY
         guard status.isConnected else { return }
+        // A cold launch syncs from `.task` and from going active at once. Each
+        // await below lets the other in, and it would send the same sessions.
+        guard !exporting else { return }
+        exporting = true
+        defer { exporting = false }
         do {
             let sessions = try context.fetch(FetchDescriptor<Session>())
             let byStart = Dictionary(sessions.map { ($0.startedAt, $0) },
@@ -266,7 +273,11 @@ final class HealthBridge: ObservableObject {
         let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration,
                                        device: .local())
         try await builder.beginCollection(at: bounds.start)
-        try await builder.addMetadata([HKMetadataKeyIndoorWorkout: true])
+        try await builder.addMetadata([
+            HKMetadataKeyIndoorWorkout: true,
+            HKMetadataKeySyncIdentifier: HealthSync.syncIdentifier("session", at: bounds.start),
+            HKMetadataKeySyncVersion: 1,
+        ])
         try await builder.endCollection(at: bounds.end)
         // No energy sample on purpose: an estimate would land in the same ring
         // as the watch's measured numbers. See HealthSync.bounds.
@@ -296,8 +307,11 @@ final class HealthBridge: ObservableObject {
         let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration,
                                        device: .local())
         try await builder.beginCollection(at: start)
-        try await builder.addMetadata(
-            [HKMetadataKeyIndoorWorkout: !slug.contains("outdoor")])
+        try await builder.addMetadata([
+            HKMetadataKeyIndoorWorkout: !slug.contains("outdoor"),
+            HKMetadataKeySyncIdentifier: HealthSync.syncIdentifier("bout", at: end),
+            HKMetadataKeySyncVersion: 1,
+        ])
         if entry.distance > 0,
            let identifier = Self.distanceIdentifier(for: activity.distance),
            let type = HKQuantityType.quantityType(forIdentifier: identifier) {
@@ -349,9 +363,7 @@ final class HealthBridge: ObservableObject {
     // MARK: - Which days have gone over
 
     private var exportedDays: Set<Date> {
-        Set(exportedDaysRaw.split(separator: ",").compactMap {
-            Double($0).map(Date.init(timeIntervalSince1970:))
-        })
+        HealthSync.decodeExported(exportedDaysRaw)
     }
 
     private func markExported(_ day: Date) {
@@ -359,6 +371,6 @@ final class HealthBridge: ObservableObject {
         all.insert(day)
         // Keep it bounded; a year of training days is ~150 entries.
         let trimmed = all.sorted(by: >).prefix(400)
-        exportedDaysRaw = trimmed.map { String($0.timeIntervalSince1970) }.joined(separator: ",")
+        exportedDaysRaw = HealthSync.encodeExported(trimmed)
     }
 }

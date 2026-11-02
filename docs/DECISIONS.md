@@ -2692,3 +2692,14 @@ saturated colours (`readyUIColor`, `coolUIColor`): it is an additive display,
 where a pastel reads as white. The Web App lens and the CLI have their own
 code. There is no widget or Watch target.
 
+
+## 2026-11-02: duplicate workouts in Health, and what they looked like
+
+The owner reported the app "super laggy" and guessed a lock, then saw it follow Wi-Fi. It did
+not: a sysdiagnose showed 41 main-thread hangs in 35 s after launch alongside 42 finished
+`HKWorkoutBuilder`s for 21 sessions, and the same sessions on every launch. A marked date goes
+through `timeIntervalSince1970` and a string, 48% of fractional dates fail that round trip, and
+`Set<Date>.contains` is exact. Sessions are now matched by whole second, exports are single-flight
+and workouts carry `HKMetadataKeySyncIdentifier`. Workouts already duplicated in Health are not
+removed by this. `xctrace` could not see the phone (Xcode 27.0, iOS 27.2) and lldb attach never
+stopped the process and killed it on exit; use `devicectl device sysdiagnose`.
