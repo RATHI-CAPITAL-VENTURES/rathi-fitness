@@ -352,7 +352,10 @@ struct SetView: View {
             .buttonStyle(.plain)
             stepButton("plus") { adjustWeight(5) }
         }
+        .padding(RFDesign.md)
         .frame(maxWidth: .infinity)
+        // Weight and reps on a solid surface, never on the room's light.
+        .rfPanel()
     }
 
     /// Set type, effort and a note. Everything a serious logger records about a
@@ -407,7 +410,7 @@ struct SetView: View {
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(RFDesign.speech)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(RFDesign.surface))
+                .background(Circle().fill(RFDesign.surfaceHigh))
                 .overlay(Circle().stroke(RFDesign.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)

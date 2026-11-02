@@ -14,6 +14,18 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.19.2 — 2026-11-01
+
+### Changed
+
+- **Dusk.** The app is restyled to the house look: a dusk-blue ground with
+  three soft pools of light behind it (the third still follows the cooldown,
+  peach to teal), her teal for ready, the system face with tabular figures,
+  and a lit primary button. Weight, reps and the rest clock sit on a solid
+  raised surface rather than on the light. No behaviour changed. The lens keeps
+  its own saturated colours (an additive display); there is still no light
+  mode. See `docs/DECISIONS.md`, 2026-11-01.
+
 ## 0.19.1 — 2026-10-18
 
 ### Fixed
