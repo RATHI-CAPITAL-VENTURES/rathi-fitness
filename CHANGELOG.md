@@ -14,6 +14,19 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
+## 0.19.4 — 2026-11-05
+
+### Fixed
+
+- The app still lagged everywhere after 0.19.3. A sysdiagnose caught it at 100% CPU, with
+  the main thread inside Today's and Trends' drawing in every sample. Each read of "today's
+  sets" worked the day out again from every set ever logged, and each exercise row read it
+  about six times. Trends filtered every set once per exercise, and rebuilt the weigh-in log
+  once per set. Each draw now works these out once (`BodyMemo`).
+- The set screen's ring no longer scans your whole history four times a second during a rest.
+- Each music bar no longer re-reads your whole playlist library as it appears, and the
+  player no longer republishes an unchanged track on every MusicKit tick.
+
 ## 0.19.3 — 2026-11-02
 
 ### Fixed

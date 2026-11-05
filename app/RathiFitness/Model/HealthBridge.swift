@@ -163,9 +163,13 @@ final class HealthBridge: ObservableObject {
                 context.insert(WeighIn(pounds: sample.pounds, date: sample.date))
             }
             if !wanted.isEmpty { try context.save() }
-            importedCount = wanted.count
+            // Only what moved. Today and Trends observe this object (to call
+            // `syncNow`, not to read it), and every `@Published` assignment —
+            // equal or not — redraws both. `lastSync` always moves, so a sync
+            // still costs one redraw; it used to cost three.
+            if importedCount != wanted.count { importedCount = wanted.count }
+            if lastError != nil { lastError = nil }
             lastSync = .now
-            lastError = nil
             return wanted.count
         } catch {
             lastError = error.localizedDescription

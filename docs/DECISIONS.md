@@ -2703,3 +2703,50 @@ through `timeIntervalSince1970` and a string, 48% of fractional dates fail that 
 and workouts carry `HKMetadataKeySyncIdentifier`. Workouts already duplicated in Health are not
 removed by this. `xctrace` could not see the phone (Xcode 27.0, iOS 27.2) and lldb attach never
 stopped the process and killed it on exit; use `devicectl device sysdiagnose`.
+
+
+## 2026-11-05: the lag that was left, and why it was not a lock
+
+0.19.3 fixed the Health re-export, and the owner still called the app laggy throughout and
+guessed a thread lock. It was not a lock. A sysdiagnose two minutes after launch showed the
+process at 100% CPU, with the main thread busy in all 8 spindump samples. 5 of those were in
+`TodayView.body` / `TrendsView.body`, and one was the lens heartbeat's fetch. Symbolicated
+against `/tmp/autoupdate-RathiFitness/…/RathiFitness.debug.dylib`, whose UUID matched the
+spindump's.
+
+**What was slow.** Both views derive everything through computed properties over their
+`@Query` arrays, and the properties nest. On Today, each read of `todaysSets` re-ran `today`
+→ `scheduledToday` → `lastSession`, a pass over every set that faults its `session` from
+SwiftData. `progress`, `isDone`, `state`, `meta` and `trailing` each read it, per row, so a
+single draw made ~50 passes over the whole history. Trends filtered every set by
+`exercise.slug` once per exercise, twice per draw, and rebuilt `bodyWeightLog` once per SET
+inside `lifetime` and `recordInput`. Both tabs stay mounted, so each save redraws both.
+
+**Chosen: `BodyMemo`, reset at the top of `body`.** The properties keep their bodies and
+their callers. Each one is worked out once per draw. That is sound because every input they
+read (the queries and the view's state) invalidates `body`, and `body` resets the memo first.
+Rejected: threading one derived struct through Today's ~30 helpers. It is the same result
+for a far larger diff in a 1,000-line view.
+
+**Not on the set screen.** The lens can log a set and repaint before SwiftUI redraws the
+phone, so a memo there would hand the lens the set number from before the pinch. The ring's
+4 Hz `TimelineView` captures its inputs at draw time instead. That makes it no staler than
+the view around it.
+
+**Also found.** Each `MusicBar` called `refreshQuietly()` as it appeared, and that fetched the
+whole playlist library on the main actor and republished `status`/`playlistNames`. In the log
+this shows as 84 MusicKit lines every 1–2 s while moving between exercises. The library now
+loads once per launch, through one shared read, and unchanged values are no longer
+republished. `HealthBridge` likewise publishes only what moved.
+
+**Seen, not fixed here: CloudKit has never loaded since v0.3.1.** Every launch logs `Store
+failed to load … CloudKit integration requires that all relationships have an inverse, the
+following do not: Session: plannedDay`, and `Store.makeContainer` falls back to the local
+store without saying so. Nothing has synced through CloudKit since 2026-08-30. The snapshot
+reaches the Mac by iCloud Drive, which is a separate path, and that is why nobody noticed.
+
+**How to look next time.** `devicectl device sysdiagnose` needs the Mac's password and fails
+with `DiagnoseError error 0` when run without a terminal. Have the owner run it. Then
+`ps.txt` gives the CPU, `spindump-nosymbols.txt` the stacks, and `atos -arch arm64 -l 0x0 -o
+<debug.dylib>` symbolicates them. `log` is a zsh builtin, so use `/usr/bin/log show
+--archive`.

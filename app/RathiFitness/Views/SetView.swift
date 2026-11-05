@@ -218,14 +218,22 @@ struct SetView: View {
 
     /// The ring is always here, so nothing jumps when a rest starts. Idle it
     /// shows the rest you are about to take; running, it counts it down.
+    ///
+    /// Everything but the clock is read ONCE, here, and captured. Read inside
+    /// the timeline, `isFinished` scanned every set ever logged — faulting each
+    /// one's session and exercise — four times a second for the whole rest.
+    /// None of it can change between ticks without redrawing this view, which
+    /// rebuilds the closure with fresh values.
     private var hero: some View {
-        TimelineView(.periodic(from: .now, by: resting ? 0.25 : 60)) { timeline in
+        let isResting = resting
+        let idleRest = plan.restSeconds
+        let idleCaption = isFinished ? "Done" : "Ready"
+        return TimelineView(.periodic(from: .now, by: isResting ? 0.25 : 60)) { timeline in
             let now = timeline.date
             CooldownRing(
-                progress: resting ? rest.progress(at: now) : 1,
-                remaining: resting ? rest.remaining(at: now) : plan.restSeconds,
-                caption: resting ? rest.caption
-                                     : (isFinished ? "Done" : "Ready"))
+                progress: isResting ? rest.progress(at: now) : 1,
+                remaining: isResting ? rest.remaining(at: now) : idleRest,
+                caption: isResting ? rest.caption : idleCaption)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 2)

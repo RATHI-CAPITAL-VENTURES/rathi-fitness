@@ -51,9 +51,11 @@ struct TodayView: View {
     /// twice, and twenty sets in one of them still advance it once.
     ///
     /// Cardio-only sessions are not in it: see `Workout.rotationDates`.
-    private var sessionDates: [Date] { Workout.rotationDates(sessions) }
+    private var sessionDates: [Date] { memo("sessionDates") { Workout.rotationDates(sessions) } }
 
-    private var lastSession: Date? { Workout.lastSessionDate(in: allSets, calendar: calendar) }
+    private var lastSession: Date? {
+        memo("lastSession") { Workout.lastSessionDate(in: allSets, calendar: calendar) }
+    }
 
     private var isTrainingDay: Bool {
         Rotation.isTrainingDay(.now, config: config, lastSession: lastSession,
@@ -65,7 +67,8 @@ struct TodayView: View {
     /// Resolved on every read rather than assigned once at appear: the store may
     /// still be seeding when this view first draws, and a one-shot assignment
     /// then latches nil forever.
-    private var today: PlannedDay? {
+    private var today: PlannedDay? { memo("today") { resolveToday } }
+    private var resolveToday: PlannedDay? {
         if let chosen = overrideDay ?? launchArgumentDay { return chosen }
         // The schedule's answer is `Workout.today`'s, so that the glasses —
         // which have no view to ask — reach the same day. The two overrides
@@ -81,9 +84,11 @@ struct TodayView: View {
     /// rest day on a Monday. It changes this screen only; the session a set
     /// opens is still judged against the real schedule.
     private var scheduledToday: PlannedDay? {
-        if ProcessInfo.processInfo.arguments.contains("-RFRestDay") { return nil }
-        return Workout.today(days: days, config: config, sessionDates: sessionDates,
-                             lastSession: lastSession, calendar: calendar)
+        memo("scheduledToday") {
+            if ProcessInfo.processInfo.arguments.contains("-RFRestDay") { return nil }
+            return Workout.today(days: days, config: config, sessionDates: sessionDates,
+                                 lastSession: lastSession, calendar: calendar)
+        }
     }
 
     /// A workout on a day the schedule left empty. It counts like any other
@@ -138,22 +143,26 @@ struct TodayView: View {
     /// weigh-in query rather than passed around, because both tonnage figures
     /// on this screen have to agree about it.
     private var bodyWeightLog: Tally.BodyWeightLog {
-        Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        memo("bodyWeightLog") {
+            Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        }
     }
 
     private var todaysSets: [SetEntry] {
-        Workout.todaysSets(in: allSets, openSession: openSession, today: today, calendar: calendar)
+        memo("todaysSets") {
+            Workout.todaysSets(in: allSets, openSession: openSession, today: today, calendar: calendar)
+        }
     }
 
     /// The workout in progress for the day on screen, if there is one.
     private var openSession: Session? {
-        Workout.openSession(for: today, among: sessions, calendar: calendar)
+        memo("openSession") { Workout.openSession(for: today, among: sessions, calendar: calendar) }
     }
 
     /// Every workout finished today. Two on a two-a-day; the reason Today can
     /// say "second workout" rather than pretending the first did not happen.
     private var todaysSessions: [Session] {
-        sessions.filter {
+        memo("todaysSessions") { sessions.filter {
             calendar.isDate($0.startedAt, inSameDayAs: .now)
                 // A ride on its own is not "workout 2" of anything.
                 && $0.countsAsWorkout
@@ -161,7 +170,7 @@ struct TodayView: View {
                 // them, and this is the belt to its braces: an empty one here
                 // made the header say "workout 3" on a one-workout day.
                 && !($0.sets ?? []).isEmpty
-        }
+        } }
     }
 
     /// The workouts you have already done, newest first.
@@ -170,15 +179,21 @@ struct TodayView: View {
     /// both workouts' exercises run together. Capped because this builds a page
     /// each and nobody swipes back three months.
     private var pastDays: [Session] {
-        sessions
-            .filter { !calendar.isDate($0.startedAt, inSameDayAs: .now) }
-            .sorted { $0.startedAt > $1.startedAt }
-            .prefix(60)
-            .map { $0 }
+        memo("pastDays") {
+            sessions
+                .filter { !calendar.isDate($0.startedAt, inSameDayAs: .now) }
+                .sorted { $0.startedAt > $1.startedAt }
+                .prefix(60)
+                .map { $0 }
+        }
     }
 
+    /// One answer per question per draw — see `BodyMemo`.
+    @State private var memo = BodyMemo()
+
     var body: some View {
-        NavigationStack {
+        memo.reset()
+        return NavigationStack {
             TabView(selection: $page) {
                 todayPage.tag(0)
                 ForEach(Array(pastDays.enumerated()),
@@ -833,7 +848,9 @@ struct TodayView: View {
     /// What the set screen will say to try, from the last day this lift was
     /// done. The same call the set screen makes, on the same sets.
     private func suggestion(for item: PlanItem, exercise: Exercise) -> Tally.Suggestion? {
-        Workout.suggestion(for: item, doing: exercise, in: allSets, calendar: calendar)
+        memo("suggestion|\(ObjectIdentifier(item))|\(exercise.slug)") {
+            Workout.suggestion(for: item, doing: exercise, in: allSets, calendar: calendar)
+        }
     }
 
     /// The weight a row reads. Not `item.targetWeight`: that is what the plan
