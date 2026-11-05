@@ -119,31 +119,59 @@ final class MusicController: ObservableObject {
 
     /// Pick up an already-granted authorization without prompting, so a
     /// returning user sees the player rather than a connect button.
+    ///
+    /// Called by every `MusicBar` as it appears — Today, each set screen, each
+    /// cardio screen — so it has to be nearly free the second time. It was
+    /// not: each call fetched the whole playlist library on the main actor and
+    /// republished `status` and `playlistNames`, and a sysdiagnose (2026-11-05)
+    /// showed that burst every second or two while moving between exercises.
+    /// The library loads once; `connect()` and an explicit reload re-read it.
     func refreshQuietly() async {
         #if canImport(MusicKit)
         switch MusicAuthorization.currentStatus {
         case .authorized:
-            status = .ready
-            await loadPlaylists()
+            setStatus(.ready)
+            if !loadedPlaylists { await loadPlaylists() }
             watch()
             refreshNowPlaying()
         case .denied, .restricted:
-            status = .denied
+            setStatus(.denied)
         default:
-            status = .unknown
+            setStatus(.unknown)
         }
         #else
         status = .unavailable
         #endif
     }
 
+    /// `@Published` announces every assignment, equal or not, and every
+    /// `MusicBar` on screen redraws for it.
+    private func setStatus(_ new: Status) {
+        if status != new { status = new }
+    }
+
     #if canImport(MusicKit)
+    /// Whether the library has been read this launch. Playlists added in the
+    /// Music app since then appear after `connect()` or the next launch.
+    private var loadedPlaylists = false
+    /// The read in flight. Launch and Today's `MusicBar` ask in the same
+    /// instant; they share one read rather than racing two.
+    private var loading: Task<Void, Never>?
+
     private func loadPlaylists() async {
-        var request = MusicLibraryRequest<Playlist>()
-        request.sort(by: \.libraryAddedDate, ascending: false)
-        guard let response = try? await request.response() else { return }
-        playlists = Array(response.items)
-        playlistNames = playlists.map(\.name)
+        if let loading { return await loading.value }
+        let read = Task { @MainActor [weak self] in
+            var request = MusicLibraryRequest<Playlist>()
+            request.sort(by: \.libraryAddedDate, ascending: false)
+            guard let self, let response = try? await request.response() else { return }
+            self.loadedPlaylists = true
+            self.playlists = Array(response.items)
+            let names = self.playlists.map(\.name)
+            if self.playlistNames != names { self.playlistNames = names }
+        }
+        loading = read
+        await read.value
+        loading = nil
     }
 
     /// MusicKit publishes changes on the player's state and queue; without
@@ -165,7 +193,7 @@ final class MusicController: ObservableObject {
     private func refreshNowPlaying() {
         guard status.isReady else { return }
         guard let entry = player.queue.currentEntry else {
-            now = nil
+            if now != nil { now = nil }
             AudioHub.shared.ownMusicIsPlaying = false
             return
         }
@@ -179,7 +207,8 @@ final class MusicController: ObservableObject {
         AudioHub.shared.ownMusicIsPlaying = fresh.isPlaying
         // The track changed, so whatever cover is on screen is the last one's.
         if fresh.title != now?.title { artworkToken &+= 1 }
-        now = fresh
+        // MusicKit fires on every state tick with nothing changed.
+        if now != fresh { now = fresh }
     }
     #else
     private func refreshNowPlaying() {}

@@ -40,10 +40,11 @@ struct TrendsView: View {
 
     /// The lifts worth putting in a segmented control: the ones with the most
     /// history, so the control does not fill with things done once.
-    private var featured: [Exercise] {
+    private var featured: [Exercise] { memo("featured") { resolveFeatured } }
+    private var resolveFeatured: [Exercise] {
         exercises
             .filter { !$0.isCardio }
-            .map { ex in (ex, allSets.filter { $0.exercise?.slug == ex.slug }.count) }
+            .map { ex in (ex, sets(of: ex.slug).count) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
             // ALL of them. This was `.prefix(3)`, so a plan with 24 logged
@@ -54,8 +55,20 @@ struct TrendsView: View {
             .map(\.0)
     }
 
+    /// Every set, by exercise slug, oldest first like `allSets`. Built once a
+    /// draw: the table, the tiles and the chart each filtered every set by
+    /// `exercise.slug` per exercise — faulting the relationship each time.
+    private var bySlug: [String: [SetEntry]] {
+        memo("bySlug") { Dictionary(grouping: allSets) { $0.exercise?.slug ?? "" } }
+    }
+    private func sets(of slug: String) -> [SetEntry] { bySlug[slug] ?? [] }
+
+    /// One answer per question per draw — see `BodyMemo`.
+    @State private var memo = BodyMemo()
+
     var body: some View {
-        NavigationStack {
+        memo.reset()
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: RFDesign.md) {
                     Text("Trends")
@@ -137,12 +150,15 @@ struct TrendsView: View {
     /// Bodyweight as of any date, so assisted work is valued the way it is
     /// everywhere else rather than counting for nothing here.
     private var bodyWeightLog: Tally.BodyWeightLog {
-        Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        memo("bodyWeightLog") {
+            Tally.BodyWeightLog(weighIns.map { (date: $0.date, pounds: $0.pounds) })
+        }
     }
 
     /// The ladder with the date each tier was crossed. Per SESSION, because a
     /// tier crossed mid-workout belongs to that workout.
-    private var journey: [Tally.Crossing] {
+    private var journey: [Tally.Crossing] { memo("journey") { resolveJourney } }
+    private var resolveJourney: [Tally.Crossing] {
         let log = bodyWeightLog
         // Workouts only — a ride on its own moves no tonnage and is not one.
         return Tally.journey(sessionVolumes: Workout.workouts(sessions).map { session in
@@ -153,7 +169,8 @@ struct TrendsView: View {
         })
     }
 
-    private var lifetime: Tally.Lifetime {
+    private var lifetime: Tally.Lifetime { memo("lifetime") { resolveLifetime } }
+    private var resolveLifetime: Tally.Lifetime {
         let tallies = allSets.map { $0.tally(bodyWeight: bodyWeightLog.pounds(on: $0.date)) }
         return Tally.Lifetime(
             // Not a cardio-only session: "a workout" means one of the plan's
@@ -171,6 +188,9 @@ struct TrendsView: View {
     }
 
     private var recordInput: [(date: Date, exercise: String, set: Tally.Set)] {
+        memo("recordInput") { resolveRecordInput }
+    }
+    private var resolveRecordInput: [(date: Date, exercise: String, set: Tally.Set)] {
         allSets.compactMap { entry in
             guard let name = entry.exercise?.name, !entry.isCardio else { return nil }
             return (date: entry.date, exercise: name,
@@ -432,7 +452,8 @@ struct TrendsView: View {
     /// This returned bare points and `unit` was the constant "lb", so the
     /// measure `Tally` had worked out was thrown away one line later: an
     /// assisted pull-up read "80 lb" here and "lb help" on its set screen.
-    private var trend: Tally.Trend {
+    private var trend: Tally.Trend { memo("trend") { resolveTrend } }
+    private var resolveTrend: Tally.Trend {
         let cutoff = range.days.flatMap {
             Calendar.current.date(byAdding: .day, value: -$0, to: .now)
         }
@@ -443,7 +464,7 @@ struct TrendsView: View {
                 .map { Point(date: $0.date, value: $0.pounds) }
                 .asBodyWeightTrend
         case .exercise(let slug):
-            let mine = allSets.filter { $0.exercise?.slug == slug }
+            let mine = sets(of: slug)
                 .filter { entry in cutoff.map { entry.date >= $0 } ?? true }
             // One point per session: the hardest working set. A point per
             // set makes a scribble that hides the thing you came to see.
@@ -788,14 +809,15 @@ struct TrendsView: View {
         }
     }
 
-    private var strengthRows: [Row] {
+    private var strengthRows: [Row] { memo("strengthRows") { resolveStrengthRows } }
+    private var resolveStrengthRows: [Row] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .now
         return exercises.compactMap { ex -> Row? in
             // Cardio has no working weight. A treadmill row reading "0 lb" is
             // not a gap in the table, it is the table answering a question the
             // exercise does not have.
             guard !ex.isCardio else { return nil }
-            let mine = allSets.filter { $0.exercise?.slug == ex.slug }
+            let mine = sets(of: ex.slug)
             guard !mine.isEmpty else { return nil }
             // The same series the chart above and the set screen plot. This
             // was its own `.max()` over every set, so on an assisted machine
