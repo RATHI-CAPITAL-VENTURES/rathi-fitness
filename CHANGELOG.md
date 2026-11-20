@@ -14,119 +14,21 @@ guard makes them agree.
 A **MINOR bump is a milestone** and must ship a retro under
 [`docs/retros/`](./docs/retros/).
 
-## 0.19.4 — 2026-11-05
-
-### Fixed
-
-- The app still lagged everywhere after 0.19.3. A sysdiagnose caught it at 100% CPU, with
-  the main thread inside Today's and Trends' drawing in every sample. Each read of "today's
-  sets" worked the day out again from every set ever logged, and each exercise row read it
-  about six times. Trends filtered every set once per exercise, and rebuilt the weigh-in log
-  once per set. Each draw now works these out once (`BodyMemo`).
-- The set screen's ring no longer scans your whole history four times a second during a rest.
-- Each music bar no longer re-reads your whole playlist library as it appears, and the
-  player no longer republishes an unchanged track on every MusicKit tick.
-
-## 0.19.3 — 2026-11-02
-
-### Fixed
-
-- The app rewrote the same workouts into Apple Health every time it opened or came back
-  to the foreground, twice over on a cold launch, and hung for about 30 seconds while it
-  did. A stored "already sent" date no longer matched its session for about half of all
-  start times; dates now compare by whole second. Only one export runs at a time, and
-  each workout carries a sync identifier, so Health itself ignores a repeat.
-
-## 0.19.2 — 2026-11-01
-
-### Changed
-
-- **Dusk.** The app is restyled to the house look: a dusk-blue ground with
-  three soft pools of light behind it (the third still follows the cooldown,
-  peach to teal), her teal for ready, the system face with tabular figures,
-  and a lit primary button. Weight, reps and the rest clock sit on a solid
-  raised surface rather than on the light. No behaviour changed. The lens keeps
-  its own saturated colours (an additive display); there is still no light
-  mode. See `docs/DECISIONS.md`, 2026-11-01.
-
-## 0.19.1 — 2026-10-18
-
-### Fixed
-
-- **The cooldown follows you to the next exercise.** The rest kept running
-  when you moved on, but the next exercise's screen only showed a rest that
-  was its own, so it opened on "Ready" with Log lit and the clock out of
-  sight. Now a rest from the same workout shows there — the ring counting
-  down, "Skip to set 1" and +30s — on the phone and on the lens ("RESTING ·
-  Then set 1 of 3"). Logging waits for the rest, as it does on the exercise
-  that started it; Skip is one tap. A different workout (the evening's legs
-  after the morning's bench) still opens on Ready — caught by CI's
-  `testASecondWorkoutInADayStartsFresh` on the first cut.
-- **"Done — back to today" no longer cancels the rest.** After the last set it
-  stopped the cooldown on the way out, which is the path every move to the
-  next machine took. Skip still ends it.
-- **The ring names the rest it is showing.** `RestTimer` now keeps the
-  caption ("Cooldown", or "Move" in a superset) with the rest, instead of the
-  screen re-deriving it from its own slot.
-
-## 0.19.0 — 2026-10-10
+## 0.20.0 — 2026-11-19
 
 ### Added
 
-- **A Short's sound pauses the music, and READY brings it back.** In Web App
-  mode, unmuting a Short in the rest's feed pauses the in-app workout music;
-  when the rest ends on the phone (or the Short is muted, or you leave the
-  feed) the music resumes — **only if the Short paused it**. Music you paused
-  stays paused; pressing play yourself mid-feed hands it back to you; a call
-  or Siri is never fought for. The phone stays awake throughout (`FeedAudio`,
-  `LensWire` change 17).
-
-### Changed
-
-- **Pairing switches the lens to the Web App** and Settings says so. The
-  owner paired, the lens stayed on Native, and the glasses said "No workout".
-- **The lens's "no workout" sentence is written for the lens**: "Start a
-  workout on your phone." instead of Settings' "Open the app…" (LensWire
-  change 18).
-
-### Fixed (review)
-
-- **Off then on inside MusicKit's play latency** no longer leaves the music
-  playing over the Short: a sound that comes on while our resume is on its way
-  takes the claim and pauses as the play lands.
-- **A Siri query no longer cancels "music back at READY".** Only a phone call
-  drops the claim (and nothing is resumed while one is active); interruptions
-  for suspension or a route change do not count. Settings shows the last
-  interruption, for the worn check.
-- **Pairing is reachable from Native and with the glasses off** ("Use the Web
-  App: pair with the relay"), so pairing really can switch the lens.
-- The READY chime is rendered over-music when the music is about to resume; a
-  passed deadline is not a rest; nothing is started from scratch when nothing
-  is queued; `feedAudio` needs exactly one lens and is ignored when over 5 s
-  old; "Paired." when already on the Web App; the pairing note clears.
-- The READY and playback pipelines are functions with tests
-  (`FeedAudio.readyPublisher`, `.playbackPublisher`).
-
-### Tests
-
-- `FeedAudioTests` (23) and `LensKeepAliveTests` (1): pause and resume,
-  sound-off, user-paused music never resumed, the user's play drops the claim,
-  off→on inside the play latency, calls vs Siri, interruption reasons, the
-  READY pipeline with a real `RestTimer`, the playback mapping, nothing queued,
-  through the wire, pairing → Web App, and the keep-alive held and playing
-  while the music is paused.
-- `WebLensTests`: `feedAudio` only from one lens and fresh; the idle text.
-  `WorkoutDriverTests`: the lens's wording. UI: pairing offered outside Web App
-  mode.
-- Mutants, each failing the suite: resume without the claim; claim un-played
-  music; the user's play not dropping the claim; no resuming window; no pause
-  when the play lands; every interruption dropping the claim; the reason
-  ignored; resume into a call; the READY filter loosened; playback not
-  deduped; `feedAudio` from two lenses; pairing leaving the lens; the lens
-  text ignored. Two survivors showed unreachable code, which was removed.
+- **Max weight.** Each exercise can say the heaviest it goes (Exercise editor → "Heaviest
+  it goes"). Hit every rep at the max and the suggestion keeps the weight and asks for one
+  more rep, counted from your weakest set, instead of 5 lb the machine doesn't have. A step
+  that would overshoot lands on the max, and the set screen's + stops there. Today's rows
+  and `gym today` follow, because they read the same suggestion. The snapshot carries
+  `exercises[].max_weight` (additive) and `gym exercise` prints it. Assisted machines
+  ignore it: there, harder means less help.
 
 ## Earlier
 
+- [0.19](./docs/changelog/0.19.md)
 - [0.18](./docs/changelog/0.18.md)
 - [0.17](./docs/changelog/0.17.md)
 - [0.16](./docs/changelog/0.16.md)

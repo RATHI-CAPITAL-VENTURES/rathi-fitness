@@ -577,6 +577,9 @@ def cmd_exercise(args, data) -> None:
         if best:
             lines.append(f"  best    {num(best['weight'])}{each(e)} × {best['reps']} "
                          f"on {best['date']}")
+        if e.get("max_weight"):
+            lines.append(f"  max     {num(e['max_weight'])} lb{each(e)} — the heaviest it goes; "
+                         "reps go up from here")
 
     # Where the machine goes. Printed near the top on purpose: it is the thing
     # you want BEFORE you get there, which is the whole reason it is recorded.

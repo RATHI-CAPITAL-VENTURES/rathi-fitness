@@ -426,9 +426,13 @@ struct SetView: View {
 
     /// `+` never lands on a weight the rack cannot make.
     private func adjustWeight(_ delta: Double) {
-        weight = exercise.loadingKind.showsPlateMath
+        let stepped = exercise.loadingKind.showsPlateMath
             ? PlateMath.step(from: weight, by: delta, bar: exercise.barWeight)
             : max(0, weight + delta)
+        // The + stops at the heaviest it goes (`Exercise.maxWeight`). Only the
+        // stepper: a typed weight is taken as typed, in case the max is wrong.
+        let cap = exercise.assisted ? 0 : exercise.maxWeight
+        weight = cap > 0 && delta > 0 && stepped > cap ? max(weight, cap) : stepped
     }
 
     // MARK: actions

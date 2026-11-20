@@ -290,6 +290,20 @@ Set on assisted pull-up and dip machines. When true:
 because a column that quietly mixes two opposite meanings is worse than one that
 omits them.
 
+### Max weight
+
+    exercises[].max_weight   the heaviest the exercise goes, in lb
+
+Set in the exercise editor ("Heaviest it goes"). Per dumbbell on a pair, like
+every other weight. **Absent** when no limit is set, on cardio and on an
+assisted machine, so a reader never has to learn that `0` means "none". Additive,
+so no schema bump. `gym exercise` prints it.
+
+It changes what the app suggests: once the last session was at `max_weight` and
+every rep landed, the next target is the same weight and one more rep than the
+weakest set, rather than a weight the machine does not have. So a `working_weight`
+that stops moving at `max_weight` while the reps climb is progress, not a stall.
+
 ### Machine settings
 
     exercises[].machine_settings[] { kind, label, value }

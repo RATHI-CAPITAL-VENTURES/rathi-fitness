@@ -278,9 +278,13 @@ struct Snapshot: Codable {
         /// every weight here is ONE of a pair and `volume` counted both.
         /// Absent off a dumbbell. Schema 8.
         var dumbbells: Int?
+        /// The heaviest the exercise goes (per dumbbell on a pair). Absent when
+        /// no limit is set, on cardio and on an assisted machine. Additive.
+        var maxWeight: Double?
 
         enum CodingKeys: String, CodingKey {
             case slug, name, loading, best, recent, modality, assisted, dumbbells
+            case maxWeight = "max_weight"
             case primaryMuscle = "primary_muscle"
             case secondaryMuscles = "secondary_muscles"
             case workingWeight = "working_weight"
@@ -797,7 +801,8 @@ enum SnapshotBuilder {
             assisted: ex.assisted,
             machineSettings: settings.isEmpty ? nil : settings,
             cardioBest: ex.isCardio ? cardioBest(mine) : nil,
-            dumbbells: dumbbells(ex))
+            dumbbells: dumbbells(ex),
+            maxWeight: ex.isCardio || ex.assisted || ex.maxWeight <= 0 ? nil : ex.maxWeight)
     }
 
     /// The count on a dumbbell lift, nil on anything else — so the key is
