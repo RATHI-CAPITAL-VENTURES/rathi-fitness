@@ -742,6 +742,18 @@ class Machines(unittest.TestCase):
         self.assertIn("set to", out)
         self.assertIn("seat 2", out)
 
+    def test_a_max_weight_is_shown_on_the_exercise(self):
+        data = json.loads(json.dumps(FIXTURE))
+        for e in data["exercises"]:
+            if e["slug"] == "leg-press":
+                e["max_weight"] = 360
+        with fixture(data):
+            _, out = run("exercise", "leg-press")
+        self.assertIn("max     360 lb", out)
+        with fixture():
+            _, out = run("exercise", "leg-press")
+        self.assertNotIn("max ", out, "no limit set prints nothing")
+
     def test_machines_says_so_when_nothing_is_recorded(self):
         bare = dict(FIXTURE, exercises=[{k: v for k, v in e.items()
                                          if k != "machine_settings"}

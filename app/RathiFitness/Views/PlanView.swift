@@ -765,6 +765,7 @@ struct ExerciseEditorView: View {
     @EnvironmentObject private var snapshots: SnapshotService
 
     @State private var typingBar = false
+    @State private var typingMax = false
 
     private func metricBinding(_ metric: CardioMetric) -> Binding<Bool> {
         Binding(
@@ -880,6 +881,30 @@ struct ExerciseEditorView: View {
                                   showsDivider: false) { typingBar = true }
                     }
                 }
+
+                if !exercise.assisted {
+                    SettingsSection(
+                        title: "Heaviest it goes",
+                        footer: "The bottom of the stack, the biggest dumbbell on the rack. "
+                              + "Once you hit every rep at it, the next suggestion keeps the "
+                              + "weight and asks for one more rep instead of 5 lb the machine "
+                              + "doesn't have."
+                    ) {
+                        ActionRow(label: "Max weight",
+                                  detail: exercise.maxWeight > 0
+                                      ? "\(Fmt.weight(exercise.maxWeight)) lb\(exercise.each)"
+                                      : "No limit",
+                                  symbol: "square.and.pencil",
+                                  showsDivider: exercise.maxWeight > 0) { typingMax = true }
+                            .accessibilityIdentifier("max-weight")
+                        if exercise.maxWeight > 0 {
+                            ActionRow(label: "No limit",
+                                      detail: "The weight keeps going up",
+                                      symbol: "xmark.circle",
+                                      showsDivider: false) { exercise.maxWeight = 0 }
+                        }
+                    }
+                }
             }
 
             SettingsSection(
@@ -909,6 +934,11 @@ struct ExerciseEditorView: View {
         .sheet(isPresented: $typingBar) {
             WeightSheet(weight: exercise.barWeight, unitLabel: "lb") {
                 exercise.barWeight = max(0, $0)
+            }
+        }
+        .sheet(isPresented: $typingMax) {
+            WeightSheet(weight: exercise.maxWeight, unitLabel: exercise.isPair ? "lb each" : "lb") {
+                exercise.maxWeight = max(0, $0)
             }
         }
         .onAppear {

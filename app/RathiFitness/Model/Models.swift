@@ -57,6 +57,19 @@ final class Exercise {
     /// arrives by sync before the backfill runs still counts correctly.
     var dumbbells: Int = 0
 
+    /// The heaviest this exercise can be loaded — the bottom plate of a cable
+    /// stack, the biggest dumbbell on the rack. `0` is "no limit", which is
+    /// every exercise until someone says otherwise.
+    ///
+    /// The next-target suggestion reads it: once the last session was at the
+    /// max and every rep landed, there is no "+5 lb" left to give, so it holds
+    /// the weight and asks for one more rep instead. Without it the app kept
+    /// suggesting a weight the machine does not have.
+    ///
+    /// Per dumbbell on a pair, like every other weight. Ignored on an assisted
+    /// machine, where harder means LESS weight and the floor is already zero.
+    var maxWeight: Double = 0
+
     /// Whether this is something you lift or something you run on.
     ///
     /// A separate axis from `loading`, which is about what goes on a bar. A

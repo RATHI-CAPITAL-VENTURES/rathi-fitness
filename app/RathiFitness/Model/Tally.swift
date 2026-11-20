@@ -42,6 +42,11 @@ enum Tally {
         /// single on the same chart for no reason a lifter would recognise.
         var implements: Int = 1
 
+        /// The heaviest the exercise goes, `0` for no limit — see
+        /// `Exercise.maxWeight`. Carried here, like `assisted`, so
+        /// `nextTarget` derives it and no call site can forget to pass it.
+        var maxWeight: Double = 0
+
         /// The weight shown is one of a pair — say "each" after it.
         var isPair: Bool { implements == 2 && !assisted }
 
@@ -353,6 +358,12 @@ enum Tally {
         guard let anchor, assisted || anchor > 0 else { return nil }
         let atWeight = working.filter { $0.weight == anchor }
         guard !atWeight.isEmpty else { return nil }
+        // The heaviest the exercise goes. Not on an assisted machine: harder
+        // there is less help, and the floor at zero below already handles it.
+        let cap = assisted ? 0 : (working.map(\.maxWeight).max() ?? 0)
+        // At the top of the stack: another step would be a weight that does
+        // not exist, so reps are the only way left to make it harder.
+        let maxedOut = cap > 0 && anchor >= cap
 
         // Every set hit the target: it gets harder. Which direction that is
         // depends on the machine — and assistance floors at zero, because
@@ -365,6 +376,19 @@ enum Tally {
                 return Suggestion(weight: 0, reps: target,
                                   because: "you're doing these unassisted — try the real thing")
             }
+            if maxedOut {
+                // One more than the WEAKEST set, so the ask is every set at
+                // that — not the best set again, which you already did.
+                let fewest = atWeight.map(\.reps).min() ?? target
+                return Suggestion(weight: anchor, reps: fewest + 1,
+                                  because: "that's the heaviest it goes — one more rep instead")
+            }
+            if cap > 0 && next > cap {
+                // A full step would overshoot the stack, but the top plate is
+                // still heavier than this. Go there.
+                return Suggestion(weight: cap, reps: target,
+                                  because: "you hit every rep last time — that's the heaviest it goes")
+            }
             return Suggestion(weight: next, reps: target,
                               because: "you hit every rep last time")
         }
@@ -376,6 +400,7 @@ enum Tally {
         }
         return Suggestion(weight: anchor, reps: target,
                           because: assisted ? "one more rep than last time and the help comes off"
+                                 : maxedOut ? "one more rep than last time"
                                             : "one more rep than last time and it goes up")
     }
 
@@ -1379,7 +1404,8 @@ extension SetEntry {
         Tally.Set(weight: weight, reps: reps, kind: setKind,
                   assisted: exercise?.assisted ?? false,
                   bodyWeight: bodyWeight,
-                  implements: exercise?.implements ?? 1)
+                  implements: exercise?.implements ?? 1,
+                  maxWeight: exercise?.maxWeight ?? 0)
     }
 
     /// This entry as the gym clock sees it — see `Tally.gymSeconds`.
@@ -1393,7 +1419,7 @@ extension Exercise {
     /// forget the assistance or the second dumbbell.
     func tally(weight: Double, reps: Int, kind: SetKind) -> Tally.Set {
         Tally.Set(weight: weight, reps: reps, kind: kind, assisted: assisted,
-                  implements: implements)
+                  implements: implements, maxWeight: maxWeight)
     }
 }
 
